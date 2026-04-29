@@ -27,16 +27,19 @@ RUN dotnet publish Vessel3.Server/Vessel3.Server.csproj \
     -c Release \
     -r ${TARGET_RID} \
     --no-restore \
-    -o /publish
+    -o /publish \
+ && mkdir -p /staging/data
 
 # ---- runtime -------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION}-noble-chiseled AS runtime
 
 WORKDIR /app
 COPY --from=build /publish/vessel3 /app/vessel3
+COPY --from=build --chown=$APP_UID:$APP_UID /staging/data /data
 
-USER $APP_UID
+ENV VESSEL3_DATA=/data
 ENV ASPNETCORE_URLS=http://+:9000
+USER $APP_UID
 EXPOSE 9000
 
 ENTRYPOINT ["/app/vessel3"]

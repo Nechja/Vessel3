@@ -12,7 +12,7 @@ namespace Vessel3.Server;
 //   0;chunk-signature=<hex>\r\n
 //   <optional trailers>\r\n
 //
-// MVP: chunk signatures are NOT verified — the request headers are already
+// MVP: chunk signatures are NOT verified - the request headers are already
 // signed and the content hash header was part of that signature.
 internal sealed class AwsChunkedStream(Stream inner) : Stream
 {

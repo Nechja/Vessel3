@@ -1,0 +1,17 @@
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+TestResults/
+artifacts/
+.*
+*.md
+!.gitignore
+!.github/
