@@ -50,23 +50,17 @@ internal sealed class ObjectStore(BucketRegistry registry, BlobPool blobs)
     }
 
     private Result<StoredObject> GetFrom(Bucket b, string bucket, string key) =>
-        b.Index.GetCurrent(key) is Result<VersionEntry?>.Success { Value: { } entry }
-        && entry.Kind is not EventKind.DeleteMarker
-            ? OpenBlob(entry)
+        b.Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } put }
+            ? OpenBlob(put)
             : new NotFoundError($"{bucket}/{key}");
 
-    private Result<StoredObject> OpenBlob(VersionEntry entry) =>
-        blobs.Open(entry.BlobSha) switch
-        {
-            Result<FileStream>.Success ok =>
-                new StoredObject(ok.Value, entry.Size, entry.At, entry.BlobSha, entry.ContentType),
-            Result<FileStream>.Failure of => of.Error,
-            _ => throw new System.Diagnostics.UnreachableException(),
-        };
+    private Result<StoredObject> OpenBlob(PutEntry put) =>
+        blobs.Open(put.BlobSha).Match<Result<StoredObject>>(
+            stream => new StoredObject(stream, put.Size, put.At, put.BlobSha, put.ContentType),
+            err => err);
 
     private Result<ObjectStat> StatFrom(Bucket b, string bucket, string key) =>
-        b.Index.GetCurrent(key) is Result<VersionEntry?>.Success { Value: { } entry }
-        && entry.Kind is not EventKind.DeleteMarker
-            ? new ObjectStat(entry.Size, entry.At, entry.BlobSha, entry.ContentType)
+        b.Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } put }
+            ? new ObjectStat(put.Size, put.At, put.BlobSha, put.ContentType)
             : new NotFoundError($"{bucket}/{key}");
 }

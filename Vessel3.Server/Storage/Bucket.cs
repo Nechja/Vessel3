@@ -17,35 +17,32 @@ internal sealed class Bucket(string name, string path) : IDisposable
         foreach (var ev in log.Replay())
         {
             if (ev.Seq <= maxSeq) continue;
-            Index.Apply(ev);
+            ev.ApplyTo(Index);
             maxSeq = ev.Seq;
         }
 
         log.Open(maxSeq + 1);
     }
 
-    public VersionEntry AppendPut(string key, string blobSha, long size, string contentType)
+    public PutEntry AppendPut(string key, string blobSha, long size, string contentType)
     {
-        var current = Index.GetCurrent(key);
-        if (current is Result<VersionEntry?>.Success { Value: { } old })
+        if (Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } old })
         {
-            var hd = log.Append(key, old.VersionId, string.Empty, EventKind.HardDelete, 0, string.Empty);
-            Index.Apply(hd);
+            log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, old.VersionId)).ApplyTo(Index);
         }
 
         var versionId = Ulid.NewUlid().ToString();
-        var ev = log.Append(key, versionId, blobSha, EventKind.Put, size, contentType);
-        Index.Apply(ev);
-        return new VersionEntry(versionId, blobSha, EventKind.Put, size, contentType, ev.At);
+        var ev = (PutEvent)log.Append(new PutEvent(0, DateTimeOffset.UtcNow, key, versionId, blobSha, size, contentType));
+        ev.ApplyTo(Index);
+
+        return new PutEntry(versionId, ev.At, blobSha, size, contentType);
     }
 
     public bool AppendHardDeleteCurrent(string key)
     {
-        var current = Index.GetCurrent(key);
-        if (current is not Result<VersionEntry?>.Success { Value: { } old }) return false;
+        if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old }) return false;
 
-        var ev = log.Append(key, old.VersionId, string.Empty, EventKind.HardDelete, 0, string.Empty);
-        Index.Apply(ev);
+        log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, old.VersionId)).ApplyTo(Index);
         return true;
     }
 
