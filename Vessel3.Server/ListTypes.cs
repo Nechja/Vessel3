@@ -11,7 +11,7 @@ internal sealed record ListRequest(
 
 internal abstract record ListEntry(string Key)
 {
-    internal sealed record Contents(string Key, long Size, DateTimeOffset LastModified) : ListEntry(Key);
+    internal sealed record Contents(string Key, long Size, DateTimeOffset LastModified, string Etag) : ListEntry(Key);
     internal sealed record CommonPrefix(string Key) : ListEntry(Key);
 }
 
@@ -20,9 +20,3 @@ internal sealed record ListPage(
     bool IsTruncated,
     string? NextContinuationToken,
     int KeyCount);
-
-internal sealed record ListCursor(
-    ListRequest Request,
-    IReadOnlyList<ListEntry> Snapshot,
-    int Position,
-    DateTimeOffset CreatedAt);

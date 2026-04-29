@@ -50,6 +50,12 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void Apply(VersionEvent ev)
     {
+        if (ev.Kind == EventKind.HardDelete)
+        {
+            HardDelete(ev.Key, ev.VersionId);
+            return;
+        }
+
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
@@ -65,6 +71,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$ct", ev.ContentType);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.ExecuteNonQuery();
+    }
+
+    public bool IsEmpty()
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM versions LIMIT 1";
+        using var r = cmd.ExecuteReader();
+        return !r.Read();
     }
 
     public Result<VersionEntry?> GetCurrent(string key)
