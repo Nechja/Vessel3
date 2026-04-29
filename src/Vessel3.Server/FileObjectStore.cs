@@ -2,6 +2,8 @@ namespace Vessel3.Server;
 
 internal sealed record StoredObject(FileStream Body, long Size, DateTimeOffset LastModified);
 
+internal sealed record ObjectStat(long Size, DateTimeOffset LastModified);
+
 internal sealed class FileObjectStore(string root)
 {
     public async Task<Result<long>> Put(string bucket, string key, Stream body, long? contentLength, CancellationToken ct)
@@ -41,6 +43,30 @@ internal sealed class FileObjectStore(string root)
             options: FileOptions.Asynchronous | FileOptions.SequentialScan);
 
         return new StoredObject(fs, info.Length, info.LastWriteTimeUtc);
+    }
+
+    public Result<ObjectStat> Stat(string bucket, string key)
+    {
+        if (!TryResolve(bucket, key, out var path))
+            return new InvalidPathError($"{bucket}/{key}");
+
+        if (!File.Exists(path))
+            return new NotFoundError($"{bucket}/{key}");
+
+        var info = new FileInfo(path);
+        return new ObjectStat(info.Length, info.LastWriteTimeUtc);
+    }
+
+    public Result<bool> Delete(string bucket, string key)
+    {
+        if (!TryResolve(bucket, key, out var path))
+            return new InvalidPathError($"{bucket}/{key}");
+
+        if (!File.Exists(path))
+            return false;
+
+        File.Delete(path);
+        return true;
     }
 
     private bool TryResolve(string bucket, string key, out string path)

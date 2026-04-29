@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Vessel3.Server;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -36,6 +37,32 @@ app.MapGet("/{bucket}/{**key}", (string bucket, string key) =>
         Result<StoredObject>.Failure { Error: NotFoundError } => Results.NotFound(),
         Result<StoredObject>.Failure { Error: InvalidPathError } => Results.BadRequest(),
         Result<StoredObject>.Failure => Results.StatusCode(500),
+        _ => throw new UnreachableException(),
+    };
+});
+
+app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpResponse res) =>
+{
+    var result = store.Stat(bucket, key);
+    if (result is Result<ObjectStat>.Failure { Error: NotFoundError }) return Results.NotFound();
+    if (result is Result<ObjectStat>.Failure { Error: InvalidPathError }) return Results.BadRequest();
+    if (result is Result<ObjectStat>.Failure) return Results.StatusCode(500);
+
+    var stat = ((Result<ObjectStat>.Success)result).Value;
+    res.ContentLength = stat.Size;
+    res.ContentType = "application/octet-stream";
+    res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
+    return Results.Empty;
+});
+
+app.MapDelete("/{bucket}/{**key}", (string bucket, string key) =>
+{
+    var result = store.Delete(bucket, key);
+    return result switch
+    {
+        Result<bool>.Success => Results.NoContent(),
+        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
+        Result<bool>.Failure => Results.StatusCode(500),
         _ => throw new UnreachableException(),
     };
 });
