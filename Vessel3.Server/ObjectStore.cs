@@ -3,10 +3,18 @@ using Vessel3.Server.Storage;
 namespace Vessel3.Server;
 
 internal sealed record PutOutcome(string Etag, string VersionId, long Size);
-internal sealed record StoredObject(FileStream Body, long Size, DateTimeOffset LastModified, string Etag, string ContentType);
+internal sealed record StoredObject(Stream Body, long Size, DateTimeOffset LastModified, string Etag, string ContentType);
 internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string ContentType);
 
-internal sealed class ObjectStore(BucketRegistry registry, BlobPool blobs)
+internal interface IObjectStore
+{
+    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct);
+    Result<StoredObject> Get(string bucket, string key);
+    Result<ObjectStat> Stat(string bucket, string key);
+    Result<bool> Delete(string bucket, string key);
+}
+
+internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs) : IObjectStore
 {
     public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct) =>
         !registry.IsValidName(bucket) ? Task.FromResult<Result<PutOutcome>>(new InvalidPathError(bucket))

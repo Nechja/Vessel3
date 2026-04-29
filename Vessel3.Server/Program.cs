@@ -14,17 +14,17 @@ var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
 var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
 
-var xml = new S3XmlWriter();
+IS3XmlWriter xml = new S3XmlWriter();
 var verifier = (accessKey is not null && secretKey is not null)
     ? new SigV4Verifier(accessKey, secretKey, region)
     : null;
 
 builder.Services.AddSingleton(xml);
-builder.Services.AddSingleton(_ => new BlobPool(Path.Combine(dataRoot, "blobs")));
-builder.Services.AddSingleton(_ => new BucketRegistry(dataRoot));
-builder.Services.AddSingleton<ObjectStore>();
-builder.Services.AddSingleton<BucketLister>();
-builder.Services.AddSingleton<HttpResultMapper>();
+builder.Services.AddSingleton<IBlobPool>(_ => new BlobPool(Path.Combine(dataRoot, "blobs")));
+builder.Services.AddSingleton<IBucketRegistry>(_ => new BucketRegistry(dataRoot));
+builder.Services.AddSingleton<IObjectStore, ObjectStore>();
+builder.Services.AddSingleton<IBucketLister, BucketLister>();
+builder.Services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
 
 var app = builder.Build();
 
@@ -44,7 +44,7 @@ if (verifier is not null)
     });
 }
 
-app.MapGet("/", async (HttpResponse res, S3XmlWriter xml, BucketRegistry registry, CancellationToken ct) =>
+app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
 {
     res.ContentType = "application/xml";
     await xml.WriteListBuckets(res.Body, registry.List(), ct);
@@ -58,9 +58,9 @@ app.MapGet("/{bucket}", async (
     [FromQuery(Name = "continuation-token")] string? continuationToken,
     [FromQuery(Name = "start-after")] string? startAfter,
     HttpResponse res,
-    BucketLister lister,
-    S3XmlWriter xml,
-    HttpResultMapper http,
+    IBucketLister lister,
+    IS3XmlWriter xml,
+    IHttpResultMapper http,
     CancellationToken ct) =>
 {
     var req = new ListRequest(bucket, prefix, delimiter, startAfter, Math.Clamp(maxKeys ?? 1000, 1, 1000));
@@ -74,17 +74,17 @@ app.MapGet("/{bucket}", async (
         err => Task.FromResult(http.Map(err)));
 });
 
-app.MapPut("/{bucket}", (string bucket, BucketRegistry registry, HttpResultMapper http) =>
+app.MapPut("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
     registry.Create(bucket).Match<IResult>(
         _ => Results.Ok(),
         http.Map));
 
-app.MapDelete("/{bucket}", (string bucket, BucketRegistry registry, HttpResultMapper http) =>
+app.MapDelete("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
     registry.Delete(bucket).Match<IResult>(
         _ => Results.NoContent(),
         http.Map));
 
-app.MapMethods("/{bucket}", ["HEAD"], (string bucket, BucketRegistry registry, HttpResultMapper http) =>
+app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
     registry.Exists(bucket).Match<IResult>(
         exists => exists ? Results.Ok() : Results.NotFound(),
         http.Map));
@@ -92,7 +92,7 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket, BucketRegistry registry, H
 app.MapPut("/{bucket}/{**key}", async (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
-    ObjectStore objects, HttpResultMapper http,
+    IObjectStore objects, IHttpResultMapper http,
     CancellationToken ct) =>
 {
     var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
@@ -116,7 +116,7 @@ app.MapPut("/{bucket}/{**key}", async (
 app.MapGet("/{bucket}/{**key}", (
     string bucket, string key,
     HttpResponse res,
-    ObjectStore objects, HttpResultMapper http) =>
+    IObjectStore objects, IHttpResultMapper http) =>
     objects.Get(bucket, key).Match<IResult>(
         ok =>
         {
@@ -132,7 +132,7 @@ app.MapGet("/{bucket}/{**key}", (
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
     string bucket, string key,
     HttpResponse res,
-    ObjectStore objects, HttpResultMapper http) =>
+    IObjectStore objects, IHttpResultMapper http) =>
     objects.Stat(bucket, key).Match<IResult>(
         stat =>
         {
@@ -144,7 +144,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
         },
         http.Map));
 
-app.MapDelete("/{bucket}/{**key}", (string bucket, string key, ObjectStore objects, HttpResultMapper http) =>
+app.MapDelete("/{bucket}/{**key}", (string bucket, string key, IObjectStore objects, IHttpResultMapper http) =>
     objects.Delete(bucket, key).Match<IResult>(
         _ => Results.NoContent(),
         http.Map));

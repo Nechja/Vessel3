@@ -5,7 +5,17 @@ namespace Vessel3.Server;
 
 internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt);
 
-internal sealed class BucketRegistry(string root) : IDisposable
+internal interface IBucketRegistry : IDisposable
+{
+    bool IsValidName(string bucket);
+    Result<bool> Create(string bucket);
+    Result<bool> Delete(string bucket);
+    Result<bool> Exists(string bucket);
+    IEnumerable<BucketInfo> List();
+    Bucket? Open(string bucket);
+}
+
+internal sealed class BucketRegistry(string root) : IBucketRegistry
 {
     private readonly string bucketsRoot = Path.Combine(root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();

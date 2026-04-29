@@ -5,7 +5,14 @@ using Vessel3.Server;
 
 namespace Vessel3.Server.S3;
 
-internal sealed class S3XmlWriter
+internal interface IS3XmlWriter
+{
+    Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct);
+    Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
+    Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
+}
+
+internal sealed class S3XmlWriter : IS3XmlWriter
 {
     private const string S3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
     private const string Iso8601Ms = "yyyy-MM-ddTHH:mm:ss.fffZ";

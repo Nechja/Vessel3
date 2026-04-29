@@ -5,7 +5,16 @@ namespace Vessel3.Server.Storage;
 
 internal sealed record StoredBlob(string Sha, long Size);
 
-internal sealed class BlobPool(string root)
+internal interface IBlobPool
+{
+    Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct);
+    Result<Stream> Open(string sha);
+    bool Exists(string sha);
+    Result<bool> Delete(string sha);
+    IEnumerable<string> EnumerateAll();
+}
+
+internal sealed class BlobPool(string root) : IBlobPool
 {
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct)
     {
@@ -54,21 +63,19 @@ internal sealed class BlobPool(string root)
         return new StoredBlob(sha, total);
     }
 
-    public Result<FileStream> Open(string sha)
+    public Result<Stream> Open(string sha)
     {
         var path = PathFor(sha);
-        if (!File.Exists(path))
-            return new NotFoundError($"blob {sha}");
-
-        var fs = new FileStream(path, new FileStreamOptions
-        {
-            Mode = FileMode.Open,
-            Access = FileAccess.Read,
-            Share = FileShare.Read,
-            BufferSize = 81920,
-            Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
-        });
-        return fs;
+        return File.Exists(path)
+            ? new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.Read,
+                BufferSize = 81920,
+                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+            })
+            : (Result<Stream>)new NotFoundError($"blob {sha}");
     }
 
     public bool Exists(string sha) => File.Exists(PathFor(sha));

@@ -21,7 +21,12 @@ internal sealed record ListPage(
     string? NextContinuationToken,
     int KeyCount);
 
-internal sealed class BucketLister(BucketRegistry registry)
+internal interface IBucketLister
+{
+    Result<ListPage> List(ListRequest req, string? continuationToken);
+}
+
+internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
 {
     public Result<ListPage> List(ListRequest req, string? continuationToken)
     {
