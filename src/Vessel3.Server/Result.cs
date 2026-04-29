@@ -4,6 +4,7 @@ internal abstract record Error(string Code, string Message);
 
 internal sealed record NotFoundError(string Resource) : Error("NotFound", $"{Resource} not found");
 internal sealed record InvalidPathError(string Detail) : Error("InvalidPath", Detail);
+internal sealed record BucketNotEmptyError(string Bucket) : Error("BucketNotEmpty", $"Bucket {Bucket} is not empty");
 
 internal abstract record Result<T>
 {

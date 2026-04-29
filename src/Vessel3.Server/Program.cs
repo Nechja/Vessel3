@@ -12,6 +12,45 @@ var store = new FileObjectStore(dataRoot);
 
 app.MapGet("/", () => "Vessel3");
 
+app.MapPut("/{bucket}", (string bucket) =>
+{
+    var result = store.CreateBucket(bucket);
+    return result switch
+    {
+        Result<bool>.Success => Results.Ok(),
+        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
+        Result<bool>.Failure => Results.StatusCode(500),
+        _ => throw new UnreachableException(),
+    };
+});
+
+app.MapDelete("/{bucket}", (string bucket) =>
+{
+    var result = store.DeleteBucket(bucket);
+    return result switch
+    {
+        Result<bool>.Success => Results.NoContent(),
+        Result<bool>.Failure { Error: NotFoundError } => Results.NotFound(),
+        Result<bool>.Failure { Error: BucketNotEmptyError } => Results.Conflict(),
+        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
+        Result<bool>.Failure => Results.StatusCode(500),
+        _ => throw new UnreachableException(),
+    };
+});
+
+app.MapMethods("/{bucket}", ["HEAD"], (string bucket) =>
+{
+    var result = store.BucketExists(bucket);
+    return result switch
+    {
+        Result<bool>.Success { Value: true } => Results.Ok(),
+        Result<bool>.Success => Results.NotFound(),
+        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
+        Result<bool>.Failure => Results.StatusCode(500),
+        _ => throw new UnreachableException(),
+    };
+});
+
 app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, CancellationToken ct) =>
 {
     var result = await store.Put(bucket, key, req.Body, req.ContentLength, ct);

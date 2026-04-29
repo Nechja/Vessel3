@@ -69,6 +69,53 @@ internal sealed class FileObjectStore(string root)
         return true;
     }
 
+    public Result<bool> CreateBucket(string bucket)
+    {
+        if (!TryResolveBucket(bucket, out var path))
+            return new InvalidPathError(bucket);
+
+        if (Directory.Exists(path))
+            return false;
+
+        Directory.CreateDirectory(path);
+        return true;
+    }
+
+    public Result<bool> DeleteBucket(string bucket)
+    {
+        if (!TryResolveBucket(bucket, out var path))
+            return new InvalidPathError(bucket);
+
+        if (!Directory.Exists(path))
+            return new NotFoundError(bucket);
+
+        if (Directory.EnumerateFileSystemEntries(path).Any())
+            return new BucketNotEmptyError(bucket);
+
+        Directory.Delete(path);
+        return true;
+    }
+
+    public Result<bool> BucketExists(string bucket) =>
+        TryResolveBucket(bucket, out var path)
+            ? Directory.Exists(path)
+            : new InvalidPathError(bucket);
+
+    private bool TryResolveBucket(string bucket, out string path)
+    {
+        path = string.Empty;
+        if (string.IsNullOrEmpty(bucket)) return false;
+        if (bucket.Contains('/') || bucket.Contains("..", StringComparison.Ordinal)) return false;
+
+        var rootFull = Path.GetFullPath(root);
+        var full = Path.GetFullPath(Path.Combine(rootFull, bucket));
+        var rel = Path.GetRelativePath(rootFull, full);
+        if (rel.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(rel)) return false;
+
+        path = full;
+        return true;
+    }
+
     private bool TryResolve(string bucket, string key, out string path)
     {
         path = string.Empty;
