@@ -14,7 +14,7 @@ internal abstract record VersionEvent(long Seq, DateTimeOffset At, string Key, s
 
 internal sealed record PutEvent(
     long Seq, DateTimeOffset At, string Key, string VersionId,
-    string BlobSha, long Size, string ContentType)
+    string BlobSha, string Md5, long Size, string ContentType)
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };

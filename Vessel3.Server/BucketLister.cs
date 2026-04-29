@@ -68,7 +68,7 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
                 }
             }
 
-            emitted.Add(new ListEntry.Contents(entry.Key, entry.Size, entry.At, entry.BlobSha));
+            emitted.Add(new ListEntry.Contents(entry.Key, entry.Size, entry.At, entry.Md5));
             lastEmittedKey = entry.Key;
         }
 

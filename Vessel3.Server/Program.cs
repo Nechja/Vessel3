@@ -15,16 +15,17 @@ var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
 var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
 
 IS3XmlWriter xml = new S3XmlWriter();
+IHttpResultMapper http = new HttpResultMapper(xml);
 var verifier = (accessKey is not null && secretKey is not null)
     ? new SigV4Verifier(accessKey, secretKey, region)
     : null;
 
 builder.Services.AddSingleton(xml);
+builder.Services.AddSingleton(http);
 builder.Services.AddSingleton<IBlobPool>(_ => new BlobPool(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton<IBucketRegistry>(_ => new BucketRegistry(dataRoot));
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
-builder.Services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
 
 var app = builder.Build();
 
@@ -35,9 +36,7 @@ if (verifier is not null)
         var result = verifier.Verify(ctx.Request);
         if (result is Result<bool>.Failure f)
         {
-            ctx.Response.StatusCode = f.Error.Status;
-            ctx.Response.ContentType = "application/xml";
-            await xml.WriteError(ctx.Response.Body, f.Error, ctx.Request.Path, Guid.NewGuid().ToString("N"), ctx.RequestAborted);
+            await http.Map(f.Error).ExecuteAsync(ctx);
             return;
         }
         await next();
@@ -107,6 +106,7 @@ app.MapPut("/{bucket}/{**key}", async (
         put =>
         {
             res.Headers.ETag = $"\"{put.Etag}\"";
+            res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(put.Sha256));
             res.Headers["x-amz-version-id"] = put.VersionId;
             return Results.Ok();
         },
@@ -120,7 +120,8 @@ app.MapGet("/{bucket}/{**key}", (
     objects.Get(bucket, key).Match<IResult>(
         ok =>
         {
-            res.Headers["x-amz-checksum-sha256"] = ok.Etag;
+            res.Headers.ETag = $"\"{ok.Etag}\"";
+            res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(ok.Sha256));
             return Results.File(
                 ok.Body,
                 ok.ContentType,
@@ -139,6 +140,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
             res.ContentLength = stat.Size;
             res.ContentType = stat.ContentType;
             res.Headers.ETag = $"\"{stat.Etag}\"";
+            res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(stat.Sha256));
             res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
             return Results.Empty;
         },

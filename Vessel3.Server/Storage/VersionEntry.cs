@@ -4,7 +4,7 @@ internal abstract record VersionEntry(string VersionId, DateTimeOffset At);
 
 internal sealed record PutEntry(
     string VersionId, DateTimeOffset At,
-    string BlobSha, long Size, string ContentType)
+    string BlobSha, string Md5, long Size, string ContentType)
     : VersionEntry(VersionId, At);
 
 internal sealed record DeleteMarkerEntry(
@@ -13,4 +13,4 @@ internal sealed record DeleteMarkerEntry(
 
 internal sealed record VersionListEntry(
     string Key, string VersionId, DateTimeOffset At,
-    string BlobSha, long Size, string ContentType);
+    string BlobSha, string Md5, long Size, string ContentType);

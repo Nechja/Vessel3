@@ -3,7 +3,7 @@ using Vessel3.Server;
 
 namespace Vessel3.Server.Storage;
 
-internal sealed record StoredBlob(string Sha, long Size);
+internal sealed record StoredBlob(string Sha, string Md5, long Size);
 
 internal interface IBlobPool
 {
@@ -24,6 +24,7 @@ internal sealed class BlobPool(string root) : IBlobPool
 
         long total;
         string sha;
+        string md5;
 
         await using (var temp = new FileStream(tempPath, new FileStreamOptions
         {
@@ -35,17 +36,20 @@ internal sealed class BlobPool(string root) : IBlobPool
             PreallocationSize = declaredSize ?? 0,
         }))
         {
-            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
             var buf = new byte[81920];
             total = 0;
             int n;
             while ((n = await source.ReadAsync(buf.AsMemory(), ct)) > 0)
             {
-                hash.AppendData(buf, 0, n);
+                sha256.AppendData(buf, 0, n);
+                md5Hash.AppendData(buf, 0, n);
                 await temp.WriteAsync(buf.AsMemory(0, n), ct);
                 total += n;
             }
-            sha = Convert.ToHexStringLower(hash.GetHashAndReset());
+            sha = Convert.ToHexStringLower(sha256.GetHashAndReset());
+            md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
         }
 
         var finalPath = PathFor(sha);
@@ -60,7 +64,7 @@ internal sealed class BlobPool(string root) : IBlobPool
             File.Delete(tempPath);
         }
 
-        return new StoredBlob(sha, total);
+        return new StoredBlob(sha, md5, total);
     }
 
     public Result<Stream> Open(string sha)
