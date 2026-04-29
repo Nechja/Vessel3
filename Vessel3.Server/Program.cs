@@ -1,6 +1,5 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
@@ -11,25 +10,26 @@ var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);
 
+var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
+var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
+var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
+
+var xml = new S3XmlWriter();
+var verifier = (accessKey is not null && secretKey is not null)
+    ? new SigV4Verifier(accessKey, secretKey, region)
+    : null;
+
+builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(_ => new BlobPool(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton(_ => new BucketRegistry(dataRoot));
 builder.Services.AddSingleton<ObjectStore>();
 builder.Services.AddSingleton<BucketLister>();
-builder.Services.AddSingleton<S3XmlWriter>();
 builder.Services.AddSingleton<HttpResultMapper>();
-
-var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
-var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
-var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
-if (accessKey is not null && secretKey is not null)
-    builder.Services.AddSingleton(new SigV4Verifier(accessKey, secretKey, region));
 
 var app = builder.Build();
 
-var verifier = app.Services.GetService<SigV4Verifier>();
 if (verifier is not null)
 {
-    var xml = app.Services.GetRequiredService<S3XmlWriter>();
     app.Use(async (ctx, next) =>
     {
         var result = verifier.Verify(ctx.Request);
