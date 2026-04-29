@@ -1,8 +1,5 @@
 namespace Vessel3.Server.Storage;
 
-// Coordinator for one bucket: owns the open log writer and SQLite index.
-// On Open, replays log into index for any gap (e.g., after a crash between
-// log-append and index-update). The log is the source of truth.
 internal sealed class Bucket(string name, string path) : IDisposable
 {
     private readonly VersionLog log = new(Path.Combine(path, "log"));

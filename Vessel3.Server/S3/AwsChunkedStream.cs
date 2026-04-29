@@ -2,18 +2,6 @@ using System.Text;
 
 namespace Vessel3.Server.S3;
 
-// Decodes the aws-chunked transfer encoding used when AWS SDKs send PutObject with
-// x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD.
-//
-// Wire format (per AWS docs):
-//   <hex-size>;chunk-signature=<hex>\r\n
-//   <chunk-data>\r\n
-//   ...
-//   0;chunk-signature=<hex>\r\n
-//   <optional trailers>\r\n
-//
-// MVP: chunk signatures are NOT verified - the request headers are already
-// signed and the content hash header was part of that signature.
 internal sealed class AwsChunkedStream(Stream inner) : Stream
 {
     private byte[] currentChunk = [];

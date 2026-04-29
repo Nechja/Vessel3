@@ -2,9 +2,6 @@ using System.Text.Json;
 
 namespace Vessel3.Server.Storage;
 
-// Append-only event log per bucket. Source of truth for versioning state.
-// Wire format: one JSON-encoded VersionEvent per line, LF-terminated.
-// `cat log` is a meaningful operation.
 internal sealed class VersionLog(string path) : IDisposable
 {
     private readonly Lock writeLock = new();
@@ -31,29 +28,20 @@ internal sealed class VersionLog(string path) : IDisposable
         writer = null;
     }
 
-    public VersionEvent Append(string key, string versionId, string blobSha, EventKind kind, long size, string contentType)
+    public VersionEvent Append(VersionEvent proto)
     {
         if (writer is null) throw new InvalidOperationException("Log not opened");
 
-        VersionEvent ev;
+        VersionEvent withSeq;
         lock (writeLock)
         {
-            ev = new VersionEvent(
-                Seq: nextSeq++,
-                At: DateTimeOffset.UtcNow,
-                Key: key,
-                VersionId: versionId,
-                BlobSha: blobSha,
-                Kind: kind,
-                Size: size,
-                ContentType: contentType);
-
-            var body = JsonSerializer.SerializeToUtf8Bytes(ev, VersionEventContext.Default.VersionEvent);
+            withSeq = proto.WithSeq(nextSeq++);
+            var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
             writer.Write(body);
             writer.WriteByte((byte)'\n');
             writer.Flush(flushToDisk: true);
         }
-        return ev;
+        return withSeq;
     }
 
     public IEnumerable<VersionEvent> Replay()

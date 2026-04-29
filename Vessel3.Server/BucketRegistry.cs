@@ -5,8 +5,6 @@ namespace Vessel3.Server;
 
 internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt);
 
-// Owns the buckets/ tree on disk and the cache of open Bucket coordinators.
-// Anything that needs to read/write inside a bucket goes through Open() here.
 internal sealed class BucketRegistry(string root) : IDisposable
 {
     private readonly string bucketsRoot = Path.Combine(root, "buckets");

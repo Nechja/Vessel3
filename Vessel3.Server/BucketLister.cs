@@ -21,8 +21,6 @@ internal sealed record ListPage(
     string? NextContinuationToken,
     int KeyCount);
 
-// Renders a bucket's index into S3-shaped listing pages with prefix/delimiter folding.
-// Continuation token is base64(last-emitted-key) — stateless on the server.
 internal sealed class BucketLister(BucketRegistry registry)
 {
     public Result<ListPage> List(ListRequest req, string? continuationToken)

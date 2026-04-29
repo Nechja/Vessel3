@@ -2,24 +2,41 @@ using System.Text.Json.Serialization;
 
 namespace Vessel3.Server.Storage;
 
-internal enum EventKind
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(PutEvent), "Put")]
+[JsonDerivedType(typeof(DeleteMarkerEvent), "DeleteMarker")]
+[JsonDerivedType(typeof(HardDeleteEvent), "HardDelete")]
+internal abstract record VersionEvent(long Seq, DateTimeOffset At, string Key, string VersionId)
 {
-    Put = 0,
-    DeleteMarker = 1,
-    HardDelete = 2,
+    public abstract VersionEvent WithSeq(long seq);
+    public abstract void ApplyTo(BucketIndex index);
 }
 
-internal sealed record VersionEvent(
-    long Seq,
-    DateTimeOffset At,
-    string Key,
-    string VersionId,
-    string BlobSha,
-    EventKind Kind,
-    long Size,
-    string ContentType
-);
+internal sealed record PutEvent(
+    long Seq, DateTimeOffset At, string Key, string VersionId,
+    string BlobSha, long Size, string ContentType)
+    : VersionEvent(Seq, At, Key, VersionId)
+{
+    public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
+    public override void ApplyTo(BucketIndex index) => index.Insert(this);
+}
 
-[JsonSourceGenerationOptions(UseStringEnumConverter = true, WriteIndented = false)]
+internal sealed record DeleteMarkerEvent(
+    long Seq, DateTimeOffset At, string Key, string VersionId)
+    : VersionEvent(Seq, At, Key, VersionId)
+{
+    public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
+    public override void ApplyTo(BucketIndex index) => index.Insert(this);
+}
+
+internal sealed record HardDeleteEvent(
+    long Seq, DateTimeOffset At, string Key, string VersionId)
+    : VersionEvent(Seq, At, Key, VersionId)
+{
+    public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
+    public override void ApplyTo(BucketIndex index) => index.Remove(Key, VersionId);
+}
+
+[JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(VersionEvent))]
 internal sealed partial class VersionEventContext : JsonSerializerContext;

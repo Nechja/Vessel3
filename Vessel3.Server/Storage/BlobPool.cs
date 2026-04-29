@@ -5,8 +5,6 @@ namespace Vessel3.Server.Storage;
 
 internal sealed record StoredBlob(string Sha, long Size);
 
-// Content-addressable blob pool. Layout: <root>/blobs/<aa>/<bb>/<sha>.
-// Writes are atomic via temp-file + rename. Identical content dedups for free.
 internal sealed class BlobPool(string root)
 {
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct)

@@ -6,8 +6,6 @@ internal sealed record PutOutcome(string Etag, string VersionId, long Size);
 internal sealed record StoredObject(FileStream Body, long Size, DateTimeOffset LastModified, string Etag, string ContentType);
 internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string ContentType);
 
-// Object CRUD inside a known-resolved bucket.
-// Uses BucketRegistry to find the bucket coordinator and BlobPool for the bytes.
 internal sealed class ObjectStore(BucketRegistry registry, BlobPool blobs)
 {
     public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct) =>

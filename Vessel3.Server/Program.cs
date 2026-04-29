@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
@@ -33,7 +32,7 @@ if (verifier is not null)
         var result = verifier.Verify(ctx.Request);
         if (result is Result<bool>.Failure f)
         {
-            ctx.Response.StatusCode = http.StatusFor(f.Error);
+            ctx.Response.StatusCode = f.Error.Status;
             ctx.Response.ContentType = "application/xml";
             await xml.WriteError(ctx.Response.Body, f.Error, ctx.Request.Path, Guid.NewGuid().ToString("N"), ctx.RequestAborted);
             return;
@@ -59,40 +58,30 @@ app.MapGet("/{bucket}", async (
     CancellationToken ct) =>
 {
     var req = new ListRequest(bucket, prefix, delimiter, startAfter, Math.Clamp(maxKeys ?? 1000, 1, 1000));
-    var result = lister.List(req, continuationToken);
-
-    if (result is Result<ListPage>.Failure f) return http.Map(f.Error);
-
-    var page = ((Result<ListPage>.Success)result).Value;
-    res.ContentType = "application/xml";
-    await xml.WriteListObjects(res.Body, req, page, ct);
-    return Results.Empty;
+    return await lister.List(req, continuationToken).Match<Task<IResult>>(
+        async page =>
+        {
+            res.ContentType = "application/xml";
+            await xml.WriteListObjects(res.Body, req, page, ct);
+            return Results.Empty;
+        },
+        err => Task.FromResult(http.Map(err)));
 });
 
 app.MapPut("/{bucket}", (string bucket) =>
-    registry.Create(bucket) switch
-    {
-        Result<bool>.Success => Results.Ok(),
-        Result<bool>.Failure f => http.Map(f.Error),
-        _ => throw new UnreachableException(),
-    });
+    registry.Create(bucket).Match<IResult>(
+        _ => Results.Ok(),
+        http.Map));
 
 app.MapDelete("/{bucket}", (string bucket) =>
-    registry.Delete(bucket) switch
-    {
-        Result<bool>.Success => Results.NoContent(),
-        Result<bool>.Failure f => http.Map(f.Error),
-        _ => throw new UnreachableException(),
-    });
+    registry.Delete(bucket).Match<IResult>(
+        _ => Results.NoContent(),
+        http.Map));
 
 app.MapMethods("/{bucket}", ["HEAD"], (string bucket) =>
-    registry.Exists(bucket) switch
-    {
-        Result<bool>.Success { Value: true } => Results.Ok(),
-        Result<bool>.Success => Results.NotFound(),
-        Result<bool>.Failure f => http.Map(f.Error),
-        _ => throw new UnreachableException(),
-    });
+    registry.Exists(bucket).Match<IResult>(
+        exists => exists ? Results.Ok() : Results.NotFound(),
+        http.Map));
 
 app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, HttpResponse res, CancellationToken ct) =>
 {
@@ -104,49 +93,44 @@ app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest re
         : req.ContentLength;
 
     var result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, ct);
-    if (result is Result<PutOutcome>.Failure f) return http.Map(f.Error);
-
-    var put = ((Result<PutOutcome>.Success)result).Value;
-    res.Headers.ETag = $"\"{put.Etag}\"";
-    res.Headers["x-amz-version-id"] = put.VersionId;
-    return Results.Ok();
+    return result.Match<IResult>(
+        put =>
+        {
+            res.Headers.ETag = $"\"{put.Etag}\"";
+            res.Headers["x-amz-version-id"] = put.VersionId;
+            return Results.Ok();
+        },
+        http.Map);
 });
 
 app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpResponse res) =>
-{
-    var result = objects.Get(bucket, key);
-    if (result is Result<StoredObject>.Failure f) return http.Map(f.Error);
-
-    var ok = ((Result<StoredObject>.Success)result).Value;
-    // ETag is SHA256 hex; AWS SDKs assume ETag = MD5 of body and reject otherwise.
-    // Expose the SHA256 via the modern additional-checksum header instead.
-    res.Headers["x-amz-checksum-sha256"] = ok.Etag;
-    return Results.File(
-        ok.Body,
-        ok.ContentType,
-        lastModified: ok.LastModified,
-        enableRangeProcessing: true);
-});
+    objects.Get(bucket, key).Match<IResult>(
+        ok =>
+        {
+            res.Headers["x-amz-checksum-sha256"] = ok.Etag;
+            return Results.File(
+                ok.Body,
+                ok.ContentType,
+                lastModified: ok.LastModified,
+                enableRangeProcessing: true);
+        },
+        http.Map));
 
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpResponse res) =>
-{
-    var result = objects.Stat(bucket, key);
-    if (result is Result<ObjectStat>.Failure f) return http.Map(f.Error);
-
-    var stat = ((Result<ObjectStat>.Success)result).Value;
-    res.ContentLength = stat.Size;
-    res.ContentType = stat.ContentType;
-    res.Headers.ETag = $"\"{stat.Etag}\"";
-    res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
-    return Results.Empty;
-});
+    objects.Stat(bucket, key).Match<IResult>(
+        stat =>
+        {
+            res.ContentLength = stat.Size;
+            res.ContentType = stat.ContentType;
+            res.Headers.ETag = $"\"{stat.Etag}\"";
+            res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
+            return Results.Empty;
+        },
+        http.Map));
 
 app.MapDelete("/{bucket}/{**key}", (string bucket, string key) =>
-    objects.Delete(bucket, key) switch
-    {
-        Result<bool>.Success => Results.NoContent(),
-        Result<bool>.Failure f => http.Map(f.Error),
-        _ => throw new UnreachableException(),
-    });
+    objects.Delete(bucket, key).Match<IResult>(
+        _ => Results.NoContent(),
+        http.Map));
 
 app.Run();
