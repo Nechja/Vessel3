@@ -1,0 +1,99 @@
+using System.Globalization;
+using System.Text;
+using System.Xml;
+
+namespace Vessel3.Server;
+
+internal sealed class S3XmlWriter
+{
+    private const string S3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
+    private const string Iso8601Ms = "yyyy-MM-ddTHH:mm:ss.fffZ";
+
+    private readonly XmlWriterSettings settings = new()
+    {
+        Async = true,
+        Indent = false,
+        OmitXmlDeclaration = false,
+        Encoding = new UTF8Encoding(false),
+    };
+
+    public async Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "ListAllMyBucketsResult", S3Namespace);
+
+        await w.WriteStartElementAsync(null, "Owner", null);
+        await w.WriteElementStringAsync(null, "ID", null, "vessel3");
+        await w.WriteElementStringAsync(null, "DisplayName", null, "vessel3");
+        await w.WriteEndElementAsync();
+
+        await w.WriteStartElementAsync(null, "Buckets", null);
+        foreach (var b in buckets)
+        {
+            ct.ThrowIfCancellationRequested();
+            await w.WriteStartElementAsync(null, "Bucket", null);
+            await w.WriteElementStringAsync(null, "Name", null, b.Name);
+            await w.WriteElementStringAsync(null, "CreationDate", null,
+                b.CreatedAt.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+            await w.WriteEndElementAsync();
+        }
+        await w.WriteEndElementAsync();
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "ListBucketResult", S3Namespace);
+
+        await w.WriteElementStringAsync(null, "Name", null, req.Bucket);
+        if (req.Prefix is not null) await w.WriteElementStringAsync(null, "Prefix", null, req.Prefix);
+        if (req.Delimiter is not null) await w.WriteElementStringAsync(null, "Delimiter", null, req.Delimiter);
+        await w.WriteElementStringAsync(null, "MaxKeys", null,
+            req.MaxKeys.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "KeyCount", null,
+            page.KeyCount.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "IsTruncated", null, page.IsTruncated ? "true" : "false");
+        if (page.NextContinuationToken is not null)
+            await w.WriteElementStringAsync(null, "NextContinuationToken", null, page.NextContinuationToken);
+
+        foreach (var entry in page.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            await (entry switch
+            {
+                ListEntry.Contents c => WriteContents(w, c),
+                ListEntry.CommonPrefix cp => WriteCommonPrefix(w, cp),
+                _ => Task.CompletedTask,
+            });
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    private async Task WriteContents(XmlWriter w, ListEntry.Contents c)
+    {
+        await w.WriteStartElementAsync(null, "Contents", null);
+        await w.WriteElementStringAsync(null, "Key", null, c.Key);
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            c.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "ETag", null, "\"-\"");
+        await w.WriteElementStringAsync(null, "Size", null, c.Size.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await w.WriteEndElementAsync();
+    }
+
+    private async Task WriteCommonPrefix(XmlWriter w, ListEntry.CommonPrefix cp)
+    {
+        await w.WriteStartElementAsync(null, "CommonPrefixes", null);
+        await w.WriteElementStringAsync(null, "Prefix", null, cp.Key);
+        await w.WriteEndElementAsync();
+    }
+}

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -8,9 +9,38 @@ var app = builder.Build();
 var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);
-var store = new FileObjectStore(dataRoot);
+var cursors = new ListCursorStore();
+var xml = new S3XmlWriter();
+var store = new FileObjectStore(dataRoot, cursors);
 
-app.MapGet("/", () => "Vessel3");
+app.MapGet("/", async (HttpResponse res, CancellationToken ct) =>
+{
+    res.ContentType = "application/xml";
+    await xml.WriteListBuckets(res.Body, store.ListBuckets(), ct);
+});
+
+app.MapGet("/{bucket}", async (
+    string bucket,
+    [FromQuery(Name = "prefix")] string? prefix,
+    [FromQuery(Name = "delimiter")] string? delimiter,
+    [FromQuery(Name = "max-keys")] int? maxKeys,
+    [FromQuery(Name = "continuation-token")] string? continuationToken,
+    [FromQuery(Name = "start-after")] string? startAfter,
+    HttpResponse res,
+    CancellationToken ct) =>
+{
+    var req = new ListRequest(bucket, prefix, delimiter, startAfter, Math.Clamp(maxKeys ?? 1000, 1, 1000));
+    var result = store.ListObjects(req, continuationToken);
+
+    if (result is Result<ListPage>.Failure { Error: NotFoundError }) return Results.NotFound();
+    if (result is Result<ListPage>.Failure { Error: InvalidPathError }) return Results.BadRequest();
+    if (result is Result<ListPage>.Failure) return Results.StatusCode(500);
+
+    var page = ((Result<ListPage>.Success)result).Value;
+    res.ContentType = "application/xml";
+    await xml.WriteListObjects(res.Body, req, page, ct);
+    return Results.Empty;
+});
 
 app.MapPut("/{bucket}", (string bucket) =>
 {
