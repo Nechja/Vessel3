@@ -14,7 +14,10 @@ Directory.CreateDirectory(dataRoot);
 
 var blobs = new BlobPool(Path.Combine(dataRoot, "blobs"));
 var xml = new S3XmlWriter();
-var store = new FileObjectStore(dataRoot, blobs);
+var http = new HttpResultMapper();
+var registry = new BucketRegistry(dataRoot);
+var objects = new ObjectStore(registry, blobs);
+var lister = new BucketLister(registry);
 
 var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
@@ -30,16 +33,7 @@ if (verifier is not null)
         var result = verifier.Verify(ctx.Request);
         if (result is Result<bool>.Failure f)
         {
-            var status = f.Error switch
-            {
-                MissingSecurityHeaderError => 400,
-                AuthorizationHeaderMalformedError => 400,
-                InvalidAccessKeyIdError => 403,
-                SignatureDoesNotMatchError => 403,
-                RequestTimeTooSkewedError => 403,
-                _ => 403,
-            };
-            ctx.Response.StatusCode = status;
+            ctx.Response.StatusCode = http.StatusFor(f.Error);
             ctx.Response.ContentType = "application/xml";
             await xml.WriteError(ctx.Response.Body, f.Error, ctx.Request.Path, Guid.NewGuid().ToString("N"), ctx.RequestAborted);
             return;
@@ -51,7 +45,7 @@ if (verifier is not null)
 app.MapGet("/", async (HttpResponse res, CancellationToken ct) =>
 {
     res.ContentType = "application/xml";
-    await xml.WriteListBuckets(res.Body, store.ListBuckets(), ct);
+    await xml.WriteListBuckets(res.Body, registry.List(), ct);
 });
 
 app.MapGet("/{bucket}", async (
@@ -65,11 +59,9 @@ app.MapGet("/{bucket}", async (
     CancellationToken ct) =>
 {
     var req = new ListRequest(bucket, prefix, delimiter, startAfter, Math.Clamp(maxKeys ?? 1000, 1, 1000));
-    var result = store.ListObjects(req, continuationToken);
+    var result = lister.List(req, continuationToken);
 
-    if (result is Result<ListPage>.Failure { Error: NotFoundError }) return Results.NotFound();
-    if (result is Result<ListPage>.Failure { Error: InvalidPathError }) return Results.BadRequest();
-    if (result is Result<ListPage>.Failure) return Results.StatusCode(500);
+    if (result is Result<ListPage>.Failure f) return http.Map(f.Error);
 
     var page = ((Result<ListPage>.Success)result).Value;
     res.ContentType = "application/xml";
@@ -78,43 +70,29 @@ app.MapGet("/{bucket}", async (
 });
 
 app.MapPut("/{bucket}", (string bucket) =>
-{
-    var result = store.CreateBucket(bucket);
-    return result switch
+    registry.Create(bucket) switch
     {
         Result<bool>.Success => Results.Ok(),
-        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<bool>.Failure => Results.StatusCode(500),
+        Result<bool>.Failure f => http.Map(f.Error),
         _ => throw new UnreachableException(),
-    };
-});
+    });
 
 app.MapDelete("/{bucket}", (string bucket) =>
-{
-    var result = store.DeleteBucket(bucket);
-    return result switch
+    registry.Delete(bucket) switch
     {
         Result<bool>.Success => Results.NoContent(),
-        Result<bool>.Failure { Error: NotFoundError } => Results.NotFound(),
-        Result<bool>.Failure { Error: BucketNotEmptyError } => Results.Conflict(),
-        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<bool>.Failure => Results.StatusCode(500),
+        Result<bool>.Failure f => http.Map(f.Error),
         _ => throw new UnreachableException(),
-    };
-});
+    });
 
 app.MapMethods("/{bucket}", ["HEAD"], (string bucket) =>
-{
-    var result = store.BucketExists(bucket);
-    return result switch
+    registry.Exists(bucket) switch
     {
         Result<bool>.Success { Value: true } => Results.Ok(),
         Result<bool>.Success => Results.NotFound(),
-        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<bool>.Failure => Results.StatusCode(500),
+        Result<bool>.Failure f => http.Map(f.Error),
         _ => throw new UnreachableException(),
-    };
-});
+    });
 
 app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, HttpResponse res, CancellationToken ct) =>
 {
@@ -124,12 +102,9 @@ app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest re
     var declaredLength = isChunked
         ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
         : req.ContentLength;
-    var contentType = req.ContentType;
 
-    var result = await store.Put(bucket, key, body, declaredLength, contentType, ct);
-    if (result is Result<PutOutcome>.Failure { Error: NotFoundError }) return Results.NotFound();
-    if (result is Result<PutOutcome>.Failure { Error: InvalidPathError }) return Results.BadRequest();
-    if (result is Result<PutOutcome>.Failure) return Results.StatusCode(500);
+    var result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, ct);
+    if (result is Result<PutOutcome>.Failure f) return http.Map(f.Error);
 
     var put = ((Result<PutOutcome>.Success)result).Value;
     res.Headers.ETag = $"\"{put.Etag}\"";
@@ -139,10 +114,8 @@ app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest re
 
 app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpResponse res) =>
 {
-    var result = store.Get(bucket, key);
-    if (result is Result<StoredObject>.Failure { Error: NotFoundError }) return Results.NotFound();
-    if (result is Result<StoredObject>.Failure { Error: InvalidPathError }) return Results.BadRequest();
-    if (result is Result<StoredObject>.Failure) return Results.StatusCode(500);
+    var result = objects.Get(bucket, key);
+    if (result is Result<StoredObject>.Failure f) return http.Map(f.Error);
 
     var ok = ((Result<StoredObject>.Success)result).Value;
     // ETag is SHA256 hex; AWS SDKs assume ETag = MD5 of body and reject otherwise.
@@ -157,10 +130,8 @@ app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpResponse res) =>
 
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpResponse res) =>
 {
-    var result = store.Stat(bucket, key);
-    if (result is Result<ObjectStat>.Failure { Error: NotFoundError }) return Results.NotFound();
-    if (result is Result<ObjectStat>.Failure { Error: InvalidPathError }) return Results.BadRequest();
-    if (result is Result<ObjectStat>.Failure) return Results.StatusCode(500);
+    var result = objects.Stat(bucket, key);
+    if (result is Result<ObjectStat>.Failure f) return http.Map(f.Error);
 
     var stat = ((Result<ObjectStat>.Success)result).Value;
     res.ContentLength = stat.Size;
@@ -171,15 +142,11 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpRe
 });
 
 app.MapDelete("/{bucket}/{**key}", (string bucket, string key) =>
-{
-    var result = store.Delete(bucket, key);
-    return result switch
+    objects.Delete(bucket, key) switch
     {
         Result<bool>.Success => Results.NoContent(),
-        Result<bool>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<bool>.Failure => Results.StatusCode(500),
+        Result<bool>.Failure f => http.Map(f.Error),
         _ => throw new UnreachableException(),
-    };
-});
+    });
 
 app.Run();
