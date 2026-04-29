@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Storage;
 
 internal sealed record StoredBlob(string Sha, long Size);
 

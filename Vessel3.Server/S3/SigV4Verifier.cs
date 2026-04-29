@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.S3;
 
 internal sealed class SigV4Verifier(string accessKey, string secret, string region)
 {

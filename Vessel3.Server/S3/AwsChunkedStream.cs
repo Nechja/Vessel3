@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.S3;
 
 // Decodes the aws-chunked transfer encoding used when AWS SDKs send PutObject with
 // x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD.

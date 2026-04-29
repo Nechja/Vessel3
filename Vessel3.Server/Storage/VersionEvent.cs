@@ -1,6 +1,6 @@
 using MemoryPack;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Storage;
 
 internal enum EventKind : byte
 {

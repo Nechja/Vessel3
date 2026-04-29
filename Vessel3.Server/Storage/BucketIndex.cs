@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Storage;
 
 internal sealed record VersionEntry(
     string VersionId,

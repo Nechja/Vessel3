@@ -1,6 +1,6 @@
 using MemoryPack;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Storage;
 
 // Append-only event log per bucket. Source of truth for versioning state.
 // Wire format: repeating [4-byte little-endian length][MemoryPack body].
