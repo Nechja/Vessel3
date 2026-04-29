@@ -1,0 +1,127 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,csproj,props,targets,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+
+# File-scoped namespaces only
+csharp_style_namespace_declarations = file_scoped:error
+dotnet_diagnostic.IDE0161.severity = error
+
+# Primary constructors as the default
+dotnet_diagnostic.IDE0290.severity = error
+
+# Switch expressions over switch statements
+dotnet_diagnostic.IDE0066.severity = error
+
+# Collection expressions [...]
+dotnet_diagnostic.IDE0028.severity = error
+dotnet_diagnostic.IDE0300.severity = error
+dotnet_diagnostic.IDE0301.severity = error
+dotnet_diagnostic.IDE0302.severity = error
+dotnet_diagnostic.IDE0303.severity = error
+dotnet_diagnostic.IDE0304.severity = error
+dotnet_diagnostic.IDE0305.severity = error
+dotnet_diagnostic.IDE0306.severity = error
+
+# Target-typed new()
+dotnet_diagnostic.IDE0090.severity = error
+
+# Conditional expressions for assignment & return
+dotnet_diagnostic.IDE0045.severity = error
+dotnet_diagnostic.IDE0046.severity = error
+
+# Null propagation / coalescing
+dotnet_diagnostic.IDE0029.severity = error
+dotnet_diagnostic.IDE0030.severity = error
+dotnet_diagnostic.IDE0031.severity = error
+dotnet_diagnostic.IDE0270.severity = error
+
+# Auto-properties over backing-field-with-trivial-accessor
+dotnet_diagnostic.IDE0032.severity = error
+
+# `readonly` modifier where applicable
+dotnet_diagnostic.IDE0044.severity = error
+
+# Index/range operators
+dotnet_diagnostic.IDE0056.severity = error
+dotnet_diagnostic.IDE0057.severity = error
+
+# `is not` over `!=` for type checks
+dotnet_diagnostic.IDE0083.severity = error
+
+# System.Threading.Lock over lock(object) (C# 13)
+dotnet_diagnostic.IDE0330.severity = error
+
+# `string` over `String`
+dotnet_diagnostic.IDE0049.severity = error
+
+# Pattern matching over is-cast / as-null
+dotnet_diagnostic.IDE0019.severity = error
+dotnet_diagnostic.IDE0020.severity = error
+dotnet_diagnostic.IDE0038.severity = error
+dotnet_diagnostic.IDE0078.severity = error
+
+# Simple using declarations
+dotnet_diagnostic.IDE0063.severity = error
+
+# --- AOT / trimming analyzers ---
+dotnet_diagnostic.IL2026.severity = error
+dotnet_diagnostic.IL2046.severity = error
+dotnet_diagnostic.IL2050.severity = error
+dotnet_diagnostic.IL2055.severity = error
+dotnet_diagnostic.IL2057.severity = error
+dotnet_diagnostic.IL2058.severity = error
+dotnet_diagnostic.IL2059.severity = error
+dotnet_diagnostic.IL2060.severity = error
+dotnet_diagnostic.IL2062.severity = error
+dotnet_diagnostic.IL2063.severity = error
+dotnet_diagnostic.IL2064.severity = error
+dotnet_diagnostic.IL2065.severity = error
+dotnet_diagnostic.IL2067.severity = error
+dotnet_diagnostic.IL2068.severity = error
+dotnet_diagnostic.IL2070.severity = error
+dotnet_diagnostic.IL2072.severity = error
+dotnet_diagnostic.IL2075.severity = error
+dotnet_diagnostic.IL2077.severity = error
+dotnet_diagnostic.IL2080.severity = error
+dotnet_diagnostic.IL2087.severity = error
+dotnet_diagnostic.IL2090.severity = error
+dotnet_diagnostic.IL2091.severity = error
+dotnet_diagnostic.IL3050.severity = error
+dotnet_diagnostic.IL3051.severity = error
+dotnet_diagnostic.IL3052.severity = error
+dotnet_diagnostic.IL3053.severity = error
+dotnet_diagnostic.IL3054.severity = error
+
+
+# Nested types are intentional discriminated-union pattern
+dotnet_diagnostic.CA1034.severity = none
+# Implicit operators on Result<T> deliberately have no named alternate
+dotnet_diagnostic.CA2225.severity = none
+# 'Error' as a record name is fine for an internal app
+dotnet_diagnostic.CA1716.severity = none
+# Ownership of streams returned from the store is intentionally transferred to the caller
+dotnet_diagnostic.CA2000.severity = none
+# Instance methods over static Code Guidelines restrict static to a specific allow-list
+dotnet_diagnostic.CA1822.severity = none
+
+# --- Style / quality of life ---
+csharp_using_directive_placement = outside_namespace:error
+csharp_prefer_simple_using_statement = true:error
+csharp_style_prefer_primary_constructors = true:error
+csharp_style_prefer_method_group_conversion = true:suggestion
+csharp_style_prefer_top_level_statements = true:silent
+dotnet_sort_system_directives_first = true

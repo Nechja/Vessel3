@@ -15,3 +15,5 @@ artifacts/
 *.md
 !.gitignore
 !.github/
+!.editorconfig
+!.dockerignore

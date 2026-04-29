@@ -1,0 +1,11 @@
+**/bin
+**/obj
+**/out
+**/publish
+.git
+.vs
+.vscode
+.idea
+*.user
+TestResults
+artifacts
