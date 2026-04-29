@@ -115,7 +115,13 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket) =>
 
 app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, CancellationToken ct) =>
 {
-    var result = await store.Put(bucket, key, req.Body, req.ContentLength, ct);
+    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
+        || req.Headers["x-amz-content-sha256"].ToString().Contains("STREAMING-", StringComparison.Ordinal);
+    var body = isChunked ? (Stream)new AwsChunkedStream(req.Body) : req.Body;
+    var declaredLength = isChunked
+        ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
+        : req.ContentLength;
+    var result = await store.Put(bucket, key, body, declaredLength, ct);
     return result switch
     {
         Result<long>.Success => Results.Ok(),
