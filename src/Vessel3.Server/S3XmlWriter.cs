@@ -78,6 +78,21 @@ internal sealed class S3XmlWriter
         await w.FlushAsync();
     }
 
+    public async Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "Error", null);
+        await w.WriteElementStringAsync(null, "Code", null, error.Code);
+        await w.WriteElementStringAsync(null, "Message", null, error.Message);
+        await w.WriteElementStringAsync(null, "Resource", null, resource);
+        await w.WriteElementStringAsync(null, "RequestId", null, requestId);
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
     private async Task WriteContents(XmlWriter w, ListEntry.Contents c)
     {
         await w.WriteStartElementAsync(null, "Contents", null);

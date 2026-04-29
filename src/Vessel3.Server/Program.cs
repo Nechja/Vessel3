@@ -13,6 +13,38 @@ var cursors = new ListCursorStore();
 var xml = new S3XmlWriter();
 var store = new FileObjectStore(dataRoot, cursors);
 
+var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
+var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
+var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
+var verifier = (accessKey is not null && secretKey is not null)
+    ? new SigV4Verifier(accessKey, secretKey, region)
+    : null;
+
+if (verifier is not null)
+{
+    app.Use(async (ctx, next) =>
+    {
+        var result = verifier.Verify(ctx.Request);
+        if (result is Result<bool>.Failure f)
+        {
+            var status = f.Error switch
+            {
+                MissingSecurityHeaderError => 400,
+                AuthorizationHeaderMalformedError => 400,
+                InvalidAccessKeyIdError => 403,
+                SignatureDoesNotMatchError => 403,
+                RequestTimeTooSkewedError => 403,
+                _ => 403,
+            };
+            ctx.Response.StatusCode = status;
+            ctx.Response.ContentType = "application/xml";
+            await xml.WriteError(ctx.Response.Body, f.Error, ctx.Request.Path, Guid.NewGuid().ToString("N"), ctx.RequestAborted);
+            return;
+        }
+        await next();
+    });
+}
+
 app.MapGet("/", async (HttpResponse res, CancellationToken ct) =>
 {
     res.ContentType = "application/xml";
