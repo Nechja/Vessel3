@@ -50,7 +50,7 @@ internal sealed class AwsChunkedStream(Stream inner) : Stream
             var sizeHex = semi >= 0 ? header[..semi] : header;
             var size = int.Parse(sizeHex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
 
-            if (size == 0) { eof = true; return 0; }
+            if (size is 0) { eof = true; return 0; }
 
             if (currentChunk.Length < size) currentChunk = new byte[size];
             currentLength = size;
@@ -77,11 +77,11 @@ internal sealed class AwsChunkedStream(Stream inner) : Stream
         while (true)
         {
             var n = await inner.ReadAsync(one.AsMemory(0, 1), ct);
-            if (n == 0) return bytes.Count == 0 ? null : Encoding.ASCII.GetString([.. bytes]);
-            if (one[0] == (byte)'\r')
+            if (n is 0) return bytes.Count is 0 ? null : Encoding.ASCII.GetString([.. bytes]);
+            if (one[0] is (byte)'\r')
             {
                 await inner.ReadExactlyAsync(one.AsMemory(0, 1), ct);
-                return one[0] == (byte)'\n'
+                return one[0] is (byte)'\n'
                     ? Encoding.ASCII.GetString([.. bytes])
                     : throw new InvalidDataException("Expected LF after CR");
             }
@@ -93,7 +93,7 @@ internal sealed class AwsChunkedStream(Stream inner) : Stream
     {
         var buf = new byte[2];
         await inner.ReadExactlyAsync(buf.AsMemory(0, 2), ct);
-        if (buf[0] != (byte)'\r' || buf[1] != (byte)'\n')
+        if (buf[0] is not (byte)'\r' || buf[1] is not (byte)'\n')
             throw new InvalidDataException("Expected CRLF after chunk data");
     }
 }

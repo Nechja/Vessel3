@@ -58,7 +58,7 @@ internal sealed class FileObjectStore(string root, BlobPool blobs) : IDisposable
 
     private Result<StoredObject> GetFrom(Bucket b, string bucket, string key) =>
         b.Index.GetCurrent(key) is Result<VersionEntry?>.Success { Value: { } entry }
-        && entry.Kind != EventKind.DeleteMarker
+        && entry.Kind is not EventKind.DeleteMarker
             ? OpenBlob(entry)
             : new NotFoundError($"{bucket}/{key}");
 
@@ -73,7 +73,7 @@ internal sealed class FileObjectStore(string root, BlobPool blobs) : IDisposable
 
     private Result<ObjectStat> StatFrom(Bucket b, string bucket, string key) =>
         b.Index.GetCurrent(key) is Result<VersionEntry?>.Success { Value: { } entry }
-        && entry.Kind != EventKind.DeleteMarker
+        && entry.Kind is not EventKind.DeleteMarker
             ? new ObjectStat(entry.Size, entry.At, entry.BlobSha, entry.ContentType)
             : new NotFoundError($"{bucket}/{key}");
 

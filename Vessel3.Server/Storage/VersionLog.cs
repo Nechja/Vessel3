@@ -1,9 +1,10 @@
-using MemoryPack;
+using System.Text.Json;
 
 namespace Vessel3.Server.Storage;
 
 // Append-only event log per bucket. Source of truth for versioning state.
-// Wire format: repeating [4-byte little-endian length][MemoryPack body].
+// Wire format: one JSON-encoded VersionEvent per line, LF-terminated.
+// `cat log` is a meaningful operation.
 internal sealed class VersionLog(string path) : IDisposable
 {
     private readonly Lock writeLock = new();
@@ -34,31 +35,27 @@ internal sealed class VersionLog(string path) : IDisposable
     {
         if (writer is null) throw new InvalidOperationException("Log not opened");
 
-        var ev = new VersionEvent(
-            Seq: 0,
-            At: DateTimeOffset.UtcNow,
-            Key: key,
-            VersionId: versionId,
-            BlobSha: blobSha,
-            Kind: kind,
-            Size: size,
-            ContentType: contentType);
-
+        VersionEvent ev;
         lock (writeLock)
         {
-            ev = ev with { Seq = nextSeq++ };
-            var body = MemoryPackSerializer.Serialize(ev);
-            Span<byte> header = stackalloc byte[4];
-            BitConverter.TryWriteBytes(header, body.Length);
-            writer.Write(header);
+            ev = new VersionEvent(
+                Seq: nextSeq++,
+                At: DateTimeOffset.UtcNow,
+                Key: key,
+                VersionId: versionId,
+                BlobSha: blobSha,
+                Kind: kind,
+                Size: size,
+                ContentType: contentType);
+
+            var body = JsonSerializer.SerializeToUtf8Bytes(ev, VersionEventContext.Default.VersionEvent);
             writer.Write(body);
+            writer.WriteByte((byte)'\n');
             writer.Flush(flushToDisk: true);
         }
-
         return ev;
     }
 
-    // Read entries in order; consumer filters by seq if needed.
     public IEnumerable<VersionEvent> Replay()
     {
         if (!File.Exists(path)) yield break;
@@ -71,19 +68,12 @@ internal sealed class VersionLog(string path) : IDisposable
             BufferSize = 8192,
             Options = FileOptions.SequentialScan,
         });
+        using var reader = new StreamReader(fs);
 
-        var header = new byte[4];
-        while (true)
+        while (reader.ReadLine() is { } line)
         {
-            var n = fs.Read(header, 0, 4);
-            if (n == 0) yield break;
-            if (n != 4) throw new InvalidDataException("Truncated log header");
-
-            var len = BitConverter.ToInt32(header, 0);
-            var body = new byte[len];
-            fs.ReadExactly(body, 0, len);
-
-            var ev = MemoryPackSerializer.Deserialize<VersionEvent>(body)
+            if (line.Length is 0) continue;
+            var ev = JsonSerializer.Deserialize(line, VersionEventContext.Default.VersionEvent)
                 ?? throw new InvalidDataException("Null event in log");
             yield return ev;
         }

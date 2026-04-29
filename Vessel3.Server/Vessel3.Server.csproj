@@ -26,7 +26,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
-    <PackageReference Include="MemoryPack" Version="*" />
     <PackageReference Include="Ulid" Version="*" />
   </ItemGroup>
 

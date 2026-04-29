@@ -1,16 +1,15 @@
-using MemoryPack;
+using System.Text.Json.Serialization;
 
 namespace Vessel3.Server.Storage;
 
-internal enum EventKind : byte
+internal enum EventKind
 {
     Put = 0,
     DeleteMarker = 1,
     HardDelete = 2,
 }
 
-[MemoryPackable]
-internal sealed partial record VersionEvent(
+internal sealed record VersionEvent(
     long Seq,
     DateTimeOffset At,
     string Key,
@@ -20,3 +19,7 @@ internal sealed partial record VersionEvent(
     long Size,
     string ContentType
 );
+
+[JsonSourceGenerationOptions(UseStringEnumConverter = true, WriteIndented = false)]
+[JsonSerializable(typeof(VersionEvent))]
+internal sealed partial class VersionEventContext : JsonSerializerContext;

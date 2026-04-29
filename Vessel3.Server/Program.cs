@@ -145,7 +145,9 @@ app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpResponse res) =>
     if (result is Result<StoredObject>.Failure) return Results.StatusCode(500);
 
     var ok = ((Result<StoredObject>.Success)result).Value;
-    res.Headers.ETag = $"\"{ok.Etag}\"";
+    // ETag is SHA256 hex; AWS SDKs assume ETag = MD5 of body and reject otherwise.
+    // Expose the SHA256 via the modern additional-checksum header instead.
+    res.Headers["x-amz-checksum-sha256"] = ok.Etag;
     return Results.File(
         ok.Body,
         ok.ContentType,

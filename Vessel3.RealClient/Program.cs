@@ -13,6 +13,9 @@ var config = new AmazonS3Config
     ServiceURL = endpoint,
     ForcePathStyle = true,
     AuthenticationRegion = region,
+    // Server's ETag is SHA256 hex, not MD5; disable client-side hash verification.
+    RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+    ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
 };
 
 using var s3 = new AmazonS3Client(new BasicAWSCredentials(accessKey, secretKey), config);

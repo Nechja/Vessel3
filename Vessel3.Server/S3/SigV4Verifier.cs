@@ -25,7 +25,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
             return new AuthorizationHeaderMalformedError("Missing Credential / SignedHeaders / Signature");
 
         var credParts = credential.Split('/');
-        if (credParts.Length != 5 || credParts[4] != Terminator)
+        if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
         var ak = credParts[0];

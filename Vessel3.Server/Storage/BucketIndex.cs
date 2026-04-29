@@ -50,7 +50,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void Apply(VersionEvent ev)
     {
-        if (ev.Kind == EventKind.HardDelete)
+        if (ev.Kind is EventKind.HardDelete)
         {
             HardDelete(ev.Key, ev.VersionId);
             return;
