@@ -100,7 +100,7 @@ internal sealed class S3XmlWriter
         await w.WriteElementStringAsync(null, "Key", null, c.Key);
         await w.WriteElementStringAsync(null, "LastModified", null,
             c.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, "\"-\"");
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{c.Etag}\"");
         await w.WriteElementStringAsync(null, "Size", null, c.Size.ToString(CultureInfo.InvariantCulture));
         await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
         await w.WriteEndElementAsync();

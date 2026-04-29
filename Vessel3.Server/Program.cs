@@ -3,6 +3,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
 using Vessel3.Server.S3;
+using Vessel3.Server.Storage;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 var app = builder.Build();
@@ -10,9 +11,10 @@ var app = builder.Build();
 var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);
-var cursors = new ListCursorStore();
+
+var blobs = new BlobPool(Path.Combine(dataRoot, "blobs"));
 var xml = new S3XmlWriter();
-var store = new FileObjectStore(dataRoot, cursors);
+var store = new FileObjectStore(dataRoot, blobs);
 
 var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
@@ -114,7 +116,7 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket) =>
     };
 });
 
-app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, CancellationToken ct) =>
+app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest req, HttpResponse res, CancellationToken ct) =>
 {
     var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
         || req.Headers["x-amz-content-sha256"].ToString().Contains("STREAMING-", StringComparison.Ordinal);
@@ -122,31 +124,33 @@ app.MapPut("/{bucket}/{**key}", async (string bucket, string key, HttpRequest re
     var declaredLength = isChunked
         ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
         : req.ContentLength;
-    var result = await store.Put(bucket, key, body, declaredLength, ct);
-    return result switch
-    {
-        Result<long>.Success => Results.Ok(),
-        Result<long>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<long>.Failure => Results.StatusCode(500),
-        _ => throw new UnreachableException(),
-    };
+    var contentType = req.ContentType;
+
+    var result = await store.Put(bucket, key, body, declaredLength, contentType, ct);
+    if (result is Result<PutOutcome>.Failure { Error: NotFoundError }) return Results.NotFound();
+    if (result is Result<PutOutcome>.Failure { Error: InvalidPathError }) return Results.BadRequest();
+    if (result is Result<PutOutcome>.Failure) return Results.StatusCode(500);
+
+    var put = ((Result<PutOutcome>.Success)result).Value;
+    res.Headers.ETag = $"\"{put.Etag}\"";
+    res.Headers["x-amz-version-id"] = put.VersionId;
+    return Results.Ok();
 });
 
-app.MapGet("/{bucket}/{**key}", (string bucket, string key) =>
+app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpResponse res) =>
 {
     var result = store.Get(bucket, key);
-    return result switch
-    {
-        Result<StoredObject>.Success ok => Results.File(
-            ok.Value.Body,
-            "application/octet-stream",
-            lastModified: ok.Value.LastModified,
-            enableRangeProcessing: true),
-        Result<StoredObject>.Failure { Error: NotFoundError } => Results.NotFound(),
-        Result<StoredObject>.Failure { Error: InvalidPathError } => Results.BadRequest(),
-        Result<StoredObject>.Failure => Results.StatusCode(500),
-        _ => throw new UnreachableException(),
-    };
+    if (result is Result<StoredObject>.Failure { Error: NotFoundError }) return Results.NotFound();
+    if (result is Result<StoredObject>.Failure { Error: InvalidPathError }) return Results.BadRequest();
+    if (result is Result<StoredObject>.Failure) return Results.StatusCode(500);
+
+    var ok = ((Result<StoredObject>.Success)result).Value;
+    res.Headers.ETag = $"\"{ok.Etag}\"";
+    return Results.File(
+        ok.Body,
+        ok.ContentType,
+        lastModified: ok.LastModified,
+        enableRangeProcessing: true);
 });
 
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpResponse res) =>
@@ -158,7 +162,8 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpRe
 
     var stat = ((Result<ObjectStat>.Success)result).Value;
     res.ContentLength = stat.Size;
-    res.ContentType = "application/octet-stream";
+    res.ContentType = stat.ContentType;
+    res.Headers.ETag = $"\"{stat.Etag}\"";
     res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
     return Results.Empty;
 });
