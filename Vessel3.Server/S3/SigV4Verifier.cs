@@ -36,7 +36,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         if (!ConstantTimeEquals(ak, accessKey))
             return new InvalidAccessKeyIdError(ak);
 
-        if (svc != Service)
+        if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
 
         if (reg != region)
@@ -121,12 +121,12 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
 
     private string CanonicalQuery(IQueryCollection query)
     {
-        if (query.Count == 0) return string.Empty;
+        if (query.Count is 0) return string.Empty;
         var pairs = new List<(string K, string V)>();
         foreach (var kv in query)
         {
             var encodedKey = PercentEncode(kv.Key, encodeSlash: true);
-            if (kv.Value.Count == 0)
+            if (kv.Value.Count is 0)
             {
                 pairs.Add((encodedKey, string.Empty));
                 continue;
@@ -137,7 +137,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         pairs.Sort((a, b) =>
         {
             var c = string.CompareOrdinal(a.K, b.K);
-            return c != 0 ? c : string.CompareOrdinal(a.V, b.V);
+            return c is not 0 ? c : string.CompareOrdinal(a.V, b.V);
         });
         var sb = new StringBuilder();
         for (var i = 0; i < pairs.Count; i++)
@@ -154,7 +154,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var sb = new StringBuilder(bytes.Length);
         foreach (var b in bytes)
         {
-            if (IsUnreserved(b) || (!encodeSlash && b == (byte)'/'))
+            if (IsUnreserved(b) || (!encodeSlash && b is (byte)'/'))
                 sb.Append((char)b);
             else
                 sb.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
