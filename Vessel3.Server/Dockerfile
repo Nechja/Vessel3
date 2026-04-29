@@ -17,13 +17,13 @@ WORKDIR /src
 
 COPY global.json ./
 COPY Directory.Build.props ./
-COPY src/Vessel3.Server/Vessel3.Server.csproj src/Vessel3.Server/
-RUN dotnet restore src/Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID}
+COPY Vessel3.Server/Vessel3.Server.csproj Vessel3.Server/
+RUN dotnet restore Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID}
 
 COPY .editorconfig ./
-COPY src/ src/
+COPY Vessel3.Server/ Vessel3.Server/
 
-RUN dotnet publish src/Vessel3.Server/Vessel3.Server.csproj \
+RUN dotnet publish Vessel3.Server/Vessel3.Server.csproj \
     -c Release \
     -r ${TARGET_RID} \
     --no-restore \
