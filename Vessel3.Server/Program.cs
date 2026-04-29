@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
+using Vessel3.Server.S3;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 var app = builder.Build();

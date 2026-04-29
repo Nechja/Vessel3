@@ -1,10 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Xml;
+using Vessel3.Server;
 
 namespace Vessel3.Server.S3;
-
-using Vessel3.Server;
 
 internal sealed class S3XmlWriter
 {
