@@ -27,6 +27,7 @@ builder.Services.AddSingleton<IBucketRegistry>(_ => new BucketRegistry(dataRoot)
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
+builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
 
 var app = builder.Build();
 
@@ -84,6 +85,34 @@ app.MapDelete("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResult
     registry.Delete(bucket).Match<IResult>(
         _ => Results.NoContent(),
         http.Map));
+
+app.MapPost("/{bucket}", async (
+    string bucket,
+    HttpRequest req, HttpResponse res,
+    IObjectStore objects, IS3XmlReader reader, IS3XmlWriter xml, IHttpResultMapper http,
+    CancellationToken ct) =>
+{
+    if (!req.Query.ContainsKey("delete"))
+        return http.Map(new InvalidPathError("POST requires ?delete"));
+
+    var parsed = await reader.ReadBatchDeleteRequest(req.Body, ct);
+    if (parsed is Result<BatchDeleteRequest>.Failure f) return http.Map(f.Error);
+
+    var request = ((Result<BatchDeleteRequest>.Success)parsed).Value;
+    var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
+    foreach (var k in request.Keys)
+    {
+        var result = objects.Delete(bucket, k.Key);
+        outcomes.Add(result is Result<bool>.Failure df
+            ? new BatchDeleteOutcome(k.Key, k.VersionId, df.Error)
+            : new BatchDeleteOutcome(k.Key, k.VersionId, null));
+    }
+
+    res.ContentType = "application/xml";
+    return Results.Stream(
+        async stream => await xml.WriteBatchDeleteResult(stream, outcomes, request.Quiet, ct),
+        "application/xml");
+});
 
 app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
     registry.Exists(bucket).Match<IResult>(

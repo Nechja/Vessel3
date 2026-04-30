@@ -11,6 +11,7 @@ internal interface IS3XmlWriter
     Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
     Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
     Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
+    Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -80,6 +81,39 @@ internal sealed class S3XmlWriter : IS3XmlWriter
                 ListEntry.CommonPrefix cp => WriteCommonPrefix(w, cp),
                 _ => Task.CompletedTask,
             });
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "DeleteResult", S3Namespace);
+
+        foreach (var outcome in outcomes)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (outcome.Error is null)
+            {
+                if (quiet) continue;
+                await w.WriteStartElementAsync(null, "Deleted", null);
+                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                if (outcome.VersionId is not null)
+                    await w.WriteElementStringAsync(null, "VersionId", null, outcome.VersionId);
+                await w.WriteEndElementAsync();
+            }
+            else
+            {
+                await w.WriteStartElementAsync(null, "Error", null);
+                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                await w.WriteElementStringAsync(null, "Code", null, outcome.Error.Code);
+                await w.WriteElementStringAsync(null, "Message", null, outcome.Error.Message);
+                await w.WriteEndElementAsync();
+            }
         }
 
         await w.WriteEndElementAsync();

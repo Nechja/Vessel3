@@ -25,6 +25,10 @@ internal sealed record PreconditionFailedError(string Resource)
     : Error("PreconditionFailed", $"At least one of the preconditions failed for {Resource}")
 { public override int Status => 412; }
 
+internal sealed record MalformedXmlError(string Detail)
+    : Error("MalformedXML", $"Could not parse XML body: {Detail}")
+{ public override int Status => 400; }
+
 internal sealed record MissingSecurityHeaderError(string Header)
     : Error("MissingSecurityHeader", $"Required header {Header} is missing")
 { public override int Status => 400; }
