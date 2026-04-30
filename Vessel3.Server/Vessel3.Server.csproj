@@ -24,4 +24,9 @@
     <RuntimeIdentifiers>linux-musl-x64;linux-musl-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
+    <PackageReference Include="Ulid" Version="*" />
+  </ItemGroup>
+
 </Project>

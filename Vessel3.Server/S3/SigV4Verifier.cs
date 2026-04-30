@@ -1,8 +1,15 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Vessel3.Server;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.S3;
+
+internal sealed record SignatureContext(
+    string Signature,
+    byte[] SigningKey,
+    string AmzDate,
+    string Scope);
 
 internal sealed class SigV4Verifier(string accessKey, string secret, string region)
 {
@@ -11,7 +18,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
     private const string Terminator = "aws4_request";
     private static readonly TimeSpan SkewAllowance = TimeSpan.FromMinutes(15);
 
-    public Result<bool> Verify(HttpRequest req)
+    public Result<SignatureContext> Verify(HttpRequest req)
     {
         var auth = req.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(auth))
@@ -24,7 +31,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
             return new AuthorizationHeaderMalformedError("Missing Credential / SignedHeaders / Signature");
 
         var credParts = credential.Split('/');
-        if (credParts.Length != 5 || credParts[4] != Terminator)
+        if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
         var ak = credParts[0];
@@ -35,7 +42,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         if (!ConstantTimeEquals(ak, accessKey))
             return new InvalidAccessKeyIdError(ak);
 
-        if (svc != Service)
+        if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
 
         if (reg != region)
@@ -70,8 +77,8 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
-            ? (Result<bool>)true
-            : new SignatureDoesNotMatchError();
+            ? new SignatureContext(signature, signingKey, amzDate, scope)
+            : (Result<SignatureContext>)new SignatureDoesNotMatchError();
     }
 
     private bool TryParseAuth(string body, out string credential, out string signedHeaders, out string signature)
@@ -120,12 +127,12 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
 
     private string CanonicalQuery(IQueryCollection query)
     {
-        if (query.Count == 0) return string.Empty;
+        if (query.Count is 0) return string.Empty;
         var pairs = new List<(string K, string V)>();
         foreach (var kv in query)
         {
             var encodedKey = PercentEncode(kv.Key, encodeSlash: true);
-            if (kv.Value.Count == 0)
+            if (kv.Value.Count is 0)
             {
                 pairs.Add((encodedKey, string.Empty));
                 continue;
@@ -136,7 +143,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         pairs.Sort((a, b) =>
         {
             var c = string.CompareOrdinal(a.K, b.K);
-            return c != 0 ? c : string.CompareOrdinal(a.V, b.V);
+            return c is not 0 ? c : string.CompareOrdinal(a.V, b.V);
         });
         var sb = new StringBuilder();
         for (var i = 0; i < pairs.Count; i++)
@@ -153,7 +160,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var sb = new StringBuilder(bytes.Length);
         foreach (var b in bytes)
         {
-            if (IsUnreserved(b) || (!encodeSlash && b == (byte)'/'))
+            if (IsUnreserved(b) || (!encodeSlash && b is (byte)'/'))
                 sb.Append((char)b);
             else
                 sb.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));

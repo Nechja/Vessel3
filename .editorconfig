@@ -117,6 +117,8 @@ dotnet_diagnostic.CA1716.severity = none
 dotnet_diagnostic.CA2000.severity = none
 # Instance methods over static Code Guidelines restrict static to a specific allow-list
 dotnet_diagnostic.CA1822.severity = none
+# Local variables typed as interfaces are intentional (DIP / consistency with DI registration)
+dotnet_diagnostic.CA1859.severity = none
 
 # --- Style / quality of life ---
 csharp_using_directive_placement = outside_namespace:error

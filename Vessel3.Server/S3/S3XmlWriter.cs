@@ -1,10 +1,20 @@
 using System.Globalization;
 using System.Text;
 using System.Xml;
+using Vessel3.Server;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.S3;
 
-internal sealed class S3XmlWriter
+internal interface IS3XmlWriter
+{
+    Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct);
+    Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
+    Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
+    Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
+    Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
+}
+
+internal sealed class S3XmlWriter : IS3XmlWriter
 {
     private const string S3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
     private const string Iso8601Ms = "yyyy-MM-ddTHH:mm:ss.fffZ";
@@ -78,6 +88,53 @@ internal sealed class S3XmlWriter
         await w.FlushAsync();
     }
 
+    public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "DeleteResult", S3Namespace);
+
+        foreach (var outcome in outcomes)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (outcome.Error is null)
+            {
+                if (quiet) continue;
+                await w.WriteStartElementAsync(null, "Deleted", null);
+                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                if (outcome.VersionId is not null)
+                    await w.WriteElementStringAsync(null, "VersionId", null, outcome.VersionId);
+                await w.WriteEndElementAsync();
+            }
+            else
+            {
+                await w.WriteStartElementAsync(null, "Error", null);
+                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                await w.WriteElementStringAsync(null, "Code", null, outcome.Error.Code);
+                await w.WriteElementStringAsync(null, "Message", null, outcome.Error.Message);
+                await w.WriteEndElementAsync();
+            }
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "CopyObjectResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            outcome.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{outcome.Etag}\"");
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
     public async Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -99,7 +156,7 @@ internal sealed class S3XmlWriter
         await w.WriteElementStringAsync(null, "Key", null, c.Key);
         await w.WriteElementStringAsync(null, "LastModified", null,
             c.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, "\"-\"");
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{c.Etag}\"");
         await w.WriteElementStringAsync(null, "Size", null, c.Size.ToString(CultureInfo.InvariantCulture));
         await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
         await w.WriteEndElementAsync();
