@@ -5,6 +5,12 @@ using Vessel3.Server;
 
 namespace Vessel3.Server.S3;
 
+internal sealed record SignatureContext(
+    string Signature,
+    byte[] SigningKey,
+    string AmzDate,
+    string Scope);
+
 internal sealed class SigV4Verifier(string accessKey, string secret, string region)
 {
     private const string AlgorithmPrefix = "AWS4-HMAC-SHA256 ";
@@ -12,7 +18,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
     private const string Terminator = "aws4_request";
     private static readonly TimeSpan SkewAllowance = TimeSpan.FromMinutes(15);
 
-    public Result<bool> Verify(HttpRequest req)
+    public Result<SignatureContext> Verify(HttpRequest req)
     {
         var auth = req.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(auth))
@@ -71,8 +77,8 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
-            ? (Result<bool>)true
-            : new SignatureDoesNotMatchError();
+            ? new SignatureContext(signature, signingKey, amzDate, scope)
+            : (Result<SignatureContext>)new SignatureDoesNotMatchError();
     }
 
     private bool TryParseAuth(string body, out string credential, out string signedHeaders, out string signature)

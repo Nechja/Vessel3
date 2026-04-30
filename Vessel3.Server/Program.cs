@@ -34,11 +34,12 @@ if (verifier is not null)
     app.Use(async (ctx, next) =>
     {
         var result = verifier.Verify(ctx.Request);
-        if (result is Result<bool>.Failure f)
+        if (result is Result<SignatureContext>.Failure f)
         {
             await http.Map(f.Error).ExecuteAsync(ctx);
             return;
         }
+        ctx.Items["sigctx"] = ((Result<SignatureContext>.Success)result).Value;
         await next();
     });
 }
@@ -97,7 +98,8 @@ app.MapPut("/{bucket}/{**key}", async (
     var contentSha = req.Headers["x-amz-content-sha256"].ToString();
     var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
         || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
-    var body = isChunked ? (Stream)new AwsChunkedStream(req.Body) : req.Body;
+    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
+    var body = isChunked ? (Stream)new AwsChunkedStream(req.Body, sigCtx) : req.Body;
     var declaredLength = isChunked
         ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
         : req.ContentLength;
@@ -105,7 +107,16 @@ app.MapPut("/{bucket}/{**key}", async (
         ? null
         : contentSha;
 
-    var result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, ct);
+    Result<PutOutcome> result;
+    try
+    {
+        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, ct);
+    }
+    catch (InvalidDataException ex)
+    {
+        return http.Map(new BadDigestError(ex.Message));
+    }
+
     return result.Match<IResult>(
         put =>
         {

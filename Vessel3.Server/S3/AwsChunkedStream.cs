@@ -1,13 +1,18 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Vessel3.Server.S3;
 
-internal sealed class AwsChunkedStream(Stream inner) : Stream
+internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null) : Stream
 {
+    private const string EmptyStringSha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
     private byte[] currentChunk = [];
     private int currentOffset;
     private int currentLength;
     private bool eof;
+    private string previousSignature = sigCtx?.Signature ?? string.Empty;
 
     public override bool CanRead => true;
     public override bool CanSeek => false;
@@ -34,18 +39,25 @@ internal sealed class AwsChunkedStream(Stream inner) : Stream
             var header = await ReadLine(ct);
             if (header is null) { eof = true; return 0; }
 
-            var semi = header.IndexOf(';', StringComparison.Ordinal);
-            var sizeHex = semi >= 0 ? header[..semi] : header;
-            var size = int.Parse(sizeHex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+            var (size, declaredSig) = ParseChunkHeader(header);
 
-            if (size is 0) { eof = true; return 0; }
-
-            if (currentChunk.Length < size) currentChunk = new byte[size];
+            if (currentChunk.Length < size) currentChunk = new byte[Math.Max(size, 1)];
             currentLength = size;
             currentOffset = 0;
 
-            await inner.ReadExactlyAsync(currentChunk.AsMemory(0, size), ct);
-            await ReadCrLf(ct);
+            if (size > 0)
+            {
+                await inner.ReadExactlyAsync(currentChunk.AsMemory(0, size), ct);
+                await ReadCrLf(ct);
+            }
+
+            if (sigCtx is not null)
+            {
+                VerifyChunkSignature(currentChunk.AsSpan(0, size), declaredSig);
+                previousSignature = declaredSig;
+            }
+
+            if (size is 0) { eof = true; return 0; }
         }
 
         var remaining = currentLength - currentOffset;
@@ -57,6 +69,35 @@ internal sealed class AwsChunkedStream(Stream inner) : Stream
 
     public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
         ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
+    private void VerifyChunkSignature(ReadOnlySpan<byte> chunk, string declaredSig)
+    {
+        var dataSha = Convert.ToHexStringLower(SHA256.HashData(chunk));
+        var stringToSign =
+            $"AWS4-HMAC-SHA256-PAYLOAD\n{sigCtx!.AmzDate}\n{sigCtx.Scope}\n{previousSignature}\n{EmptyStringSha}\n{dataSha}";
+        var expected = Convert.ToHexStringLower(
+            HMACSHA256.HashData(sigCtx.SigningKey, Encoding.UTF8.GetBytes(stringToSign)));
+
+        if (expected.Length != declaredSig.Length
+            || !CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(expected),
+                Encoding.ASCII.GetBytes(declaredSig)))
+            throw new InvalidDataException(
+                $"Chunk signature mismatch (expected {expected}, got {declaredSig})");
+    }
+
+    private (int Size, string Signature) ParseChunkHeader(string header)
+    {
+        var semi = header.IndexOf(';', StringComparison.Ordinal);
+        if (semi < 0)
+            return (int.Parse(header, NumberStyles.HexNumber, CultureInfo.InvariantCulture), string.Empty);
+
+        var sizeHex = header[..semi];
+        var rest = header[(semi + 1)..];
+        var eq = rest.IndexOf('=', StringComparison.Ordinal);
+        var sig = eq >= 0 ? rest[(eq + 1)..] : string.Empty;
+        return (int.Parse(sizeHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture), sig);
+    }
 
     private async Task<string?> ReadLine(CancellationToken ct)
     {
