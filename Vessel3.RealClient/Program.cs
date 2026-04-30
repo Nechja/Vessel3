@@ -64,6 +64,30 @@ await Run("GetObject",      async () =>
     if (got != body) throw new InvalidOperationException($"body mismatch: got '{got}', expected '{body}'");
 });
 
+await Run("UserMetadata",   async () =>
+{
+    const string metaKey = "user-meta.txt";
+    using var ms = new MemoryStream(Encoding.UTF8.GetBytes("metadata test"));
+    var put = new PutObjectRequest
+    {
+        BucketName = bucket,
+        Key = metaKey,
+        InputStream = ms,
+        ContentType = "text/plain",
+    };
+    put.Metadata.Add("foo", "bar");
+    put.Metadata.Add("answer", "42");
+    await s3.PutObjectAsync(put);
+
+    var head = await s3.GetObjectMetadataAsync(bucket, metaKey);
+    var foo = head.Metadata["foo"];
+    var answer = head.Metadata["answer"];
+    if (foo != "bar") throw new InvalidOperationException($"foo: got '{foo}', expected 'bar'");
+    if (answer != "42") throw new InvalidOperationException($"answer: got '{answer}', expected '42'");
+
+    await s3.DeleteObjectAsync(bucket, metaKey);
+});
+
 await Run("DeleteObject",   () => s3.DeleteObjectAsync(bucket, key));
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
 
