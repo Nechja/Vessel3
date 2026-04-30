@@ -10,6 +10,7 @@ internal interface IS3XmlWriter
     Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct);
     Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
     Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
+    Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -81,6 +82,20 @@ internal sealed class S3XmlWriter : IS3XmlWriter
             });
         }
 
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "CopyObjectResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            outcome.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{outcome.Etag}\"");
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();

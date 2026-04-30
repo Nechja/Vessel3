@@ -3,18 +3,20 @@ using Vessel3.Server.Storage;
 namespace Vessel3.Server;
 
 internal sealed record PutOutcome(string Etag, string Sha256, string VersionId, long Size);
+internal sealed record CopyOutcome(string Etag, DateTimeOffset LastModified, string VersionId);
 internal sealed record StoredObject(Stream Body, long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType);
 internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType);
 
 internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, CancellationToken ct);
+    Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders);
     Result<StoredObject> Get(string bucket, string key);
     Result<ObjectStat> Stat(string bucket, string key);
     Result<bool> Delete(string bucket, string key);
 }
 
-internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs) : IObjectStore
+internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre) : IObjectStore
 {
     public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, CancellationToken ct) =>
         !registry.IsValidName(bucket) ? Task.FromResult<Result<PutOutcome>>(new InvalidPathError(bucket))
@@ -36,6 +38,29 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs) : I
         : registry.Open(bucket) is { } b
             ? StatFrom(b, bucket, key)
             : new NotFoundError(bucket);
+
+    public Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders)
+    {
+        if (!registry.IsValidName(destBucket)) return new InvalidPathError(destBucket);
+        if (string.IsNullOrEmpty(destKey)) return new InvalidPathError($"{destBucket}/{destKey}");
+        if (!registry.IsValidName(srcBucket)) return new InvalidPathError(srcBucket);
+        if (string.IsNullOrEmpty(srcKey)) return new InvalidPathError($"{srcBucket}/{srcKey}");
+
+        var src = registry.Open(srcBucket);
+        if (src is null) return new NotFoundError(srcBucket);
+
+        if (src.Index.GetCurrentPut(srcKey) is not Result<PutEntry?>.Success { Value: { } srcEntry })
+            return new NotFoundError($"{srcBucket}/{srcKey}");
+
+        var precond = pre.EvaluateCopySource(copyHeaders, srcEntry.Md5, srcEntry.At);
+        if (precond is Precondition.Failed) return new PreconditionFailedError($"{srcBucket}/{srcKey}");
+
+        var dest = registry.Open(destBucket);
+        if (dest is null) return new NotFoundError(destBucket);
+
+        var written = dest.AppendPut(destKey, srcEntry.BlobSha, srcEntry.Md5, srcEntry.Size, srcEntry.ContentType);
+        return new CopyOutcome(written.Md5, written.At, written.VersionId);
+    }
 
     public Result<bool> Delete(string bucket, string key) =>
         !registry.IsValidName(bucket) ? new InvalidPathError(bucket)

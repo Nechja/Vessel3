@@ -93,9 +93,24 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, 
 app.MapPut("/{bucket}/{**key}", async (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre,
+    IObjectStore objects, IHttpResultMapper http, IS3XmlWriter xml, IPreconditionEvaluator pre,
     CancellationToken ct) =>
 {
+    var copySource = req.Headers["x-amz-copy-source"].ToString();
+    if (!string.IsNullOrEmpty(copySource))
+    {
+        return TryParseCopySource(copySource, out var srcBucket, out var srcKey)
+            ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers).Match<IResult>(
+                outcome =>
+                {
+                    res.Headers["x-amz-copy-source-version-id"] = outcome.VersionId;
+                    res.ContentType = "application/xml";
+                    return Results.Stream(async stream => await xml.WriteCopyObjectResult(stream, outcome, ct), "application/xml");
+                },
+                http.Map)
+            : http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
+    }
+
     if (pre.HasWriteConditions(req.Headers))
     {
         var existing = objects.Stat(bucket, key);
@@ -190,3 +205,17 @@ app.MapDelete("/{bucket}/{**key}", (string bucket, string key, IObjectStore obje
         http.Map));
 
 app.Run();
+
+static bool TryParseCopySource(string raw, out string bucket, out string key)
+{
+    bucket = string.Empty;
+    key = string.Empty;
+    var trimmed = raw.StartsWith('/') ? raw[1..] : raw;
+    var qm = trimmed.IndexOf('?', StringComparison.Ordinal);
+    if (qm >= 0) trimmed = trimmed[..qm];
+    var slash = trimmed.IndexOf('/', StringComparison.Ordinal);
+    if (slash <= 0 || slash == trimmed.Length - 1) return false;
+    bucket = trimmed[..slash];
+    key = Uri.UnescapeDataString(trimmed[(slash + 1)..]);
+    return true;
+}
