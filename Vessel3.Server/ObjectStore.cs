@@ -8,7 +8,7 @@ internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string
 
 internal interface IObjectStore
 {
-    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct);
+    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, CancellationToken ct);
     Result<StoredObject> Get(string bucket, string key);
     Result<ObjectStat> Stat(string bucket, string key);
     Result<bool> Delete(string bucket, string key);
@@ -16,11 +16,11 @@ internal interface IObjectStore
 
 internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs) : IObjectStore
 {
-    public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct) =>
+    public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, CancellationToken ct) =>
         !registry.IsValidName(bucket) ? Task.FromResult<Result<PutOutcome>>(new InvalidPathError(bucket))
         : string.IsNullOrEmpty(key) ? Task.FromResult<Result<PutOutcome>>(new InvalidPathError($"{bucket}/{key}"))
         : registry.Open(bucket) is { } b
-            ? PutInto(b, key, body, declaredSize, contentType, ct)
+            ? PutInto(b, key, body, declaredSize, contentType, declaredSha256, ct)
             : Task.FromResult<Result<PutOutcome>>(new NotFoundError(bucket));
 
     public Result<StoredObject> Get(string bucket, string key) =>
@@ -42,11 +42,14 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs) : I
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
         : registry.Open(bucket)?.AppendHardDeleteCurrent(key) ?? false;
 
-    private async Task<Result<PutOutcome>> PutInto(Bucket b, string key, Stream body, long? declaredSize, string? contentType, CancellationToken ct) =>
+    private async Task<Result<PutOutcome>> PutInto(Bucket b, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, CancellationToken ct) =>
         await blobs.Write(body, declaredSize, ct) switch
         {
-            Result<StoredBlob>.Success ok => RecordPut(b, key, ok.Value, contentType),
             Result<StoredBlob>.Failure bf => bf.Error,
+            Result<StoredBlob>.Success ok when declaredSha256 is not null
+                && !string.Equals(ok.Value.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase)
+                => new BadDigestError($"declared {declaredSha256}, actual {ok.Value.Sha}"),
+            Result<StoredBlob>.Success ok => RecordPut(b, key, ok.Value, contentType),
             _ => throw new System.Diagnostics.UnreachableException(),
         };
 

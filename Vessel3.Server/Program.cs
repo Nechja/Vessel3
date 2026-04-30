@@ -94,14 +94,18 @@ app.MapPut("/{bucket}/{**key}", async (
     IObjectStore objects, IHttpResultMapper http,
     CancellationToken ct) =>
 {
+    var contentSha = req.Headers["x-amz-content-sha256"].ToString();
     var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
-        || req.Headers["x-amz-content-sha256"].ToString().Contains("STREAMING-", StringComparison.Ordinal);
+        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
     var body = isChunked ? (Stream)new AwsChunkedStream(req.Body) : req.Body;
     var declaredLength = isChunked
         ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
         : req.ContentLength;
+    var declaredSha = (isChunked || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
+        ? null
+        : contentSha;
 
-    var result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, ct);
+    var result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, ct);
     return result.Match<IResult>(
         put =>
         {

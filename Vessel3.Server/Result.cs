@@ -17,6 +17,10 @@ internal sealed record BucketNotEmptyError(string Bucket)
     : Error("BucketNotEmpty", $"Bucket {Bucket} is not empty")
 { public override int Status => 409; }
 
+internal sealed record BadDigestError(string Detail)
+    : Error("BadDigest", $"Content does not match declared hash: {Detail}")
+{ public override int Status => 400; }
+
 internal sealed record MissingSecurityHeaderError(string Header)
     : Error("MissingSecurityHeader", $"Required header {Header} is missing")
 { public override int Status => 400; }
