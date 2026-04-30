@@ -1,4 +1,5 @@
 using System.Text;
+using Vessel3.Server.Storage;
 
 namespace Vessel3.Server;
 
@@ -30,21 +31,23 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
 {
     public Result<ListPage> List(ListRequest req, string? continuationToken)
     {
-        if (!registry.IsValidName(req.Bucket)) return new InvalidPathError(req.Bucket);
-
-        var b = registry.Open(req.Bucket);
-        if (b is null) return new NotFoundError(req.Bucket);
-
         var startKey = continuationToken is not null
             ? Encoding.UTF8.GetString(Convert.FromBase64String(continuationToken))
             : req.StartAfter;
 
+        return registry.ListCurrent(req.Bucket, req.Prefix, startKey).Match<Result<ListPage>>(
+            entries => Page(req, entries),
+            err => err);
+    }
+
+    private ListPage Page(ListRequest req, IEnumerable<VersionListEntry> entries)
+    {
         var emitted = new List<ListEntry>();
         string? lastEmittedKey = null;
         string? lastCommonPrefix = null;
         var truncated = false;
 
-        foreach (var entry in b.Index.ListCurrent(req.Prefix, startKey))
+        foreach (var entry in entries)
         {
             if (emitted.Count >= req.MaxKeys)
             {

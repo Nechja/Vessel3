@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Vessel3.Server;
 
@@ -37,8 +38,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms)
-            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at)
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json)
+            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj)
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -49,6 +50,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$sz", ev.Size);
         cmd.Parameters.AddWithValue("$ct", ev.ContentType);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$mj", SerializeMetadata(ev.Metadata));
         cmd.ExecuteNonQuery();
     }
 
@@ -57,8 +59,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms)
-            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at)
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json)
+            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at, '{}')
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -81,7 +83,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
-            SELECT version_id, blob_sha, md5, size, content_type, at_ms
+            SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json
               FROM versions
              WHERE key = $k AND kind = $kp
              ORDER BY seq DESC
@@ -97,7 +99,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 BlobSha: r.GetString(1),
                 Md5: r.GetString(2),
                 Size: r.GetInt64(3),
-                ContentType: r.GetString(4))
+                ContentType: r.GetString(4),
+                Metadata: DeserializeMetadata(r.GetString(6)))
             : (PutEntry?)null;
     }
 
@@ -105,7 +108,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         using var cmd = conn!.CreateCommand();
         var sql = """
-            SELECT v1.key, v1.version_id, v1.blob_sha, v1.md5, v1.size, v1.content_type, v1.at_ms
+            SELECT v1.key, v1.version_id, v1.blob_sha, v1.md5, v1.size, v1.content_type, v1.at_ms, v1.md_json
               FROM versions v1
              WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
                AND v1.kind = $kp
@@ -134,9 +137,22 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 BlobSha: r.GetString(2),
                 Md5: r.GetString(3),
                 Size: r.GetInt64(4),
-                ContentType: r.GetString(5));
+                ContentType: r.GetString(5),
+                Metadata: DeserializeMetadata(r.GetString(7)));
         }
     }
+
+    private string SerializeMetadata(IReadOnlyDictionary<string, string> metadata) =>
+        metadata.Count is 0 ? "{}"
+            : JsonSerializer.Serialize(
+                new Dictionary<string, string>(metadata),
+                VersionEventContext.Default.DictionaryStringString);
+
+    private IReadOnlyDictionary<string, string> DeserializeMetadata(string json) =>
+        string.IsNullOrEmpty(json) || json is "{}"
+            ? []
+            : JsonSerializer.Deserialize(json, VersionEventContext.Default.DictionaryStringString)
+                ?? [];
 
     public bool IsEmpty()
     {
@@ -172,7 +188,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 kind          INTEGER NOT NULL,
                 size          INTEGER NOT NULL,
                 content_type  TEXT NOT NULL,
-                at_ms         INTEGER NOT NULL
+                at_ms         INTEGER NOT NULL,
+                md_json       TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);

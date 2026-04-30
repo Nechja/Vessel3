@@ -4,20 +4,26 @@ using Vessel3.Server.Storage;
 namespace Vessel3.Server;
 
 internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt);
+internal sealed record BucketRegistryOptions(string Root);
 
 internal interface IBucketRegistry : IDisposable
 {
     bool IsValidName(string bucket);
+
     Result<bool> Create(string bucket);
     Result<bool> Delete(string bucket);
     Result<bool> Exists(string bucket);
     IEnumerable<BucketInfo> List();
-    Bucket? Open(string bucket);
+
+    Result<PutEntry?> GetCurrentPut(string bucket, string key);
+    Result<PutEntry> AppendPut(string bucket, string key, string blobSha, string md5, long size, string contentType, IReadOnlyDictionary<string, string> metadata);
+    Result<bool> AppendHardDeleteCurrent(string bucket, string key);
+    Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
 }
 
-internal sealed class BucketRegistry(string root) : IBucketRegistry
+internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketRegistry
 {
-    private readonly string bucketsRoot = Path.Combine(root, "buckets");
+    private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
 
     public bool IsValidName(string bucket) =>
@@ -66,7 +72,39 @@ internal sealed class BucketRegistry(string root) : IBucketRegistry
             yield return new BucketInfo(Path.GetFileName(dir), Directory.GetCreationTimeUtc(dir));
     }
 
-    public Bucket? Open(string bucket)
+    public Result<PutEntry?> GetCurrentPut(string bucket, string key) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket) is { } b
+            ? b.Index.GetCurrentPut(key)
+            : new NotFoundError(bucket);
+
+    public Result<PutEntry> AppendPut(string bucket, string key, string blobSha, string md5, long size, string contentType, IReadOnlyDictionary<string, string> metadata) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket) is { } b
+            ? b.AppendPut(key, blobSha, md5, size, contentType, metadata)
+            : new NotFoundError(bucket);
+
+    public Result<bool> AppendHardDeleteCurrent(string bucket, string key) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket)?.AppendHardDeleteCurrent(key) ?? false;
+
+    public Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b
+            ? new Result<IEnumerable<VersionListEntry>>.Success(b.Index.ListCurrent(prefix, startAfter))
+            : new NotFoundError(bucket);
+
+    public void Dispose()
+    {
+        foreach (var lazy in openBuckets.Values)
+            if (lazy.IsValueCreated) lazy.Value.Dispose();
+        openBuckets.Clear();
+    }
+
+    private Bucket? Open(string bucket)
     {
         var path = Path.Combine(bucketsRoot, bucket);
         if (!Directory.Exists(path)) return null;
@@ -79,12 +117,5 @@ internal sealed class BucketRegistry(string root) : IBucketRegistry
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
         return lazy.Value;
-    }
-
-    public void Dispose()
-    {
-        foreach (var lazy in openBuckets.Values)
-            if (lazy.IsValueCreated) lazy.Value.Dispose();
-        openBuckets.Clear();
     }
 }
