@@ -26,6 +26,7 @@ builder.Services.AddSingleton<IBlobPool>(_ => new BlobPool(Path.Combine(dataRoot
 builder.Services.AddSingleton<IBucketRegistry>(_ => new BucketRegistry(dataRoot));
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
+builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 
 var app = builder.Build();
 
@@ -92,9 +93,17 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, 
 app.MapPut("/{bucket}/{**key}", async (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http,
+    IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre,
     CancellationToken ct) =>
 {
+    if (pre.HasWriteConditions(req.Headers))
+    {
+        var existing = objects.Stat(bucket, key);
+        var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
+        if (pre.EvaluateForWrite(req.Headers, currentEtag) is Precondition.Failed)
+            return Results.StatusCode(412);
+    }
+
     var contentSha = req.Headers["x-amz-content-sha256"].ToString();
     var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
         || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
@@ -130,11 +139,22 @@ app.MapPut("/{bucket}/{**key}", async (
 
 app.MapGet("/{bucket}/{**key}", (
     string bucket, string key,
-    HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http) =>
+    HttpRequest req, HttpResponse res,
+    IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) =>
     objects.Get(bucket, key).Match<IResult>(
         ok =>
         {
+            var precond = pre.EvaluateForRead(req.Headers, ok.Etag, ok.LastModified);
+            if (precond is Precondition.NotModified)
+            {
+                ok.Body.Dispose();
+                return Results.StatusCode(304);
+            }
+            if (precond is Precondition.Failed)
+            {
+                ok.Body.Dispose();
+                return Results.StatusCode(412);
+            }
             res.Headers.ETag = $"\"{ok.Etag}\"";
             res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(ok.Sha256));
             return Results.File(
@@ -147,11 +167,14 @@ app.MapGet("/{bucket}/{**key}", (
 
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
     string bucket, string key,
-    HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http) =>
+    HttpRequest req, HttpResponse res,
+    IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) =>
     objects.Stat(bucket, key).Match<IResult>(
         stat =>
         {
+            var precond = pre.EvaluateForRead(req.Headers, stat.Etag, stat.LastModified);
+            if (precond is Precondition.NotModified) return Results.StatusCode(304);
+            if (precond is Precondition.Failed) return Results.StatusCode(412);
             res.ContentLength = stat.Size;
             res.ContentType = stat.ContentType;
             res.Headers.ETag = $"\"{stat.Etag}\"";
