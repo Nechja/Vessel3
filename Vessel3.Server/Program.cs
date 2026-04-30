@@ -128,8 +128,12 @@ app.MapPut("/{bucket}/{**key}", async (
     var copySource = req.Headers["x-amz-copy-source"].ToString();
     if (!string.IsNullOrEmpty(copySource))
     {
+        var directive = req.Headers["x-amz-metadata-directive"].ToString();
+        var metadataOverride = directive.Equals("REPLACE", StringComparison.OrdinalIgnoreCase)
+            ? ExtractUserMetadata(req.Headers)
+            : null;
         return TryParseCopySource(copySource, out var srcBucket, out var srcKey)
-            ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers).Match<IResult>(
+            ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride).Match<IResult>(
                 outcome =>
                 {
                     res.Headers["x-amz-copy-source-version-id"] = outcome.VersionId;
@@ -160,10 +164,12 @@ app.MapPut("/{bucket}/{**key}", async (
         ? null
         : contentSha;
 
+    var metadata = ExtractUserMetadata(req.Headers);
+
     Result<PutOutcome> result;
     try
     {
-        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, ct);
+        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, metadata, ct);
     }
     catch (InvalidDataException ex)
     {
@@ -201,6 +207,7 @@ app.MapGet("/{bucket}/{**key}", (
             }
             res.Headers.ETag = $"\"{ok.Etag}\"";
             res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(ok.Sha256));
+            foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
             return Results.File(
                 ok.Body,
                 ok.ContentType,
@@ -224,6 +231,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
             res.Headers.ETag = $"\"{stat.Etag}\"";
             res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(stat.Sha256));
             res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
+            foreach (var (k, v) in stat.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
             return Results.Empty;
         },
         http.Map));
@@ -234,6 +242,20 @@ app.MapDelete("/{bucket}/{**key}", (string bucket, string key, IObjectStore obje
         http.Map));
 
 app.Run();
+
+static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary headers)
+{
+    const string prefix = "x-amz-meta-";
+    var meta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var (name, values) in headers)
+    {
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+        var key = name[prefix.Length..].ToLowerInvariant();
+        if (key.Length is 0) continue;
+        meta[key] = values.ToString();
+    }
+    return meta;
+}
 
 static bool TryParseCopySource(string raw, out string bucket, out string key)
 {

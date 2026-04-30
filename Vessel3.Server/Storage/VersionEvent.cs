@@ -14,7 +14,8 @@ internal abstract record VersionEvent(long Seq, DateTimeOffset At, string Key, s
 
 internal sealed record PutEvent(
     long Seq, DateTimeOffset At, string Key, string VersionId,
-    string BlobSha, string Md5, long Size, string ContentType)
+    string BlobSha, string Md5, long Size, string ContentType,
+    IReadOnlyDictionary<string, string> Metadata)
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
@@ -39,4 +40,5 @@ internal sealed record HardDeleteEvent(
 
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(VersionEvent))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 internal sealed partial class VersionEventContext : JsonSerializerContext;
