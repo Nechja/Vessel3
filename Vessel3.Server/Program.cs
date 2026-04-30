@@ -22,8 +22,10 @@ var verifier = (accessKey is not null && secretKey is not null)
 
 builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(http);
-builder.Services.AddSingleton<IBlobPool>(_ => new BlobPool(Path.Combine(dataRoot, "blobs")));
-builder.Services.AddSingleton<IBucketRegistry>(_ => new BucketRegistry(dataRoot));
+builder.Services.AddSingleton(new BlobPoolOptions(Path.Combine(dataRoot, "blobs")));
+builder.Services.AddSingleton(new BucketRegistryOptions(dataRoot));
+builder.Services.AddSingleton<IBlobPool, BlobPool>();
+builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();

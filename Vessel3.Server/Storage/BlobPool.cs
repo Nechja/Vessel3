@@ -4,6 +4,7 @@ using Vessel3.Server;
 namespace Vessel3.Server.Storage;
 
 internal sealed record StoredBlob(string Sha, string Md5, long Size);
+internal sealed record BlobPoolOptions(string Root);
 
 internal interface IBlobPool
 {
@@ -14,11 +15,11 @@ internal interface IBlobPool
     IEnumerable<string> EnumerateAll();
 }
 
-internal sealed class BlobPool(string root) : IBlobPool
+internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
 {
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct)
     {
-        var tmpDir = Path.Combine(root, "tmp");
+        var tmpDir = Path.Combine(options.Root, "tmp");
         Directory.CreateDirectory(tmpDir);
         var tempPath = Path.Combine(tmpDir, Guid.NewGuid().ToString("N"));
 
@@ -94,7 +95,7 @@ internal sealed class BlobPool(string root) : IBlobPool
 
     public IEnumerable<string> EnumerateAll()
     {
-        var rootFull = Path.GetFullPath(root);
+        var rootFull = Path.GetFullPath(options.Root);
         if (!Directory.Exists(rootFull)) yield break;
         foreach (var path in Directory.EnumerateFiles(rootFull, "*", SearchOption.AllDirectories))
         {
@@ -104,7 +105,7 @@ internal sealed class BlobPool(string root) : IBlobPool
     }
 
     private string PathFor(string sha) =>
-        Path.Combine(root, sha[..2], sha[2..4], sha);
+        Path.Combine(options.Root, sha[..2], sha[2..4], sha);
 
     private bool IsLikelySha(string name) =>
         name.Length == 64 && name.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));

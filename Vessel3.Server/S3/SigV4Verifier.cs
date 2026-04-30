@@ -11,7 +11,20 @@ internal sealed record SignatureContext(
     string AmzDate,
     string Scope);
 
-internal sealed class SigV4Verifier(string accessKey, string secret, string region)
+internal sealed record SigV4Options(string AccessKey, string Secret, string Region);
+
+internal interface ISigV4Verifier
+{
+    Result<SignatureContext> Verify(HttpRequest req);
+}
+
+internal sealed class AlwaysPassVerifier : ISigV4Verifier
+{
+    private static readonly SignatureContext Empty = new(string.Empty, [], string.Empty, string.Empty);
+    public Result<SignatureContext> Verify(HttpRequest req) => Empty;
+}
+
+internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
 {
     private const string AlgorithmPrefix = "AWS4-HMAC-SHA256 ";
     private const string Service = "s3";
@@ -39,13 +52,13 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (!ConstantTimeEquals(ak, accessKey))
+        if (!ConstantTimeEquals(ak, options.AccessKey))
             return new InvalidAccessKeyIdError(ak);
 
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
 
-        if (reg != region)
+        if (reg != options.Region)
             return new AuthorizationHeaderMalformedError($"Unexpected region {reg}");
 
         var amzDate = req.Headers["x-amz-date"].ToString();
@@ -73,7 +86,7 @@ internal sealed class SigV4Verifier(string accessKey, string secret, string regi
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
 
-        var signingKey = DeriveSigningKey(secret, date, reg);
+        var signingKey = DeriveSigningKey(options.Secret, date, reg);
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
