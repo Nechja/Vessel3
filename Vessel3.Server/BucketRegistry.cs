@@ -94,7 +94,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
     public Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : Open(bucket) is { } b
-            ? (Result<IEnumerable<VersionListEntry>>)b.Index.ListCurrent(prefix, startAfter)
+            ? new Result<IEnumerable<VersionListEntry>>.Success(b.Index.ListCurrent(prefix, startAfter))
             : new NotFoundError(bucket);
 
     public void Dispose()
