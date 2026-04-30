@@ -16,9 +16,6 @@ var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1"
 
 IS3XmlWriter xml = new S3XmlWriter();
 IHttpResultMapper http = new HttpResultMapper(xml);
-var verifier = (accessKey is not null && secretKey is not null)
-    ? new SigV4Verifier(accessKey, secretKey, region)
-    : null;
 
 builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(http);
@@ -31,22 +28,19 @@ builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
 
-var app = builder.Build();
-
-if (verifier is not null)
+if (accessKey is not null && secretKey is not null)
 {
-    app.Use(async (ctx, next) =>
-    {
-        var result = verifier.Verify(ctx.Request);
-        if (result is Result<SignatureContext>.Failure f)
-        {
-            await http.Map(f.Error).ExecuteAsync(ctx);
-            return;
-        }
-        ctx.Items["sigctx"] = ((Result<SignatureContext>.Success)result).Value;
-        await next();
-    });
+    builder.Services.AddSingleton(new SigV4Options(accessKey, secretKey, region));
+    builder.Services.AddSingleton<ISigV4Verifier, SigV4Verifier>();
 }
+else
+{
+    builder.Services.AddSingleton<ISigV4Verifier, AlwaysPassVerifier>();
+}
+builder.Services.AddSingleton<SigV4Middleware>();
+
+var app = builder.Build();
+app.UseMiddleware<SigV4Middleware>();
 
 app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
 {
