@@ -159,13 +159,15 @@ app.MapPut("/{bucket}/{**key}", async (
     var declaredSha = (isChunked || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
         ? null
         : contentSha;
+    var declaredMd5 = req.Headers["Content-MD5"].ToString();
+    var declaredMd5OrNull = string.IsNullOrEmpty(declaredMd5) ? null : declaredMd5;
 
     var metadata = ExtractUserMetadata(req.Headers);
 
     Result<PutOutcome> result;
     try
     {
-        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, metadata, ct);
+        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, declaredMd5OrNull, metadata, ct);
     }
     catch (InvalidDataException ex)
     {
