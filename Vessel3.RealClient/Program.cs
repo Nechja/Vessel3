@@ -88,7 +88,51 @@ await Run("UserMetadata",   async () =>
     await s3.DeleteObjectAsync(bucket, metaKey);
 });
 
-await Run("DeleteObject",   () => s3.DeleteObjectAsync(bucket, key));
+const string copyKey = "hello-copy.txt";
+
+await Run("CopyObject",     async () =>
+{
+    await s3.CopyObjectAsync(new CopyObjectRequest
+    {
+        SourceBucket = bucket, SourceKey = key,
+        DestinationBucket = bucket, DestinationKey = copyKey,
+    });
+    var head = await s3.GetObjectMetadataAsync(bucket, copyKey);
+    if (head.ContentLength != body.Length)
+        throw new InvalidOperationException($"copy size {head.ContentLength} != expected {body.Length}");
+});
+
+await Run("ConditionalPut", async () =>
+{
+    using var ms = new MemoryStream(Encoding.UTF8.GetBytes("should fail"));
+    var req = new PutObjectRequest
+    {
+        BucketName = bucket, Key = key,
+        InputStream = ms, ContentType = "text/plain",
+    };
+    req.Headers["If-None-Match"] = "*";
+    try
+    {
+        await s3.PutObjectAsync(req);
+        throw new InvalidOperationException("expected 412 PreconditionFailed for If-None-Match: * on existing key");
+    }
+    catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
+    {
+        // expected
+    }
+});
+
+await Run("DeleteObjects",  async () =>
+{
+    var r = await s3.DeleteObjectsAsync(new DeleteObjectsRequest
+    {
+        BucketName = bucket,
+        Objects = [new KeyVersion { Key = key }, new KeyVersion { Key = copyKey }],
+    });
+    if (r.DeletedObjects is null || r.DeletedObjects.Count != 2)
+        throw new InvalidOperationException($"expected 2 deleted, got {r.DeletedObjects?.Count ?? 0}");
+});
+
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
 
 Console.WriteLine();

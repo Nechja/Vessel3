@@ -9,7 +9,7 @@ internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string
 
 internal interface IObjectStore
 {
-    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, IReadOnlyDictionary<string, string> metadata, CancellationToken ct);
+    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, CancellationToken ct);
     Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride);
     Result<StoredObject> Get(string bucket, string key);
     Result<ObjectStat> Stat(string bucket, string key);
@@ -18,13 +18,16 @@ internal interface IObjectStore
 
 internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre) : IObjectStore
 {
-    public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, IReadOnlyDictionary<string, string> metadata, CancellationToken ct) =>
+    public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, CancellationToken ct) =>
         await blobs.Write(body, declaredSize, ct) switch
         {
             Result<StoredBlob>.Failure bf => bf.Error,
             Result<StoredBlob>.Success ok when declaredSha256 is not null
                 && !string.Equals(ok.Value.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase)
-                => new BadDigestError($"declared {declaredSha256}, actual {ok.Value.Sha}"),
+                => new BadDigestError($"sha256 declared {declaredSha256}, actual {ok.Value.Sha}"),
+            Result<StoredBlob>.Success ok when declaredMd5Base64 is not null
+                && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(ok.Value.Md5)), StringComparison.Ordinal)
+                => new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(ok.Value.Md5))}"),
             Result<StoredBlob>.Success ok => RecordPut(bucket, key, ok.Value, contentType, metadata),
             _ => throw new System.Diagnostics.UnreachableException(),
         };
