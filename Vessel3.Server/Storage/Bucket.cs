@@ -24,7 +24,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
         log.Open(maxSeq + 1);
     }
 
-    public PutEntry AppendPut(string key, string blobSha, string md5, long size, string contentType, IReadOnlyDictionary<string, string> metadata)
+    public PutEntry AppendPut(string key, PutRequest req)
     {
         if (Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } old })
         {
@@ -32,10 +32,12 @@ internal sealed class Bucket(string name, string path) : IDisposable
         }
 
         var versionId = Ulid.NewUlid().ToString();
-        var ev = (PutEvent)log.Append(new PutEvent(0, DateTimeOffset.UtcNow, key, versionId, blobSha, md5, size, contentType, metadata));
+        var ev = (PutEvent)log.Append(new PutEvent(
+            0, DateTimeOffset.UtcNow, key, versionId,
+            req.BlobSha, req.Md5, req.Size, req.ContentType, req.Metadata, req.Parts));
         ev.ApplyTo(Index);
 
-        return new PutEntry(versionId, ev.At, blobSha, md5, size, contentType, metadata);
+        return new PutEntry(versionId, ev.At, req.BlobSha, req.Md5, req.Size, req.ContentType, req.Metadata, req.Parts);
     }
 
     public bool AppendHardDeleteCurrent(string key)

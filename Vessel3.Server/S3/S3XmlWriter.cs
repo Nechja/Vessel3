@@ -12,6 +12,8 @@ internal interface IS3XmlWriter
     Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
     Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
     Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
+    Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct);
+    Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -130,6 +132,35 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteElementStringAsync(null, "LastModified", null,
             outcome.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
         await w.WriteElementStringAsync(null, "ETag", null, $"\"{outcome.Etag}\"");
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "InitiateMultipartUploadResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
+        await w.WriteElementStringAsync(null, "Key", null, key);
+        await w.WriteElementStringAsync(null, "UploadId", null, uploadId);
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "CompleteMultipartUploadResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "Location", null, $"/{bucket}/{key}");
+        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
+        await w.WriteElementStringAsync(null, "Key", null, key);
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{etag}\"");
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();

@@ -16,7 +16,7 @@ internal interface IBucketRegistry : IDisposable
     IEnumerable<BucketInfo> List();
 
     Result<PutEntry?> GetCurrentPut(string bucket, string key);
-    Result<PutEntry> AppendPut(string bucket, string key, string blobSha, string md5, long size, string contentType, IReadOnlyDictionary<string, string> metadata);
+    Result<PutEntry> AppendPut(string bucket, string key, PutRequest req);
     Result<bool> AppendHardDeleteCurrent(string bucket, string key);
     Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
 }
@@ -79,11 +79,11 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             ? b.Index.GetCurrentPut(key)
             : new NotFoundError(bucket);
 
-    public Result<PutEntry> AppendPut(string bucket, string key, string blobSha, string md5, long size, string contentType, IReadOnlyDictionary<string, string> metadata) =>
+    public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
         : Open(bucket) is { } b
-            ? b.AppendPut(key, blobSha, md5, size, contentType, metadata)
+            ? b.AppendPut(key, req)
             : new NotFoundError(bucket);
 
     public Result<bool> AppendHardDeleteCurrent(string bucket, string key) =>

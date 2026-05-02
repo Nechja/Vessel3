@@ -43,7 +43,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
         registry.GetCurrentPut(bucket, key).Match<Result<ObjectStat>>(
             put => put is null
                 ? new NotFoundError($"{bucket}/{key}")
-                : new ObjectStat(put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata),
+                : new ObjectStat(put.Size, put.At, put.WireEtag, put.Parts is null ? put.BlobSha : "", put.ContentType, put.Metadata),
             err => err);
 
     public Result<bool> Delete(string bucket, string key) =>
@@ -55,7 +55,13 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                 ? new NotFoundError($"{srcBucket}/{srcKey}")
                 : pre.EvaluateCopySource(copyHeaders, srcEntry.Md5, srcEntry.At) is Precondition.Failed
                     ? new PreconditionFailedError($"{srcBucket}/{srcKey}")
-                    : registry.AppendPut(destBucket, destKey, srcEntry.BlobSha, srcEntry.Md5, srcEntry.Size, srcEntry.ContentType, metadataOverride ?? srcEntry.Metadata)
+                    : registry.AppendPut(destBucket, destKey, new PutRequest(
+                            BlobSha: srcEntry.BlobSha,
+                            Md5: srcEntry.Md5,
+                            Size: srcEntry.Size,
+                            ContentType: srcEntry.ContentType,
+                            Metadata: metadataOverride ?? srcEntry.Metadata,
+                            Parts: srcEntry.Parts))
                         .Match<Result<CopyOutcome>>(
                             written => new CopyOutcome(written.Md5, written.At, written.VersionId),
                             err => err),
@@ -64,13 +70,20 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     private Result<PutOutcome> RecordPut(string bucket, string key, StoredBlob blob, string? contentType, IReadOnlyDictionary<string, string> metadata)
     {
         var resolved = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType;
-        return registry.AppendPut(bucket, key, blob.Sha, blob.Md5, blob.Size, resolved, metadata).Match<Result<PutOutcome>>(
+        return registry.AppendPut(bucket, key, new PutRequest(
+                BlobSha: blob.Sha,
+                Md5: blob.Md5,
+                Size: blob.Size,
+                ContentType: resolved,
+                Metadata: metadata)).Match<Result<PutOutcome>>(
             entry => new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size),
             err => err);
     }
 
     private Result<StoredObject> OpenBlob(PutEntry put) =>
-        blobs.Open(put.BlobSha).Match<Result<StoredObject>>(
-            stream => new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata),
-            err => err);
+        put.Parts is { } parts
+            ? new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata)
+            : blobs.Open(put.BlobSha).Match<Result<StoredObject>>(
+                stream => new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata),
+                err => err);
 }

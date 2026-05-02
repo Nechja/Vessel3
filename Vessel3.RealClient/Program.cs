@@ -1,7 +1,9 @@
+using System.Security.Cryptography;
 using System.Text;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
+using Amazon.S3.Transfer;
 
 var endpoint = Environment.GetEnvironmentVariable("VESSEL3_ENDPOINT") ?? "http://127.0.0.1:9000";
 var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY") ?? "AKIATEST";
@@ -122,15 +124,157 @@ await Run("ConditionalPut", async () =>
     }
 });
 
+const string mpManualKey = "multipart-manual.bin";
+const string mpAbortKey = "multipart-abort.bin";
+const string mpTransferKey = "transfer-util.bin";
+
+await Run("MultipartManual", async () =>
+{
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpManualKey,
+        ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var rng = new Random(42);
+    var partBuffers = new byte[3][];
+    var etags = new List<PartETag>();
+
+    for (var i = 0; i < 3; i++)
+    {
+        var buf = new byte[partSize];
+        rng.NextBytes(buf);
+        partBuffers[i] = buf;
+        using var ms = new MemoryStream(buf);
+        var up = await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = mpManualKey,
+            UploadId = initiate.UploadId,
+            PartNumber = i + 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+        etags.Add(new PartETag(i + 1, up.ETag));
+    }
+
+    var complete = await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpManualKey,
+        UploadId = initiate.UploadId,
+        PartETags = etags,
+    });
+    if (!complete.ETag.Trim('"').EndsWith("-3", StringComparison.Ordinal))
+        throw new InvalidOperationException($"completed ETag missing -3 suffix: {complete.ETag}");
+
+    var head = await s3.GetObjectMetadataAsync(bucket, mpManualKey);
+    if (head.ContentLength != partSize * 3L)
+        throw new InvalidOperationException($"size {head.ContentLength} != expected {partSize * 3L}");
+
+    using var got = await s3.GetObjectAsync(bucket, mpManualKey);
+    using var sink = new MemoryStream();
+    await got.ResponseStream.CopyToAsync(sink);
+    var bytes = sink.ToArray();
+    if (bytes.Length != partSize * 3)
+        throw new InvalidOperationException($"got {bytes.Length} bytes, expected {partSize * 3}");
+    for (var i = 0; i < 3; i++)
+    {
+        var slice = new byte[partSize];
+        Array.Copy(bytes, i * partSize, slice, 0, partSize);
+        if (!slice.AsSpan().SequenceEqual(partBuffers[i]))
+            throw new InvalidOperationException($"part {i + 1} bytes mismatch");
+    }
+});
+
+await Run("MultipartAbort", async () =>
+{
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpAbortKey,
+        ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var buf = new byte[partSize];
+    new Random(7).NextBytes(buf);
+    using (var ms = new MemoryStream(buf))
+    {
+        await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = mpAbortKey,
+            UploadId = initiate.UploadId,
+            PartNumber = 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+    }
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpAbortKey,
+        UploadId = initiate.UploadId,
+    });
+
+    try
+    {
+        await s3.GetObjectMetadataAsync(bucket, mpAbortKey);
+        throw new InvalidOperationException("expected 404 after abort");
+    }
+    catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
+    {
+        // expected
+    }
+});
+
+await Run("TransferUtility", async () =>
+{
+    const int size = 12 * 1024 * 1024;
+    var buf = new byte[size];
+    new Random(99).NextBytes(buf);
+    var expectedSha = Convert.ToHexStringLower(SHA256.HashData(buf));
+
+    using var transfer = new TransferUtility(s3);
+    using (var src = new MemoryStream(buf))
+    {
+        await transfer.UploadAsync(new TransferUtilityUploadRequest
+        {
+            BucketName = bucket,
+            Key = mpTransferKey,
+            InputStream = src,
+            PartSize = 5 * 1024 * 1024,
+            ContentType = "application/octet-stream",
+        });
+    }
+
+    using var got = await s3.GetObjectAsync(bucket, mpTransferKey);
+    using var sink = new MemoryStream();
+    await got.ResponseStream.CopyToAsync(sink);
+    var bytes = sink.ToArray();
+    var gotSha = Convert.ToHexStringLower(SHA256.HashData(bytes));
+    if (gotSha != expectedSha)
+        throw new InvalidOperationException($"sha mismatch: got {gotSha}, expected {expectedSha}");
+});
+
 await Run("DeleteObjects",  async () =>
 {
     var r = await s3.DeleteObjectsAsync(new DeleteObjectsRequest
     {
         BucketName = bucket,
-        Objects = [new KeyVersion { Key = key }, new KeyVersion { Key = copyKey }],
+        Objects = [
+            new KeyVersion { Key = key },
+            new KeyVersion { Key = copyKey },
+            new KeyVersion { Key = mpManualKey },
+            new KeyVersion { Key = mpTransferKey },
+        ],
     });
-    if (r.DeletedObjects is null || r.DeletedObjects.Count != 2)
-        throw new InvalidOperationException($"expected 2 deleted, got {r.DeletedObjects?.Count ?? 0}");
+    if (r.DeletedObjects is null || r.DeletedObjects.Count != 4)
+        throw new InvalidOperationException($"expected 4 deleted, got {r.DeletedObjects?.Count ?? 0}");
 });
 
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));

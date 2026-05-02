@@ -49,6 +49,18 @@ internal sealed record RequestTimeTooSkewedError()
     : Error("RequestTimeTooSkewed", "The request timestamp is outside the allowed skew window")
 { public override int Status => 403; }
 
+internal sealed record NoSuchUploadError(string UploadId)
+    : Error("NoSuchUpload", $"Upload {UploadId} not found")
+{ public override int Status => 404; }
+
+internal sealed record InvalidPartError(string Detail)
+    : Error("InvalidPart", Detail)
+{ public override int Status => 400; }
+
+internal sealed record InvalidPartOrderError(string Detail)
+    : Error("InvalidPartOrder", Detail)
+{ public override int Status => 400; }
+
 internal abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);
