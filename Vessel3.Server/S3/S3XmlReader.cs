@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml;
 using Vessel3.Server;
 
@@ -97,7 +98,7 @@ internal sealed class S3XmlReader : IS3XmlReader
                     break;
                 case XmlNodeType.Text or XmlNodeType.CDATA:
                     if (currentField is "PartNumber"
-                        && int.TryParse(sub.Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n))
+                        && int.TryParse(sub.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
                         number = n;
                     else if (currentField is "ETag")
                         etag = sub.Value.Trim('"');

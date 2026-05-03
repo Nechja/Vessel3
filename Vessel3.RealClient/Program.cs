@@ -246,7 +246,8 @@ await Run("MultipartOutOfOrder", async () =>
     for (var i = 0; i < 3; i++) { parts[i] = new byte[partSize]; rng.NextBytes(parts[i]); }
 
     var etags = new PartETag[3];
-    foreach (var i in new[] { 1, 0, 2 })
+    int[] uploadSequence = [1, 0, 2];
+    foreach (var i in uploadSequence)
     {
         using var ms = new MemoryStream(parts[i]);
         var up = await s3.UploadPartAsync(new UploadPartRequest
@@ -400,7 +401,6 @@ await Run("MultipartEmpty", async () =>
 
 await Run("MultipartMissingPart", async () =>
 {
-    const string mpMissingKey = "multipart-missing.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
@@ -454,7 +454,6 @@ await Run("MultipartMissingPart", async () =>
 
 await Run("MultipartDupNumber", async () =>
 {
-    const string mpDupKey = "multipart-dup.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,

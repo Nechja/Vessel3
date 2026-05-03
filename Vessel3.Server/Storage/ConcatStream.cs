@@ -1,22 +1,18 @@
 namespace Vessel3.Server.Storage;
 
-internal sealed class ConcatStream : Stream
+internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool blobs) : Stream
 {
-    private readonly IReadOnlyList<MultipartPart> parts;
-    private readonly IBlobPool blobs;
-    private readonly long totalLength;
+    private readonly long totalLength = SumSizes(parts);
     private long position;
     private int currentIndex = -1;
     private long currentPartStart;
     private Stream? currentStream;
 
-    public ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool blobs)
+    private static long SumSizes(IReadOnlyList<MultipartPart> parts)
     {
-        this.parts = parts;
-        this.blobs = blobs;
         long sum = 0;
         foreach (var p in parts) sum += p.Size;
-        totalLength = sum;
+        return sum;
     }
 
     public override bool CanRead => true;

@@ -171,7 +171,7 @@ app.MapPut("/{bucket}/{**key}", async (
     var partNumberRaw = req.Query["partNumber"].ToString();
     if (!string.IsNullOrEmpty(uploadId) && !string.IsNullOrEmpty(partNumberRaw))
     {
-        if (!int.TryParse(partNumberRaw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var partNumber))
+        if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
             return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
 
         var (partBody, partLength) = DecodeRequestBody(req);
