@@ -159,6 +159,234 @@ await Run("CopyObject",     async () =>
         throw new InvalidOperationException($"copy size {head.ContentLength} != expected {body.Length}");
 });
 
+await Run("ListObjectVersions", async () =>
+{
+    const string vbucket = "vessel3-realclient-versions";
+    const string vkey = "lv.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("a")))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = vbucket, Key = vkey, InputStream = ms, ContentType = "text/plain" });
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("b")))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = vbucket, Key = vkey, InputStream = ms, ContentType = "text/plain" });
+        await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = vkey });
+
+        var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket });
+        var entries = lv.Versions ?? [];
+        var versionCount = entries.Count(v => !v.IsDeleteMarker);
+        var markerCount = entries.Count(v => v.IsDeleteMarker);
+        if (versionCount != 2)
+            throw new InvalidOperationException($"expected 2 versions, got {versionCount}");
+        if (markerCount != 1)
+            throw new InvalidOperationException($"expected 1 delete marker, got {markerCount}");
+
+        var latestMarker = entries.FirstOrDefault(v => v.IsDeleteMarker && v.IsLatest);
+        if (latestMarker is null)
+            throw new InvalidOperationException("no delete marker reported as IsLatest");
+    }
+    finally
+    {
+        try
+        {
+            var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket });
+            foreach (var v in lv.Versions ?? [])
+                await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = v.Key, VersionId = v.VersionId });
+            await s3.DeleteBucketAsync(vbucket);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
+    }
+});
+
+await Run("DeleteVersionId", async () =>
+{
+    const string vbucket = "vessel3-realclient-vdid";
+    const string vkey = "v.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        string v1Id, v2Id;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v1")))
+        {
+            var p1 = await s3.PutObjectAsync(new PutObjectRequest { BucketName = vbucket, Key = vkey, InputStream = ms, ContentType = "text/plain" });
+            v1Id = p1.VersionId;
+        }
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v2")))
+        {
+            var p2 = await s3.PutObjectAsync(new PutObjectRequest { BucketName = vbucket, Key = vkey, InputStream = ms, ContentType = "text/plain" });
+            v2Id = p2.VersionId;
+        }
+
+        await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = vkey, VersionId = v1Id });
+
+        try
+        {
+            await s3.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = vbucket, Key = vkey, VersionId = v1Id });
+            throw new InvalidOperationException("v1 should be hard-deleted");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
+        {
+            // expected
+        }
+
+        using var got = await s3.GetObjectAsync(vbucket, vkey);
+        using var sr = new StreamReader(got.ResponseStream);
+        if (await sr.ReadToEndAsync() != "v2")
+            throw new InvalidOperationException("latest GET should still return v2");
+
+        await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = vkey, VersionId = v2Id });
+    }
+    finally
+    {
+        await CleanupVersionedBucket(s3, vbucket);
+    }
+});
+
+await Run("VersionedDelete", async () =>
+{
+    const string vbucket = "vessel3-realclient-vd";
+    const string vkey = "deleted.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("payload"));
+        var put = await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = vbucket, Key = vkey, InputStream = ms, ContentType = "text/plain",
+        });
+        var v1 = put.VersionId;
+        if (string.IsNullOrEmpty(v1)) throw new InvalidOperationException("PUT missing version id");
+
+        var del = await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = vkey });
+        if (del.DeleteMarker is not "true")
+            throw new InvalidOperationException($"DELETE on versioned bucket should set x-amz-delete-marker: true (got '{del.DeleteMarker}')");
+        if (string.IsNullOrEmpty(del.VersionId))
+            throw new InvalidOperationException("DELETE response missing x-amz-version-id");
+        if (del.VersionId == v1)
+            throw new InvalidOperationException("delete marker reused PUT version id");
+
+        try
+        {
+            await s3.GetObjectMetadataAsync(vbucket, vkey);
+            throw new InvalidOperationException("GET after delete-marker should 404");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
+        {
+            // expected
+        }
+
+        using var got = await s3.GetObjectAsync(new GetObjectRequest
+        {
+            BucketName = vbucket, Key = vkey, VersionId = v1,
+        });
+        using var sr = new StreamReader(got.ResponseStream);
+        if (await sr.ReadToEndAsync() != "payload")
+            throw new InvalidOperationException("v1 GET via versionId should still work after delete marker");
+    }
+    finally
+    {
+        await CleanupVersionedBucket(s3, vbucket);
+    }
+});
+
+await Run("VersionedPut", async () =>
+{
+    const string vbucket = "vessel3-realclient-versioned";
+    const string vkey = "versioned.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        using (var ms1 = new MemoryStream(Encoding.UTF8.GetBytes("v1-body")))
+        {
+            var p1 = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = vbucket, Key = vkey, InputStream = ms1, ContentType = "text/plain",
+            });
+            if (string.IsNullOrEmpty(p1.VersionId))
+                throw new InvalidOperationException("first PUT missing x-amz-version-id");
+            var v1Id = p1.VersionId;
+
+            using var ms2 = new MemoryStream(Encoding.UTF8.GetBytes("v2-body"));
+            var p2 = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = vbucket, Key = vkey, InputStream = ms2, ContentType = "text/plain",
+            });
+            if (p2.VersionId == v1Id)
+                throw new InvalidOperationException("second PUT returned same VersionId as first");
+
+            using var latest = await s3.GetObjectAsync(vbucket, vkey);
+            using var latestSr = new StreamReader(latest.ResponseStream);
+            var latestBody = await latestSr.ReadToEndAsync();
+            if (latestBody != "v2-body")
+                throw new InvalidOperationException($"latest GET body '{latestBody}' != 'v2-body'");
+
+            using var oldVersion = await s3.GetObjectAsync(new GetObjectRequest
+            {
+                BucketName = vbucket, Key = vkey, VersionId = v1Id,
+            });
+            using var oldSr = new StreamReader(oldVersion.ResponseStream);
+            var oldBody = await oldSr.ReadToEndAsync();
+            if (oldBody != "v1-body")
+                throw new InvalidOperationException($"versioned GET v1 body '{oldBody}' != 'v1-body'");
+        }
+    }
+    finally
+    {
+        await CleanupVersionedBucket(s3, vbucket);
+    }
+});
+
+await Run("BucketVersioning", async () =>
+{
+    const string vbucket = "vessel3-realclient-versioning";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        var initial = await s3.GetBucketVersioningAsync(new GetBucketVersioningRequest { BucketName = vbucket });
+        var initialStatus = initial.VersioningConfig?.Status;
+        if (initialStatus is not null && initialStatus != Amazon.S3.VersionStatus.Off)
+            throw new InvalidOperationException($"new bucket should be unversioned; got '{initialStatus}'");
+
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        var after = await s3.GetBucketVersioningAsync(new GetBucketVersioningRequest { BucketName = vbucket });
+        if (after.VersioningConfig?.Status != Amazon.S3.VersionStatus.Enabled)
+            throw new InvalidOperationException($"after enabling, status was '{after.VersioningConfig?.Status}'");
+    }
+    finally
+    {
+        await s3.DeleteBucketAsync(vbucket);
+    }
+});
+
 await Run("PresignedGet", async () =>
 {
     var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
@@ -798,6 +1026,21 @@ await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
 Console.WriteLine();
 Console.WriteLine("ALL GOOD");
 return 0;
+
+static async Task CleanupVersionedBucket(AmazonS3Client s3, string bucket)
+{
+    try
+    {
+        var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = bucket });
+        foreach (var v in lv.Versions ?? [])
+            await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = v.Key, VersionId = v.VersionId });
+        await s3.DeleteBucketAsync(bucket);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"  cleanup warning: {ex.Message}");
+    }
+}
 
 static async Task Run(string name, Func<Task> action)
 {

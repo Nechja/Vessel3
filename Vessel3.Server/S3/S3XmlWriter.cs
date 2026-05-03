@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using Vessel3.Server;
+using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -18,6 +19,8 @@ internal interface IS3XmlWriter
     Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct);
     Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
     Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
+    Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct);
+    Task WriteListVersions(Stream output, string bucket, string? prefix, IEnumerable<AllVersionsEntry> entries, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -127,6 +130,64 @@ internal sealed class S3XmlWriter : IS3XmlWriter
             }
         }
 
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteListVersions(Stream output, string bucket, string? prefix, IEnumerable<AllVersionsEntry> entries, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "ListVersionsResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "Name", null, bucket);
+        await w.WriteElementStringAsync(null, "Prefix", null, prefix ?? "");
+        await w.WriteElementStringAsync(null, "MaxKeys", null, "1000");
+        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
+
+        foreach (var e in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            switch (e)
+            {
+                case AllVersionsEntry.Put p:
+                    await w.WriteStartElementAsync(null, "Version", null);
+                    await w.WriteElementStringAsync(null, "Key", null, p.Key);
+                    await w.WriteElementStringAsync(null, "VersionId", null, p.VersionId);
+                    await w.WriteElementStringAsync(null, "IsLatest", null, p.IsLatest ? "true" : "false");
+                    await w.WriteElementStringAsync(null, "LastModified", null,
+                        p.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+                    await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.WireEtag}\"");
+                    await w.WriteElementStringAsync(null, "Size", null,
+                        p.Size.ToString(CultureInfo.InvariantCulture));
+                    await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+                    await w.WriteEndElementAsync();
+                    break;
+                case AllVersionsEntry.Marker m:
+                    await w.WriteStartElementAsync(null, "DeleteMarker", null);
+                    await w.WriteElementStringAsync(null, "Key", null, m.Key);
+                    await w.WriteElementStringAsync(null, "VersionId", null, m.VersionId);
+                    await w.WriteElementStringAsync(null, "IsLatest", null, m.IsLatest ? "true" : "false");
+                    await w.WriteElementStringAsync(null, "LastModified", null,
+                        m.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+                    await w.WriteEndElementAsync();
+                    break;
+            }
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "VersioningConfiguration", S3Namespace);
+        if (status is not VersioningStatus.Unversioned)
+            await w.WriteElementStringAsync(null, "Status", null, status.ToString());
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
