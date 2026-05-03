@@ -8,7 +8,9 @@ internal sealed record ListRequest(
     string? Prefix,
     string? Delimiter,
     string? StartAfter,
-    int MaxKeys);
+    int MaxKeys,
+    bool IsV1 = false,
+    string? Marker = null);
 
 internal abstract record ListEntry(string Key)
 {
@@ -20,6 +22,7 @@ internal sealed record ListPage(
     IReadOnlyList<ListEntry> Entries,
     bool IsTruncated,
     string? NextContinuationToken,
+    string? LastKey,
     int KeyCount);
 
 internal interface IBucketLister
@@ -79,6 +82,6 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
             ? Convert.ToBase64String(Encoding.UTF8.GetBytes(lastEmittedKey))
             : null;
 
-        return new ListPage(emitted, truncated, nextToken, emitted.Count);
+        return new ListPage(emitted, truncated, nextToken, lastEmittedKey, emitted.Count);
     }
 }

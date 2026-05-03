@@ -14,6 +14,10 @@ internal interface IS3XmlWriter
     Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
     Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct);
     Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, CancellationToken ct);
+    Task WriteLocationConstraint(Stream output, string region, CancellationToken ct);
+    Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct);
+    Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
+    Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -64,14 +68,19 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteStartElementAsync(null, "ListBucketResult", S3Namespace);
 
         await w.WriteElementStringAsync(null, "Name", null, req.Bucket);
-        if (req.Prefix is not null) await w.WriteElementStringAsync(null, "Prefix", null, req.Prefix);
+        await w.WriteElementStringAsync(null, "Prefix", null, req.Prefix ?? "");
+        if (req.IsV1) await w.WriteElementStringAsync(null, "Marker", null, req.Marker ?? "");
         if (req.Delimiter is not null) await w.WriteElementStringAsync(null, "Delimiter", null, req.Delimiter);
         await w.WriteElementStringAsync(null, "MaxKeys", null,
             req.MaxKeys.ToString(CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "KeyCount", null,
-            page.KeyCount.ToString(CultureInfo.InvariantCulture));
+        if (!req.IsV1)
+            await w.WriteElementStringAsync(null, "KeyCount", null,
+                page.KeyCount.ToString(CultureInfo.InvariantCulture));
         await w.WriteElementStringAsync(null, "IsTruncated", null, page.IsTruncated ? "true" : "false");
-        if (page.NextContinuationToken is not null)
+
+        if (req.IsV1 && page.IsTruncated && page.LastKey is not null)
+            await w.WriteElementStringAsync(null, "NextMarker", null, page.LastKey);
+        if (!req.IsV1 && page.NextContinuationToken is not null)
             await w.WriteElementStringAsync(null, "NextContinuationToken", null, page.NextContinuationToken);
 
         foreach (var entry in page.Entries)
@@ -123,6 +132,20 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.FlushAsync();
     }
 
+    public async Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "CopyPartResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            lastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{etag}\"");
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
     public async Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -146,6 +169,72 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteElementStringAsync(null, "Bucket", null, bucket);
         await w.WriteElementStringAsync(null, "Key", null, key);
         await w.WriteElementStringAsync(null, "UploadId", null, uploadId);
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "ListMultipartUploadsResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
+        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
+
+        foreach (var u in uploads)
+        {
+            ct.ThrowIfCancellationRequested();
+            await w.WriteStartElementAsync(null, "Upload", null);
+            await w.WriteElementStringAsync(null, "Key", null, u.Key);
+            await w.WriteElementStringAsync(null, "UploadId", null, u.UploadId);
+            await w.WriteElementStringAsync(null, "Initiated", null,
+                u.Initiated.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+            await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+            await w.WriteEndElementAsync();
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct)
+    {
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "ListPartsResult", S3Namespace);
+        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
+        await w.WriteElementStringAsync(null, "Key", null, key);
+        await w.WriteElementStringAsync(null, "UploadId", null, uploadId);
+        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
+
+        foreach (var p in parts)
+        {
+            ct.ThrowIfCancellationRequested();
+            await w.WriteStartElementAsync(null, "Part", null);
+            await w.WriteElementStringAsync(null, "PartNumber", null,
+                p.Number.ToString(CultureInfo.InvariantCulture));
+            await w.WriteElementStringAsync(null, "LastModified", null,
+                p.LastModified.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+            await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.Etag}\"");
+            await w.WriteElementStringAsync(null, "Size", null, p.Size.ToString(CultureInfo.InvariantCulture));
+            await w.WriteEndElementAsync();
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteLocationConstraint(Stream output, string region, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "LocationConstraint", S3Namespace);
+        if (region is not "us-east-1") await w.WriteStringAsync(region);
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();

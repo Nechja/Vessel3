@@ -19,6 +19,7 @@ IHttpResultMapper http = new HttpResultMapper(xml);
 
 builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(http);
+builder.Services.AddSingleton(new ServerRegion(region));
 builder.Services.AddSingleton(new BlobPoolOptions(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton(new BucketRegistryOptions(dataRoot));
 builder.Services.AddSingleton(new MultipartStoreOptions(Path.Combine(dataRoot, "uploads")));
@@ -57,18 +58,55 @@ app.MapGet("/{bucket}", async (
     [FromQuery(Name = "max-keys")] int? maxKeys,
     [FromQuery(Name = "continuation-token")] string? continuationToken,
     [FromQuery(Name = "start-after")] string? startAfter,
+    [FromQuery(Name = "marker")] string? marker,
+    [FromQuery(Name = "list-type")] string? listType,
+    HttpRequest req,
     HttpResponse res,
     IBucketLister lister,
+    IBucketRegistry registry,
     IS3XmlWriter xml,
     IHttpResultMapper http,
+    ServerRegion serverRegion,
     CancellationToken ct) =>
 {
-    var req = new ListRequest(bucket, prefix, delimiter, startAfter, Math.Clamp(maxKeys ?? 1000, 1, 1000));
-    return await lister.List(req, continuationToken).Match<Task<IResult>>(
+    if (req.Query.ContainsKey("location"))
+    {
+        return await registry.Exists(bucket).Match<Task<IResult>>(
+            async exists =>
+            {
+                if (!exists) return http.Map(new NotFoundError(bucket));
+                res.ContentType = "application/xml";
+                await xml.WriteLocationConstraint(res.Body, serverRegion.Value, ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)));
+    }
+
+    if (req.Query.ContainsKey("uploads"))
+    {
+        var multipart = req.HttpContext.RequestServices.GetRequiredService<IMultipartStore>();
+        return await registry.Exists(bucket).Match<Task<IResult>>(
+            async exists =>
+            {
+                if (!exists) return http.Map(new NotFoundError(bucket));
+                res.ContentType = "application/xml";
+                await xml.WriteListMultipartUploads(res.Body, bucket, multipart.ListUploads(bucket), ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)));
+    }
+
+    var isV1 = listType is not "2";
+    var effectiveStart = isV1 ? marker : startAfter;
+    var listReq = new ListRequest(
+        bucket, prefix, delimiter, effectiveStart,
+        Math.Clamp(maxKeys ?? 1000, 1, 1000),
+        IsV1: isV1, Marker: marker);
+    return await lister.List(listReq, isV1 ? null : continuationToken).Match<Task<IResult>>(
         async page =>
         {
             res.ContentType = "application/xml";
-            await xml.WriteListObjects(res.Body, req, page, ct);
+            await xml.WriteListObjects(res.Body, listReq, page, ct);
             return Results.Empty;
         },
         err => Task.FromResult(http.Map(err)));
@@ -174,6 +212,49 @@ app.MapPut("/{bucket}/{**key}", async (
         if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
             return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
 
+        var partCopySource = req.Headers["x-amz-copy-source"].ToString();
+        if (!string.IsNullOrEmpty(partCopySource))
+        {
+            if (!TryParseCopySource(partCopySource, out var srcBucket, out var srcKey))
+                return http.Map(new InvalidPathError($"x-amz-copy-source: {partCopySource}"));
+
+            var srcResult = objects.Get(srcBucket, srcKey);
+            if (srcResult is Result<StoredObject>.Failure srcFail) return http.Map(srcFail.Error);
+            var src = ((Result<StoredObject>.Success)srcResult).Value;
+
+            var rangeHeader = req.Headers["x-amz-copy-source-range"].ToString();
+            long copyOffset = 0;
+            long copyLength = src.Size;
+            if (!string.IsNullOrEmpty(rangeHeader)
+                && TryParseByteRange(rangeHeader, src.Size, out var rangeStart, out var rangeEnd))
+            {
+                copyOffset = rangeStart;
+                copyLength = rangeEnd - rangeStart + 1;
+            }
+
+            try
+            {
+                if (copyOffset > 0) src.Body.Seek(copyOffset, SeekOrigin.Begin);
+            }
+            catch (NotSupportedException)
+            {
+                src.Body.Dispose();
+                return http.Map(new InvalidPathError("source stream not seekable for ranged copy"));
+            }
+
+            var copyBody = new BoundedStream(src.Body, copyLength);
+            var copyResult = await multipart.UploadPart(uploadId, partNumber, copyBody, copyLength, ct);
+            return copyResult.Match<IResult>(
+                outcome =>
+                {
+                    res.ContentType = "application/xml";
+                    return Results.Stream(async stream =>
+                        await xml.WriteCopyPartResult(stream, outcome.Etag, DateTimeOffset.UtcNow, ct),
+                        "application/xml");
+                },
+                http.Map);
+        }
+
         var (partBody, partLength) = DecodeRequestBody(req);
         var partResult = await multipart.UploadPart(uploadId, partNumber, partBody, partLength, ct);
         return partResult.Match<IResult>(
@@ -243,11 +324,23 @@ app.MapPut("/{bucket}/{**key}", async (
         http.Map);
 });
 
-app.MapGet("/{bucket}/{**key}", (
+app.MapGet("/{bucket}/{**key}", async (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) =>
-    objects.Get(bucket, key).Match<IResult>(
+    IObjectStore objects, IMultipartStore multipart, IS3XmlWriter xml, IHttpResultMapper http, IPreconditionEvaluator pre,
+    CancellationToken ct) =>
+{
+    var listPartsUploadId = req.Query["uploadId"].ToString();
+    return !string.IsNullOrEmpty(listPartsUploadId)
+        ? await multipart.ListParts(listPartsUploadId).Match<Task<IResult>>(
+            async parts =>
+            {
+                res.ContentType = "application/xml";
+                await xml.WriteListParts(res.Body, bucket, key, listPartsUploadId, parts, ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)))
+        : objects.Get(bucket, key).Match<IResult>(
         ok =>
         {
             var precond = pre.EvaluateForRead(req.Headers, ok.Etag, ok.LastModified);
@@ -271,7 +364,8 @@ app.MapGet("/{bucket}/{**key}", (
                 lastModified: ok.LastModified,
                 enableRangeProcessing: true);
         },
-        http.Map));
+        http.Map);
+});
 
 app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
     string bucket, string key,
@@ -331,6 +425,23 @@ static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
     var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
     var declared = long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null;
     return (new AwsChunkedStream(req.Body, sigCtx), declared);
+}
+
+static bool TryParseByteRange(string raw, long size, out long start, out long end)
+{
+    start = 0;
+    end = 0;
+    const string prefix = "bytes=";
+    if (!raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+    var rest = raw[prefix.Length..];
+    var dash = rest.IndexOf('-', StringComparison.Ordinal);
+    if (dash < 0) return false;
+    if (!long.TryParse(rest[..dash], NumberStyles.Integer, CultureInfo.InvariantCulture, out start)) return false;
+    var endStr = rest[(dash + 1)..];
+    end = string.IsNullOrEmpty(endStr) ? size - 1
+        : long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var e) ? e
+        : -1;
+    return end >= start && end < size;
 }
 
 static bool TryParseCopySource(string raw, out string bucket, out string key)

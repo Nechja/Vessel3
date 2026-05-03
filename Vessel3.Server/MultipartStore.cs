@@ -11,6 +11,8 @@ internal sealed record MultipartStoreOptions(string Root);
 internal sealed record CreateUploadOutcome(string UploadId);
 internal sealed record UploadPartOutcome(string Etag, string BlobSha, long Size);
 internal sealed record CompleteUploadOutcome(string Etag, string VersionId, long Size);
+internal sealed record InProgressUpload(string UploadId, string Bucket, string Key, DateTimeOffset Initiated);
+internal sealed record ListedPart(int Number, string Etag, long Size, DateTimeOffset LastModified);
 
 internal sealed record UploadMeta(
     string Bucket,
@@ -30,6 +32,8 @@ internal interface IMultipartStore
     Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, CancellationToken ct);
     Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag)> clientParts, CancellationToken ct);
     Result<bool> Abort(string uploadId);
+    IEnumerable<InProgressUpload> ListUploads(string bucket);
+    Result<IReadOnlyList<ListedPart>> ListParts(string uploadId);
 }
 
 internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs) : IMultipartStore
@@ -116,6 +120,35 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
         Directory.Delete(dir, recursive: true);
         return true;
+    }
+
+    public IEnumerable<InProgressUpload> ListUploads(string bucket)
+    {
+        if (!Directory.Exists(options.Root)) yield break;
+        foreach (var dir in Directory.EnumerateDirectories(options.Root).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
+        {
+            var meta = ReadMeta(dir);
+            if (meta is null || meta.Bucket != bucket) continue;
+            yield return new InProgressUpload(Path.GetFileName(dir), meta.Bucket, meta.Key, meta.CreatedAt);
+        }
+    }
+
+    public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId)
+    {
+        var dir = UploadDir(uploadId);
+        if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
+
+        var partsDir = Path.Combine(dir, "parts");
+        var result = new List<ListedPart>();
+        if (!Directory.Exists(partsDir)) return result;
+
+        foreach (var path in Directory.EnumerateFiles(partsDir, "*.json").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var part = JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
+            if (part is null) continue;
+            result.Add(new ListedPart(part.Number, part.Md5, part.Size, File.GetLastWriteTimeUtc(path)));
+        }
+        return result;
     }
 
     private CreateUploadOutcome CreateUpload(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)

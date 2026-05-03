@@ -31,7 +31,71 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
     private const string Terminator = "aws4_request";
     private static readonly TimeSpan SkewAllowance = TimeSpan.FromMinutes(15);
 
-    public Result<SignatureContext> Verify(HttpRequest req)
+    public Result<SignatureContext> Verify(HttpRequest req) =>
+        req.Query.ContainsKey("X-Amz-Signature") ? VerifyPresigned(req) : VerifyHeader(req);
+
+    private Result<SignatureContext> VerifyPresigned(HttpRequest req)
+    {
+        var algorithm = req.Query["X-Amz-Algorithm"].ToString();
+        if (algorithm is not "AWS4-HMAC-SHA256")
+            return new AuthorizationHeaderMalformedError($"Unsupported algorithm {algorithm}");
+
+        var credential = req.Query["X-Amz-Credential"].ToString();
+        var amzDate = req.Query["X-Amz-Date"].ToString();
+        var expiresRaw = req.Query["X-Amz-Expires"].ToString();
+        var signedHeaders = req.Query["X-Amz-SignedHeaders"].ToString();
+        var signature = req.Query["X-Amz-Signature"].ToString();
+
+        if (string.IsNullOrEmpty(credential) || string.IsNullOrEmpty(amzDate)
+            || string.IsNullOrEmpty(expiresRaw) || string.IsNullOrEmpty(signedHeaders)
+            || string.IsNullOrEmpty(signature))
+            return new AuthorizationHeaderMalformedError("Missing presigned query params");
+
+        var credParts = credential.Split('/');
+        if (credParts.Length is not 5 || credParts[4] is not Terminator)
+            return new AuthorizationHeaderMalformedError("Bad Credential format");
+
+        var ak = credParts[0];
+        var date = credParts[1];
+        var reg = credParts[2];
+        var svc = credParts[3];
+
+        if (!ConstantTimeEquals(ak, options.AccessKey))
+            return new InvalidAccessKeyIdError(ak);
+        if (svc is not Service)
+            return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
+        if (reg != options.Region)
+            return new AuthorizationHeaderMalformedError($"Unexpected region {reg}");
+        if (amzDate.Length < 8 || amzDate[..8] != date)
+            return new AuthorizationHeaderMalformedError("Credential date mismatches X-Amz-Date");
+
+        if (!DateTime.TryParseExact(amzDate, "yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var requestTime))
+            return new AuthorizationHeaderMalformedError("Bad X-Amz-Date format");
+
+        if (!int.TryParse(expiresRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var expiresSec)
+            || expiresSec <= 0)
+            return new AuthorizationHeaderMalformedError("Bad X-Amz-Expires");
+
+        if (DateTime.UtcNow > requestTime.AddSeconds(expiresSec))
+            return new RequestTimeTooSkewedError();
+
+        var signedHeaderList = signedHeaders.Split(';');
+        var canonical = BuildCanonicalRequest(req, signedHeaderList, "UNSIGNED-PAYLOAD", excludeQueryKey: "X-Amz-Signature");
+        var canonicalHash = Sha256Hex(Encoding.UTF8.GetBytes(canonical));
+
+        var scope = $"{date}/{reg}/{Service}/{Terminator}";
+        var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
+
+        var signingKey = DeriveSigningKey(options.Secret, date, reg);
+        var expected = HmacSha256Hex(signingKey, stringToSign);
+
+        return ConstantTimeEquals(expected, signature)
+            ? new SignatureContext(signature, signingKey, amzDate, scope)
+            : (Result<SignatureContext>)new SignatureDoesNotMatchError();
+    }
+
+    private Result<SignatureContext> VerifyHeader(HttpRequest req)
     {
         var auth = req.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(auth))
@@ -80,7 +144,7 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
             return new MissingSecurityHeaderError("x-amz-content-sha256");
 
         var signedHeaderList = signedHeaders.Split(';');
-        var canonical = BuildCanonicalRequest(req, signedHeaderList, contentSha);
+        var canonical = BuildCanonicalRequest(req, signedHeaderList, contentSha, excludeQueryKey: null);
         var canonicalHash = Sha256Hex(Encoding.UTF8.GetBytes(canonical));
 
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
@@ -111,12 +175,12 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
         return credential.Length > 0 && signedHeaders.Length > 0 && signature.Length > 0;
     }
 
-    private string BuildCanonicalRequest(HttpRequest req, string[] signedHeaders, string contentHash)
+    private string BuildCanonicalRequest(HttpRequest req, string[] signedHeaders, string contentHash, string? excludeQueryKey)
     {
         var sb = new StringBuilder();
         sb.Append(req.Method).Append('\n');
         sb.Append(CanonicalUri(req.Path.Value ?? "/")).Append('\n');
-        sb.Append(CanonicalQuery(req.Query)).Append('\n');
+        sb.Append(CanonicalQuery(req.Query, excludeQueryKey)).Append('\n');
 
         var sorted = signedHeaders.OrderBy(s => s, StringComparer.Ordinal).ToArray();
         foreach (var h in sorted)
@@ -138,12 +202,13 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
         return string.Join('/', segments);
     }
 
-    private string CanonicalQuery(IQueryCollection query)
+    private string CanonicalQuery(IQueryCollection query, string? excludeKey)
     {
         if (query.Count is 0) return string.Empty;
         var pairs = new List<(string K, string V)>();
         foreach (var kv in query)
         {
+            if (excludeKey is not null && string.Equals(kv.Key, excludeKey, StringComparison.Ordinal)) continue;
             var encodedKey = PercentEncode(kv.Key, encodeSlash: true);
             if (kv.Value.Count is 0)
             {
