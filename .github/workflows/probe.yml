@@ -1,0 +1,106 @@
+name: probe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [jit, aot, container]
+    name: probe (${{ matrix.mode }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install AOT toolchain
+        if: matrix.mode == 'aot'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Build (JIT)
+        if: matrix.mode == 'jit'
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Publish (AOT)
+        if: matrix.mode == 'aot'
+        run: dotnet publish Vessel3.Server -c Release -r linux-x64 --self-contained --nologo
+
+      - name: Build container
+        if: matrix.mode == 'container'
+        run: docker build -f Vessel3.Server/Dockerfile -t vessel3:ci .
+
+      - name: Start server (JIT)
+        if: matrix.mode == 'jit'
+        env:
+          VESSEL3_DATA: /tmp/vessel3-data
+          VESSEL3_ACCESS_KEY: AKIATEST
+          VESSEL3_SECRET_KEY: secretkey1234567890
+        run: |
+          mkdir -p /tmp/vessel3-data
+          nohup dotnet run --project Vessel3.Server -c Release --no-launch-profile -- --urls http://127.0.0.1:9000 \
+            > /tmp/vessel3-server.log 2>&1 &
+          echo $! > /tmp/vessel3.pid
+
+      - name: Start server (AOT)
+        if: matrix.mode == 'aot'
+        env:
+          VESSEL3_DATA: /tmp/vessel3-data
+          VESSEL3_ACCESS_KEY: AKIATEST
+          VESSEL3_SECRET_KEY: secretkey1234567890
+        run: |
+          mkdir -p /tmp/vessel3-data
+          nohup ./Vessel3.Server/bin/Release/net10.0/linux-x64/publish/vessel3 --urls http://127.0.0.1:9000 \
+            > /tmp/vessel3-server.log 2>&1 &
+          echo $! > /tmp/vessel3.pid
+
+      - name: Start server (container)
+        if: matrix.mode == 'container'
+        run: |
+          docker run -d --name vessel3 \
+            -e VESSEL3_ACCESS_KEY=AKIATEST \
+            -e VESSEL3_SECRET_KEY=secretkey1234567890 \
+            -p 9000:9000 vessel3:ci
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/)" != "000" ]; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not start in 30s"
+          exit 1
+
+      - name: Run probe
+        env:
+          VESSEL3_ENDPOINT: http://127.0.0.1:9000
+          VESSEL3_ACCESS_KEY: AKIATEST
+          VESSEL3_SECRET_KEY: secretkey1234567890
+        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile
+
+      - name: Server logs on failure
+        if: failure() && matrix.mode != 'container'
+        run: tail -200 /tmp/vessel3-server.log || true
+
+      - name: Container logs on failure
+        if: failure() && matrix.mode == 'container'
+        run: docker logs vessel3 || true
+
+      - name: Stop server
+        if: always() && matrix.mode != 'container'
+        run: |
+          if [ -f /tmp/vessel3.pid ]; then kill "$(cat /tmp/vessel3.pid)" 2>/dev/null || true; fi
+
+      - name: Stop container
+        if: always() && matrix.mode == 'container'
+        run: docker rm -f vessel3 || true
