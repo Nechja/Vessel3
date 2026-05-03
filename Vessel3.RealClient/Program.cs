@@ -10,11 +10,13 @@ var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY") ?? "AKI
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY") ?? "secretkey1234567890";
 var region    = Environment.GetEnvironmentVariable("VESSEL3_REGION")     ?? "us-east-1";
 
+Amazon.AWSConfigsS3.UseSignatureVersion4 = true;
 var config = new AmazonS3Config
 {
     ServiceURL = endpoint,
     ForcePathStyle = true,
     AuthenticationRegion = region,
+    UseHttp = endpoint.StartsWith("http://", StringComparison.Ordinal),
 };
 
 using var s3 = new AmazonS3Client(new BasicAWSCredentials(accessKey, secretKey), config);
@@ -30,6 +32,16 @@ await Run("ListBuckets",    async () =>
     var r = await s3.ListBucketsAsync();
     var found = r.Buckets?.Any(b => b.BucketName == bucket) ?? false;
     if (!found) throw new InvalidOperationException($"bucket '{bucket}' not present in ListBuckets");
+});
+
+await Run("GetBucketLocation", async () =>
+{
+    var r = await s3.GetBucketLocationAsync(new GetBucketLocationRequest { BucketName = bucket });
+    if (r.Location is null)
+        throw new InvalidOperationException("Location was null; server did not return a LocationConstraint element");
+    var loc = r.Location.Value;
+    if (loc is not "" and not "us-east-1")
+        throw new InvalidOperationException($"unexpected location '{loc}', expected '' or 'us-east-1'");
 });
 
 await Run("PutObject",      async () =>
@@ -56,6 +68,49 @@ await Run("ListObjectsV2",  async () =>
     var r = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = bucket });
     var found = r.S3Objects?.Any(o => o.Key == key) ?? false;
     if (!found) throw new InvalidOperationException($"key '{key}' not present in ListObjectsV2");
+});
+
+await Run("ListObjectsV1", async () =>
+{
+    using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("page-2")))
+    {
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket, Key = "list-v1-extra.txt",
+            InputStream = ms, ContentType = "text/plain",
+        });
+    }
+
+    var r = await s3.ListObjectsAsync(new ListObjectsRequest { BucketName = bucket });
+    if (r.S3Objects is null || r.S3Objects.Count is 0)
+        throw new InvalidOperationException("ListObjects v1 returned no objects");
+    var found = r.S3Objects.Any(o => o.Key == key);
+    if (!found) throw new InvalidOperationException($"key '{key}' not present in ListObjects v1");
+    if (r.Name != bucket)
+        throw new InvalidOperationException($"v1 bucket name mismatch: got '{r.Name}', expected '{bucket}'");
+
+    var paged = await s3.ListObjectsAsync(new ListObjectsRequest
+    {
+        BucketName = bucket,
+        MaxKeys = 1,
+    });
+    if (!paged.IsTruncated)
+        throw new InvalidOperationException("v1 paged response not truncated with max-keys=1");
+    if (string.IsNullOrEmpty(paged.NextMarker))
+        throw new InvalidOperationException("v1 paged response missing NextMarker");
+
+    var nextPage = await s3.ListObjectsAsync(new ListObjectsRequest
+    {
+        BucketName = bucket,
+        MaxKeys = 1,
+        Marker = paged.NextMarker,
+    });
+    if (nextPage.S3Objects is null || nextPage.S3Objects.Count is 0)
+        throw new InvalidOperationException("v1 followup page empty");
+    if (nextPage.S3Objects[0].Key == paged.S3Objects[0].Key)
+        throw new InvalidOperationException("v1 followup returned same key as first page");
+
+    await s3.DeleteObjectAsync(bucket, "list-v1-extra.txt");
 });
 
 await Run("GetObject",      async () =>
@@ -102,6 +157,54 @@ await Run("CopyObject",     async () =>
     var head = await s3.GetObjectMetadataAsync(bucket, copyKey);
     if (head.ContentLength != body.Length)
         throw new InvalidOperationException($"copy size {head.ContentLength} != expected {body.Length}");
+});
+
+await Run("PresignedGet", async () =>
+{
+    var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+    {
+        BucketName = bucket,
+        Key = key,
+        Verb = HttpVerb.GET,
+        Expires = DateTime.UtcNow.AddMinutes(5),
+        Protocol = Protocol.HTTP,
+    });
+
+    using var http = new HttpClient();
+    var resp = await http.GetAsync(url);
+    if (!resp.IsSuccessStatusCode)
+        throw new InvalidOperationException($"presigned GET failed: {(int)resp.StatusCode} {resp.ReasonPhrase} url={url}");
+    var got = await resp.Content.ReadAsStringAsync();
+    if (got != body)
+        throw new InvalidOperationException($"presigned GET body mismatch: got '{got}', expected '{body}'");
+});
+
+await Run("PresignedPut", async () =>
+{
+    const string presignedKey = "presigned-put.txt";
+    const string presignedBody = "presigned-put-body";
+    var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+    {
+        BucketName = bucket,
+        Key = presignedKey,
+        Verb = HttpVerb.PUT,
+        Expires = DateTime.UtcNow.AddMinutes(5),
+        Protocol = Protocol.HTTP,
+    });
+
+    using var http = new HttpClient();
+    using var content = new StringContent(presignedBody);
+    var resp = await http.PutAsync(url, content);
+    if (!resp.IsSuccessStatusCode)
+        throw new InvalidOperationException($"presigned PUT failed: {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+    using var getResp = await s3.GetObjectAsync(bucket, presignedKey);
+    using var sr = new StreamReader(getResp.ResponseStream);
+    var stored = await sr.ReadToEndAsync();
+    if (stored != presignedBody)
+        throw new InvalidOperationException($"presigned PUT body mismatch: got '{stored}', expected '{presignedBody}'");
+
+    await s3.DeleteObjectAsync(bucket, presignedKey);
 });
 
 await Run("ConditionalPut", async () =>
@@ -332,6 +435,62 @@ await Run("MultipartBadEtag", async () =>
     });
 });
 
+const string mpUploadPartCopyKey = "multipart-uploadpartcopy.bin";
+
+await Run("UploadPartCopy", async () =>
+{
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpUploadPartCopyKey,
+        ContentType = "application/octet-stream",
+    });
+
+    var part1 = await s3.CopyPartAsync(new CopyPartRequest
+    {
+        SourceBucket = bucket, SourceKey = mpManualKey,
+        DestinationBucket = bucket, DestinationKey = mpUploadPartCopyKey,
+        UploadId = initiate.UploadId,
+        PartNumber = 1,
+        FirstByte = 0, LastByte = 5 * 1024 * 1024 - 1,
+    });
+
+    var part2 = await s3.CopyPartAsync(new CopyPartRequest
+    {
+        SourceBucket = bucket, SourceKey = mpManualKey,
+        DestinationBucket = bucket, DestinationKey = mpUploadPartCopyKey,
+        UploadId = initiate.UploadId,
+        PartNumber = 2,
+        FirstByte = 5 * 1024 * 1024, LastByte = 10 * 1024 * 1024 - 1,
+    });
+
+    await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpUploadPartCopyKey,
+        UploadId = initiate.UploadId,
+        PartETags = [
+            new PartETag(1, part1.ETag),
+            new PartETag(2, part2.ETag),
+        ],
+    });
+
+    using var src = await s3.GetObjectAsync(new GetObjectRequest
+    {
+        BucketName = bucket, Key = mpManualKey,
+        ByteRange = new ByteRange(0, 10 * 1024 * 1024 - 1),
+    });
+    using var srcSink = new MemoryStream();
+    await src.ResponseStream.CopyToAsync(srcSink);
+
+    using var dst = await s3.GetObjectAsync(bucket, mpUploadPartCopyKey);
+    using var dstSink = new MemoryStream();
+    await dst.ResponseStream.CopyToAsync(dstSink);
+
+    if (!srcSink.ToArray().AsSpan().SequenceEqual(dstSink.ToArray()))
+        throw new InvalidOperationException("UploadPartCopy bytes mismatch");
+});
+
 await Run("MultipartCopy", async () =>
 {
     await s3.CopyObjectAsync(new CopyObjectRequest
@@ -501,6 +660,48 @@ await Run("MultipartDupNumber", async () =>
     });
 });
 
+await Run("ListMultipartUploads", async () =>
+{
+    const string listKey = "multipart-list-test.bin";
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket, Key = listKey, ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var buf = new byte[partSize];
+    new Random(55).NextBytes(buf);
+    using (var ms = new MemoryStream(buf))
+    {
+        await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket, Key = listKey, UploadId = initiate.UploadId,
+            PartNumber = 1, PartSize = partSize, InputStream = ms,
+        });
+    }
+
+    var uploads = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = bucket });
+    var found = uploads.MultipartUploads?.FirstOrDefault(u => u.UploadId == initiate.UploadId);
+    if (found is null) throw new InvalidOperationException($"upload {initiate.UploadId} missing from ListMultipartUploads");
+    if (found.Key != listKey) throw new InvalidOperationException($"listed key '{found.Key}' != '{listKey}'");
+
+    var parts = await s3.ListPartsAsync(new ListPartsRequest
+    {
+        BucketName = bucket, Key = listKey, UploadId = initiate.UploadId,
+    });
+    if (parts.Parts is null || parts.Parts.Count is 0)
+        throw new InvalidOperationException("ListParts returned no parts");
+    if (parts.Parts[0].PartNumber != 1)
+        throw new InvalidOperationException($"part number was {parts.Parts[0].PartNumber}, expected 1");
+    if (parts.Parts[0].Size != partSize)
+        throw new InvalidOperationException($"part size was {parts.Parts[0].Size}, expected {partSize}");
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket, Key = listKey, UploadId = initiate.UploadId,
+    });
+});
+
 await Run("MultipartAbort", async () =>
 {
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
@@ -584,11 +785,12 @@ await Run("DeleteObjects",  async () =>
             new KeyVersion { Key = mpManualKey },
             new KeyVersion { Key = mpCopyKey },
             new KeyVersion { Key = mpOutOfOrderKey },
+            new KeyVersion { Key = mpUploadPartCopyKey },
             new KeyVersion { Key = mpTransferKey },
         ],
     });
-    if (r.DeletedObjects is null || r.DeletedObjects.Count != 6)
-        throw new InvalidOperationException($"expected 6 deleted, got {r.DeletedObjects?.Count ?? 0}");
+    if (r.DeletedObjects is null || r.DeletedObjects.Count != 7)
+        throw new InvalidOperationException($"expected 7 deleted, got {r.DeletedObjects?.Count ?? 0}");
 });
 
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
