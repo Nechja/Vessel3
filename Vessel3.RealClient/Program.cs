@@ -125,6 +125,12 @@ await Run("ConditionalPut", async () =>
 });
 
 const string mpManualKey = "multipart-manual.bin";
+const string mpCopyKey = "multipart-manual-copy.bin";
+const string mpOutOfOrderKey = "multipart-out-of-order.bin";
+const string mpBadEtagKey = "multipart-bad-etag.bin";
+const string mpEmptyKey = "multipart-empty.bin";
+const string mpMissingKey = "multipart-missing.bin";
+const string mpDupKey = "multipart-dup.bin";
 const string mpAbortKey = "multipart-abort.bin";
 const string mpTransferKey = "transfer-util.bin";
 
@@ -225,8 +231,6 @@ await Run("MultipartManual", async () =>
     await CheckRange(partSize + 1000L, partSize + 1199L, withinPart2, "within part 2");
 });
 
-const string mpOutOfOrderKey = "multipart-out-of-order.bin";
-
 await Run("MultipartOutOfOrder", async () =>
 {
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
@@ -283,7 +287,7 @@ await Run("MultipartBadEtag", async () =>
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = "multipart-bad-etag.bin",
+        Key = mpBadEtagKey,
         ContentType = "application/octet-stream",
     });
 
@@ -295,7 +299,7 @@ await Run("MultipartBadEtag", async () =>
         await s3.UploadPartAsync(new UploadPartRequest
         {
             BucketName = bucket,
-            Key = "multipart-bad-etag.bin",
+            Key = mpBadEtagKey,
             UploadId = initiate.UploadId,
             PartNumber = 1,
             PartSize = partSize,
@@ -308,7 +312,7 @@ await Run("MultipartBadEtag", async () =>
         await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
         {
             BucketName = bucket,
-            Key = "multipart-bad-etag.bin",
+            Key = mpBadEtagKey,
             UploadId = initiate.UploadId,
             PartETags = [new PartETag(1, "deadbeefdeadbeefdeadbeefdeadbeef")],
         });
@@ -322,12 +326,10 @@ await Run("MultipartBadEtag", async () =>
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = "multipart-bad-etag.bin",
+        Key = mpBadEtagKey,
         UploadId = initiate.UploadId,
     });
 });
-
-const string mpCopyKey = "multipart-manual-copy.bin";
 
 await Run("MultipartCopy", async () =>
 {
@@ -365,11 +367,10 @@ await Run("MultipartListEtag", async () =>
 
 await Run("MultipartEmpty", async () =>
 {
-    const string emptyKey = "multipart-empty.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = emptyKey,
+        Key = mpEmptyKey,
         ContentType = "application/octet-stream",
     });
 
@@ -378,7 +379,7 @@ await Run("MultipartEmpty", async () =>
         await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
         {
             BucketName = bucket,
-            Key = emptyKey,
+            Key = mpEmptyKey,
             UploadId = initiate.UploadId,
             PartETags = [],
         });
@@ -392,18 +393,18 @@ await Run("MultipartEmpty", async () =>
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = emptyKey,
+        Key = mpEmptyKey,
         UploadId = initiate.UploadId,
     });
 });
 
 await Run("MultipartMissingPart", async () =>
 {
-    const string missingKey = "multipart-missing.bin";
+    const string mpMissingKey = "multipart-missing.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = missingKey,
+        Key = mpMissingKey,
         ContentType = "application/octet-stream",
     });
 
@@ -418,7 +419,7 @@ await Run("MultipartMissingPart", async () =>
         var up = await s3.UploadPartAsync(new UploadPartRequest
         {
             BucketName = bucket,
-            Key = missingKey,
+            Key = mpMissingKey,
             UploadId = initiate.UploadId,
             PartNumber = i + 1,
             PartSize = partSize,
@@ -432,7 +433,7 @@ await Run("MultipartMissingPart", async () =>
         await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
         {
             BucketName = bucket,
-            Key = missingKey,
+            Key = mpMissingKey,
             UploadId = initiate.UploadId,
             PartETags = [etags[0], etags[1], new PartETag(3, "deadbeefdeadbeefdeadbeefdeadbeef")],
         });
@@ -446,18 +447,18 @@ await Run("MultipartMissingPart", async () =>
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = missingKey,
+        Key = mpMissingKey,
         UploadId = initiate.UploadId,
     });
 });
 
 await Run("MultipartDupNumber", async () =>
 {
-    const string dupKey = "multipart-dup.bin";
+    const string mpDupKey = "multipart-dup.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = dupKey,
+        Key = mpDupKey,
         ContentType = "application/octet-stream",
     });
 
@@ -469,7 +470,7 @@ await Run("MultipartDupNumber", async () =>
         var up = await s3.UploadPartAsync(new UploadPartRequest
         {
             BucketName = bucket,
-            Key = dupKey,
+            Key = mpDupKey,
             UploadId = initiate.UploadId,
             PartNumber = 1,
             PartSize = partSize,
@@ -481,7 +482,7 @@ await Run("MultipartDupNumber", async () =>
             await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
             {
                 BucketName = bucket,
-                Key = dupKey,
+                Key = mpDupKey,
                 UploadId = initiate.UploadId,
                 PartETags = [new PartETag(1, up.ETag), new PartETag(1, up.ETag)],
             });
@@ -496,7 +497,7 @@ await Run("MultipartDupNumber", async () =>
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = dupKey,
+        Key = mpDupKey,
         UploadId = initiate.UploadId,
     });
 });

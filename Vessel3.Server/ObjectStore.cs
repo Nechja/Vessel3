@@ -43,7 +43,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
         registry.GetCurrentPut(bucket, key).Match<Result<ObjectStat>>(
             put => put is null
                 ? new NotFoundError($"{bucket}/{key}")
-                : new ObjectStat(put.Size, put.At, put.WireEtag, put.Parts is null ? put.BlobSha : "", put.ContentType, put.Metadata),
+                : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata),
             err => err);
 
     public Result<bool> Delete(string bucket, string key) =>

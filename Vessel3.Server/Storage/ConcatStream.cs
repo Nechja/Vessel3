@@ -99,27 +99,36 @@ internal sealed class ConcatStream : Stream
         if (currentStream is not null) return;
         if (position >= totalLength) return;
 
-        long offset = 0;
-        for (var i = 0; i < parts.Count; i++)
+        if (currentIndex < 0)
         {
-            var partEnd = offset + parts[i].Size;
-            if (position < partEnd)
+            long offset = 0;
+            for (var i = 0; i < parts.Count; i++)
             {
-                currentIndex = i;
-                currentPartStart = offset;
-                currentStream = OpenPart(parts[i]);
-                var skip = position - currentPartStart;
-                if (skip > 0) currentStream.Seek(skip, SeekOrigin.Begin);
-                return;
+                var partEnd = offset + parts[i].Size;
+                if (position < partEnd)
+                {
+                    currentIndex = i;
+                    currentPartStart = offset;
+                    break;
+                }
+                offset = partEnd;
             }
-            offset = partEnd;
         }
+
+        if (currentIndex < 0 || currentIndex >= parts.Count) return;
+        currentStream = OpenPart(parts[currentIndex]);
+        var skip = position - currentPartStart;
+        if (skip > 0) currentStream.Seek(skip, SeekOrigin.Begin);
     }
 
     private void AdvancePart()
     {
         DisposeCurrent();
-        currentIndex = -1;
+        if (currentIndex >= 0 && currentIndex < parts.Count)
+        {
+            currentPartStart += parts[currentIndex].Size;
+            currentIndex++;
+        }
     }
 
     private Stream OpenPart(MultipartPart part) =>

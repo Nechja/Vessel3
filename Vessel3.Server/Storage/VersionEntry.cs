@@ -20,6 +20,7 @@ internal sealed record PutEntry(
     : VersionEntry(VersionId, At)
 {
     public string WireEtag => Parts is { } p ? $"{Md5}-{p.Count}" : Md5;
+    public string WireSha256 => Parts is null ? BlobSha : "";
 }
 
 internal sealed record DeleteMarkerEntry(

@@ -174,15 +174,7 @@ app.MapPut("/{bucket}/{**key}", async (
         if (!int.TryParse(partNumberRaw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var partNumber))
             return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
 
-        var partContentSha = req.Headers["x-amz-content-sha256"].ToString();
-        var partIsChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
-            || partContentSha.Contains("STREAMING-", StringComparison.Ordinal);
-        var partSigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
-        var partBody = partIsChunked ? (Stream)new AwsChunkedStream(req.Body, partSigCtx) : req.Body;
-        var partLength = partIsChunked
-            ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var pdl) ? pdl : (long?)null)
-            : req.ContentLength;
-
+        var (partBody, partLength) = DecodeRequestBody(req);
         var partResult = await multipart.UploadPart(uploadId, partNumber, partBody, partLength, ct);
         return partResult.Match<IResult>(
             outcome =>
@@ -220,15 +212,9 @@ app.MapPut("/{bucket}/{**key}", async (
             return Results.StatusCode(412);
     }
 
+    var (body, declaredLength) = DecodeRequestBody(req);
     var contentSha = req.Headers["x-amz-content-sha256"].ToString();
-    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
-        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
-    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
-    var body = isChunked ? (Stream)new AwsChunkedStream(req.Body, sigCtx) : req.Body;
-    var declaredLength = isChunked
-        ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
-        : req.ContentLength;
-    var declaredSha = (isChunked || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
+    var declaredSha = (body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
         ? null
         : contentSha;
     var declaredMd5 = req.Headers["Content-MD5"].ToString();
@@ -333,6 +319,18 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
         meta[key] = values.ToString();
     }
     return meta;
+}
+
+static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
+{
+    var contentSha = req.Headers["x-amz-content-sha256"].ToString();
+    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
+        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
+    if (!isChunked) return (req.Body, req.ContentLength);
+
+    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
+    var declared = long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null;
+    return (new AwsChunkedStream(req.Body, sigCtx), declared);
 }
 
 static bool TryParseCopySource(string raw, out string bucket, out string key)
