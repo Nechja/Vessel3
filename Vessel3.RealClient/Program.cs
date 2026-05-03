@@ -174,19 +174,40 @@ await Run("MultipartManual", async () =>
     if (head.ContentLength != partSize * 3L)
         throw new InvalidOperationException($"size {head.ContentLength} != expected {partSize * 3L}");
 
-    using var got = await s3.GetObjectAsync(bucket, mpManualKey);
-    using var sink = new MemoryStream();
-    await got.ResponseStream.CopyToAsync(sink);
-    var bytes = sink.ToArray();
-    if (bytes.Length != partSize * 3)
-        throw new InvalidOperationException($"got {bytes.Length} bytes, expected {partSize * 3}");
-    for (var i = 0; i < 3; i++)
+    using (var got = await s3.GetObjectAsync(bucket, mpManualKey))
+    using (var sink = new MemoryStream())
     {
-        var slice = new byte[partSize];
-        Array.Copy(bytes, i * partSize, slice, 0, partSize);
-        if (!slice.AsSpan().SequenceEqual(partBuffers[i]))
-            throw new InvalidOperationException($"part {i + 1} bytes mismatch");
+        await got.ResponseStream.CopyToAsync(sink);
+        var bytes = sink.ToArray();
+        if (bytes.Length != partSize * 3)
+            throw new InvalidOperationException($"got {bytes.Length} bytes, expected {partSize * 3}");
+        for (var i = 0; i < 3; i++)
+        {
+            var slice = new byte[partSize];
+            Array.Copy(bytes, i * partSize, slice, 0, partSize);
+            if (!slice.AsSpan().SequenceEqual(partBuffers[i]))
+                throw new InvalidOperationException($"part {i + 1} bytes mismatch");
+        }
     }
+
+    var rangeStart = partSize - 5L;
+    var rangeEnd = partSize + 4L;
+    using var ranged = await s3.GetObjectAsync(new GetObjectRequest
+    {
+        BucketName = bucket,
+        Key = mpManualKey,
+        ByteRange = new ByteRange(rangeStart, rangeEnd),
+    });
+    using var rsink = new MemoryStream();
+    await ranged.ResponseStream.CopyToAsync(rsink);
+    var rbytes = rsink.ToArray();
+    if (rbytes.Length != 10)
+        throw new InvalidOperationException($"range got {rbytes.Length} bytes, expected 10");
+    var expected = new byte[10];
+    Array.Copy(partBuffers[0], partSize - 5, expected, 0, 5);
+    Array.Copy(partBuffers[1], 0, expected, 5, 5);
+    if (!rbytes.AsSpan().SequenceEqual(expected))
+        throw new InvalidOperationException("range bytes spanning part boundary mismatch");
 });
 
 await Run("MultipartAbort", async () =>

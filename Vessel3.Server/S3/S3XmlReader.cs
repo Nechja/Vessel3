@@ -82,23 +82,29 @@ internal sealed class S3XmlReader : IS3XmlReader
         return (Result<IReadOnlyList<CompletedPart>>)parts;
     }
 
-    private async Task<CompletedPart?> ReadPartEntry(XmlReader r)
+    private static async Task<CompletedPart?> ReadPartEntry(XmlReader r)
     {
         int? number = null;
         string? etag = null;
+        string? currentField = null;
         using var sub = r.ReadSubtree();
         while (await sub.ReadAsync())
         {
-            if (sub.NodeType is not XmlNodeType.Element) continue;
-            if (sub.LocalName is "PartNumber")
+            switch (sub.NodeType)
             {
-                var raw = await sub.ReadElementContentAsStringAsync();
-                if (int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n))
-                    number = n;
-            }
-            else if (sub.LocalName is "ETag")
-            {
-                etag = (await sub.ReadElementContentAsStringAsync()).Trim('"');
+                case XmlNodeType.Element:
+                    currentField = sub.LocalName;
+                    break;
+                case XmlNodeType.Text or XmlNodeType.CDATA:
+                    if (currentField is "PartNumber"
+                        && int.TryParse(sub.Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n))
+                        number = n;
+                    else if (currentField is "ETag")
+                        etag = sub.Value.Trim('"');
+                    break;
+                case XmlNodeType.EndElement:
+                    currentField = null;
+                    break;
             }
         }
         return number is { } n2 && etag is not null ? new CompletedPart(n2, etag) : null;
