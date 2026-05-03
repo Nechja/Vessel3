@@ -338,7 +338,7 @@ app.MapPut("/{bucket}/{**key}", async (
         ? null
         : contentSha;
     var declaredMd5 = req.Headers["Content-MD5"].ToString();
-    var declaredMd5OrNull = string.IsNullOrEmpty(declaredMd5) ? null : declaredMd5;
+    var declaredMd5OrNull = Nullify(declaredMd5);
 
     var metadata = ExtractUserMetadata(req.Headers);
 
@@ -380,7 +380,7 @@ app.MapGet("/{bucket}/{**key}", async (
                 return Results.Empty;
             },
             err => Task.FromResult(http.Map(err)))
-        : objects.Get(bucket, key, string.IsNullOrEmpty(getVersionId) ? null : getVersionId).Match<IResult>(
+        : objects.Get(bucket, key, Nullify(getVersionId)).Match<IResult>(
         ok =>
         {
             var precond = pre.EvaluateForRead(req.Headers, ok.Etag, ok.LastModified);
@@ -413,7 +413,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
     IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) =>
 {
     var headVersionId = req.Query["versionId"].ToString();
-    return objects.Stat(bucket, key, string.IsNullOrEmpty(headVersionId) ? null : headVersionId).Match<IResult>(
+    return objects.Stat(bucket, key, Nullify(headVersionId)).Match<IResult>(
         stat =>
         {
             var precond = pre.EvaluateForRead(req.Headers, stat.Etag, stat.LastModified);
@@ -472,6 +472,8 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
     }
     return meta;
 }
+
+static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
 static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
 {

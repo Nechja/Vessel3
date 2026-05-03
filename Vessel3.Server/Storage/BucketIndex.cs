@@ -131,7 +131,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Parts: DeserializeParts(r.GetString(8)));
     }
 
-    public IEnumerable<AllVersionsEntry> ListAllVersions(string? prefix, string? keyMarker)
+    public List<AllVersionsEntry> ListAllVersions(string? prefix, string? keyMarker)
     {
         using var cmd = conn!.CreateCommand();
         var sql = """
@@ -153,6 +153,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         sql += " ORDER BY key ASC, seq DESC";
         cmd.CommandText = sql;
 
+        var results = new List<AllVersionsEntry>();
         using var r = cmd.ExecuteReader();
         string? lastKey = null;
         while (r.Read())
@@ -163,11 +164,12 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             var versionId = r.GetString(1);
             var kind = r.GetInt32(2);
             var at = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(5));
-            yield return kind is KindPut
+            results.Add(kind is KindPut
                 ? new AllVersionsEntry.Put(key, versionId, at, isLatest,
                     r.GetString(3), r.GetInt64(4), DeserializeParts(r.GetString(6)))
-                : new AllVersionsEntry.Marker(key, versionId, at, isLatest);
+                : new AllVersionsEntry.Marker(key, versionId, at, isLatest));
         }
+        return results;
     }
 
     public IEnumerable<VersionListEntry> ListCurrent(string? prefix, string? startAfter)

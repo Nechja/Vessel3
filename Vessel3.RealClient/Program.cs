@@ -193,14 +193,7 @@ await Run("ListObjectVersions", async () =>
     }
     finally
     {
-        try
-        {
-            var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket });
-            foreach (var v in lv.Versions ?? [])
-                await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = vbucket, Key = v.Key, VersionId = v.VersionId });
-            await s3.DeleteBucketAsync(vbucket);
-        }
-        catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
+        await CleanupVersionedBucket(s3, vbucket);
     }
 });
 

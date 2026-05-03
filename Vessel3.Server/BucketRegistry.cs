@@ -21,7 +21,7 @@ internal interface IBucketRegistry : IDisposable
     Result<DeleteOutcome> AppendDelete(string bucket, string key);
     Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId);
     Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
-    Result<IEnumerable<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker);
+    Result<List<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker);
     Result<VersioningStatus> GetVersioning(string bucket);
     Result<bool> SetVersioning(string bucket, VersioningStatus status);
 }
@@ -118,10 +118,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             ? new Result<IEnumerable<VersionListEntry>>.Success(b.Index.ListCurrent(prefix, startAfter))
             : new NotFoundError(bucket);
 
-    public Result<IEnumerable<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker) =>
+    public Result<List<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : Open(bucket) is { } b
-            ? new Result<IEnumerable<AllVersionsEntry>>.Success(b.Index.ListAllVersions(prefix, keyMarker))
+            ? b.Index.ListAllVersions(prefix, keyMarker)
             : new NotFoundError(bucket);
 
     public Result<VersioningStatus> GetVersioning(string bucket) =>

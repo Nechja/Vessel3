@@ -20,7 +20,7 @@ internal interface IS3XmlWriter
     Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
     Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
     Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct);
-    Task WriteListVersions(Stream output, string bucket, string? prefix, IEnumerable<AllVersionsEntry> entries, CancellationToken ct);
+    Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -135,7 +135,7 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteListVersions(Stream output, string bucket, string? prefix, IEnumerable<AllVersionsEntry> entries, CancellationToken ct)
+    public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, CancellationToken ct)
     {
         await using var w = XmlWriter.Create(output, settings);
         await w.WriteStartDocumentAsync();
