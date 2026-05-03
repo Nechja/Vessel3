@@ -173,6 +173,8 @@ await Run("MultipartManual", async () =>
     var head = await s3.GetObjectMetadataAsync(bucket, mpManualKey);
     if (head.ContentLength != partSize * 3L)
         throw new InvalidOperationException($"size {head.ContentLength} != expected {partSize * 3L}");
+    if (!head.ETag.Trim('"').EndsWith("-3", StringComparison.Ordinal))
+        throw new InvalidOperationException($"HEAD ETag missing -3 suffix: {head.ETag}");
 
     using (var got = await s3.GetObjectAsync(bucket, mpManualKey))
     using (var sink = new MemoryStream())
@@ -325,6 +327,180 @@ await Run("MultipartBadEtag", async () =>
     });
 });
 
+const string mpCopyKey = "multipart-manual-copy.bin";
+
+await Run("MultipartCopy", async () =>
+{
+    await s3.CopyObjectAsync(new CopyObjectRequest
+    {
+        SourceBucket = bucket, SourceKey = mpManualKey,
+        DestinationBucket = bucket, DestinationKey = mpCopyKey,
+    });
+
+    var head = await s3.GetObjectMetadataAsync(bucket, mpCopyKey);
+    if (!head.ETag.Trim('"').EndsWith("-3", StringComparison.Ordinal))
+        throw new InvalidOperationException($"copy ETag missing -3 suffix: {head.ETag}");
+
+    using var src = await s3.GetObjectAsync(bucket, mpManualKey);
+    using var srcSink = new MemoryStream();
+    await src.ResponseStream.CopyToAsync(srcSink);
+
+    using var dst = await s3.GetObjectAsync(bucket, mpCopyKey);
+    using var dstSink = new MemoryStream();
+    await dst.ResponseStream.CopyToAsync(dstSink);
+
+    if (!srcSink.ToArray().AsSpan().SequenceEqual(dstSink.ToArray()))
+        throw new InvalidOperationException("multipart copy bytes mismatch");
+});
+
+await Run("MultipartListEtag", async () =>
+{
+    var r = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = bucket });
+    var entry = r.S3Objects?.FirstOrDefault(o => o.Key == mpManualKey);
+    if (entry is null) throw new InvalidOperationException($"key {mpManualKey} missing from list");
+    var etag = entry.ETag.Trim('"');
+    if (!etag.EndsWith("-3", StringComparison.Ordinal))
+        throw new InvalidOperationException($"list ETag missing -3 suffix: {entry.ETag}");
+});
+
+await Run("MultipartEmpty", async () =>
+{
+    const string emptyKey = "multipart-empty.bin";
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = emptyKey,
+        ContentType = "application/octet-stream",
+    });
+
+    try
+    {
+        await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = bucket,
+            Key = emptyKey,
+            UploadId = initiate.UploadId,
+            PartETags = [],
+        });
+        throw new InvalidOperationException("expected 400 InvalidPart for empty Complete");
+    }
+    catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
+    {
+        // expected
+    }
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = emptyKey,
+        UploadId = initiate.UploadId,
+    });
+});
+
+await Run("MultipartMissingPart", async () =>
+{
+    const string missingKey = "multipart-missing.bin";
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = missingKey,
+        ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var rng = new Random(33);
+    var etags = new PartETag[2];
+    for (var i = 0; i < 2; i++)
+    {
+        var buf = new byte[partSize];
+        rng.NextBytes(buf);
+        using var ms = new MemoryStream(buf);
+        var up = await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = missingKey,
+            UploadId = initiate.UploadId,
+            PartNumber = i + 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+        etags[i] = new PartETag(i + 1, up.ETag);
+    }
+
+    try
+    {
+        await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = bucket,
+            Key = missingKey,
+            UploadId = initiate.UploadId,
+            PartETags = [etags[0], etags[1], new PartETag(3, "deadbeefdeadbeefdeadbeefdeadbeef")],
+        });
+        throw new InvalidOperationException("expected 400 InvalidPart for missing part 3");
+    }
+    catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
+    {
+        // expected
+    }
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = missingKey,
+        UploadId = initiate.UploadId,
+    });
+});
+
+await Run("MultipartDupNumber", async () =>
+{
+    const string dupKey = "multipart-dup.bin";
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = dupKey,
+        ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var buf = new byte[partSize];
+    new Random(77).NextBytes(buf);
+    using (var ms = new MemoryStream(buf))
+    {
+        var up = await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = dupKey,
+            UploadId = initiate.UploadId,
+            PartNumber = 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+
+        try
+        {
+            await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+            {
+                BucketName = bucket,
+                Key = dupKey,
+                UploadId = initiate.UploadId,
+                PartETags = [new PartETag(1, up.ETag), new PartETag(1, up.ETag)],
+            });
+            throw new InvalidOperationException("expected 400 InvalidPartOrder for duplicate part number");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
+        {
+            // expected
+        }
+    }
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = dupKey,
+        UploadId = initiate.UploadId,
+    });
+});
+
 await Run("MultipartAbort", async () =>
 {
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
@@ -406,12 +582,13 @@ await Run("DeleteObjects",  async () =>
             new KeyVersion { Key = key },
             new KeyVersion { Key = copyKey },
             new KeyVersion { Key = mpManualKey },
+            new KeyVersion { Key = mpCopyKey },
             new KeyVersion { Key = mpOutOfOrderKey },
             new KeyVersion { Key = mpTransferKey },
         ],
     });
-    if (r.DeletedObjects is null || r.DeletedObjects.Count != 5)
-        throw new InvalidOperationException($"expected 5 deleted, got {r.DeletedObjects?.Count ?? 0}");
+    if (r.DeletedObjects is null || r.DeletedObjects.Count != 6)
+        throw new InvalidOperationException($"expected 6 deleted, got {r.DeletedObjects?.Count ?? 0}");
 });
 
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
