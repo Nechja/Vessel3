@@ -190,24 +190,139 @@ await Run("MultipartManual", async () =>
         }
     }
 
-    var rangeStart = partSize - 5L;
-    var rangeEnd = partSize + 4L;
-    using var ranged = await s3.GetObjectAsync(new GetObjectRequest
+    async Task CheckRange(long start, long end, byte[] expectedBytes, string label)
+    {
+        using var ranged = await s3.GetObjectAsync(new GetObjectRequest
+        {
+            BucketName = bucket,
+            Key = mpManualKey,
+            ByteRange = new ByteRange(start, end),
+        });
+        using var rsink = new MemoryStream();
+        await ranged.ResponseStream.CopyToAsync(rsink);
+        var rbytes = rsink.ToArray();
+        if (!rbytes.AsSpan().SequenceEqual(expectedBytes))
+            throw new InvalidOperationException($"range {label} mismatch (got {rbytes.Length} bytes)");
+    }
+
+    var crossBoundary = new byte[10];
+    Array.Copy(partBuffers[0], partSize - 5, crossBoundary, 0, 5);
+    Array.Copy(partBuffers[1], 0, crossBoundary, 5, 5);
+    await CheckRange(partSize - 5L, partSize + 4L, crossBoundary, "boundary 1->2");
+
+    var head100 = new byte[100];
+    Array.Copy(partBuffers[0], 0, head100, 0, 100);
+    await CheckRange(0, 99, head100, "head 100");
+
+    var tail100 = new byte[100];
+    Array.Copy(partBuffers[2], partSize - 100, tail100, 0, 100);
+    await CheckRange(partSize * 3L - 100, partSize * 3L - 1, tail100, "tail 100");
+
+    var withinPart2 = new byte[200];
+    Array.Copy(partBuffers[1], 1000, withinPart2, 0, 200);
+    await CheckRange(partSize + 1000L, partSize + 1199L, withinPart2, "within part 2");
+});
+
+const string mpOutOfOrderKey = "multipart-out-of-order.bin";
+
+await Run("MultipartOutOfOrder", async () =>
+{
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
         BucketName = bucket,
-        Key = mpManualKey,
-        ByteRange = new ByteRange(rangeStart, rangeEnd),
+        Key = mpOutOfOrderKey,
+        ContentType = "application/octet-stream",
     });
-    using var rsink = new MemoryStream();
-    await ranged.ResponseStream.CopyToAsync(rsink);
-    var rbytes = rsink.ToArray();
-    if (rbytes.Length != 10)
-        throw new InvalidOperationException($"range got {rbytes.Length} bytes, expected 10");
-    var expected = new byte[10];
-    Array.Copy(partBuffers[0], partSize - 5, expected, 0, 5);
-    Array.Copy(partBuffers[1], 0, expected, 5, 5);
-    if (!rbytes.AsSpan().SequenceEqual(expected))
-        throw new InvalidOperationException("range bytes spanning part boundary mismatch");
+
+    const int partSize = 5 * 1024 * 1024;
+    var rng = new Random(123);
+    var parts = new byte[3][];
+    for (var i = 0; i < 3; i++) { parts[i] = new byte[partSize]; rng.NextBytes(parts[i]); }
+
+    var etags = new PartETag[3];
+    foreach (var i in new[] { 1, 0, 2 })
+    {
+        using var ms = new MemoryStream(parts[i]);
+        var up = await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = mpOutOfOrderKey,
+            UploadId = initiate.UploadId,
+            PartNumber = i + 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+        etags[i] = new PartETag(i + 1, up.ETag);
+    }
+
+    await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = mpOutOfOrderKey,
+        UploadId = initiate.UploadId,
+        PartETags = [etags[0], etags[1], etags[2]],
+    });
+
+    using var got = await s3.GetObjectAsync(bucket, mpOutOfOrderKey);
+    using var sink = new MemoryStream();
+    await got.ResponseStream.CopyToAsync(sink);
+    var bytes = sink.ToArray();
+    for (var i = 0; i < 3; i++)
+    {
+        var slice = new byte[partSize];
+        Array.Copy(bytes, i * partSize, slice, 0, partSize);
+        if (!slice.AsSpan().SequenceEqual(parts[i]))
+            throw new InvalidOperationException($"out-of-order part {i + 1} mismatch");
+    }
+});
+
+await Run("MultipartBadEtag", async () =>
+{
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = "multipart-bad-etag.bin",
+        ContentType = "application/octet-stream",
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var buf = new byte[partSize];
+    new Random(11).NextBytes(buf);
+    using (var ms = new MemoryStream(buf))
+    {
+        await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = bucket,
+            Key = "multipart-bad-etag.bin",
+            UploadId = initiate.UploadId,
+            PartNumber = 1,
+            PartSize = partSize,
+            InputStream = ms,
+        });
+    }
+
+    try
+    {
+        await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = bucket,
+            Key = "multipart-bad-etag.bin",
+            UploadId = initiate.UploadId,
+            PartETags = [new PartETag(1, "deadbeefdeadbeefdeadbeefdeadbeef")],
+        });
+        throw new InvalidOperationException("expected 400 InvalidPart for wrong ETag");
+    }
+    catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
+    {
+        // expected
+    }
+
+    await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+    {
+        BucketName = bucket,
+        Key = "multipart-bad-etag.bin",
+        UploadId = initiate.UploadId,
+    });
 });
 
 await Run("MultipartAbort", async () =>
@@ -291,11 +406,12 @@ await Run("DeleteObjects",  async () =>
             new KeyVersion { Key = key },
             new KeyVersion { Key = copyKey },
             new KeyVersion { Key = mpManualKey },
+            new KeyVersion { Key = mpOutOfOrderKey },
             new KeyVersion { Key = mpTransferKey },
         ],
     });
-    if (r.DeletedObjects is null || r.DeletedObjects.Count != 4)
-        throw new InvalidOperationException($"expected 4 deleted, got {r.DeletedObjects?.Count ?? 0}");
+    if (r.DeletedObjects is null || r.DeletedObjects.Count != 5)
+        throw new InvalidOperationException($"expected 5 deleted, got {r.DeletedObjects?.Count ?? 0}");
 });
 
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
