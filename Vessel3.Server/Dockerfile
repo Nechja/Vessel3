@@ -35,6 +35,7 @@ FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION}-noble-chiseled AS r
 
 WORKDIR /app
 COPY --from=build /publish/vessel3 /app/vessel3
+COPY --from=build /publish/libe_sqlite3.so /app/libe_sqlite3.so
 COPY --from=build --chown=$APP_UID:$APP_UID /staging/data /data
 
 ENV VESSEL3_DATA=/data

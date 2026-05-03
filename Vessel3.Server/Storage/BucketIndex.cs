@@ -38,8 +38,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json)
-            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj)
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json)
+            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj)
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -51,6 +51,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$ct", ev.ContentType);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$mj", SerializeMetadata(ev.Metadata));
+        cmd.Parameters.AddWithValue("$pj", SerializeParts(ev.Parts));
         cmd.ExecuteNonQuery();
     }
 
@@ -59,8 +60,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json)
-            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at, '{}')
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json)
+            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at, '{}', '')
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -83,7 +84,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
-            SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json
+            SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json
               FROM versions
              WHERE key = $k AND kind = $kp
              ORDER BY seq DESC
@@ -100,7 +101,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Md5: r.GetString(2),
                 Size: r.GetInt64(3),
                 ContentType: r.GetString(4),
-                Metadata: DeserializeMetadata(r.GetString(6)))
+                Metadata: DeserializeMetadata(r.GetString(6)),
+                Parts: DeserializeParts(r.GetString(7)))
             : (PutEntry?)null;
     }
 
@@ -108,7 +110,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         using var cmd = conn!.CreateCommand();
         var sql = """
-            SELECT v1.key, v1.version_id, v1.blob_sha, v1.md5, v1.size, v1.content_type, v1.at_ms, v1.md_json
+            SELECT v1.key, v1.version_id, v1.blob_sha, v1.md5, v1.size, v1.content_type, v1.at_ms, v1.md_json, v1.parts_json
               FROM versions v1
              WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
                AND v1.kind = $kp
@@ -138,7 +140,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Md5: r.GetString(3),
                 Size: r.GetInt64(4),
                 ContentType: r.GetString(5),
-                Metadata: DeserializeMetadata(r.GetString(7)));
+                Metadata: DeserializeMetadata(r.GetString(7)),
+                Parts: DeserializeParts(r.GetString(8)));
         }
     }
 
@@ -153,6 +156,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             ? []
             : JsonSerializer.Deserialize(json, VersionEventContext.Default.DictionaryStringString)
                 ?? [];
+
+    private string SerializeParts(IReadOnlyList<MultipartPart>? parts) =>
+        parts is null || parts.Count is 0 ? ""
+            : JsonSerializer.Serialize(
+                [.. parts],
+                VersionEventContext.Default.ListMultipartPart);
+
+    private IReadOnlyList<MultipartPart>? DeserializeParts(string json) =>
+        string.IsNullOrEmpty(json)
+            ? null
+            : JsonSerializer.Deserialize(json, VersionEventContext.Default.ListMultipartPart);
 
     public bool IsEmpty()
     {
@@ -189,11 +203,30 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 size          INTEGER NOT NULL,
                 content_type  TEXT NOT NULL,
                 at_ms         INTEGER NOT NULL,
-                md_json       TEXT NOT NULL DEFAULT '{}'
+                md_json       TEXT NOT NULL DEFAULT '{}',
+                parts_json    TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
             """;
         cmd.ExecuteNonQuery();
+
+        if (!ColumnExists("versions", "parts_json"))
+        {
+            using var alter = conn!.CreateCommand();
+            alter.CommandText = "ALTER TABLE versions ADD COLUMN parts_json TEXT NOT NULL DEFAULT ''";
+            alter.ExecuteNonQuery();
+        }
+    }
+
+    private bool ColumnExists(string table, string column)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            if (string.Equals(r.GetString(1), column, StringComparison.Ordinal))
+                return true;
+        return false;
     }
 }

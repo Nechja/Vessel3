@@ -21,9 +21,11 @@ builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(http);
 builder.Services.AddSingleton(new BlobPoolOptions(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton(new BucketRegistryOptions(dataRoot));
+builder.Services.AddSingleton(new MultipartStoreOptions(Path.Combine(dataRoot, "uploads")));
 builder.Services.AddSingleton<IBlobPool, BlobPool>();
 builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
+builder.Services.AddSingleton<IMultipartStore, MultipartStore>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
@@ -115,12 +117,74 @@ app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, 
         exists => exists ? Results.Ok() : Results.NotFound(),
         http.Map));
 
+app.MapPost("/{bucket}/{**key}", async (
+    string bucket, string key,
+    HttpRequest req, HttpResponse res,
+    IMultipartStore multipart, IS3XmlReader reader, IS3XmlWriter xml, IHttpResultMapper http,
+    CancellationToken ct) =>
+{
+    if (req.Query.ContainsKey("uploads"))
+    {
+        var contentType = req.ContentType;
+        var metadata = ExtractUserMetadata(req.Headers);
+        return multipart.Create(bucket, key, contentType, metadata).Match<IResult>(
+            outcome =>
+            {
+                res.ContentType = "application/xml";
+                return Results.Stream(async stream =>
+                    await xml.WriteInitiateMultipartUploadResult(stream, bucket, key, outcome.UploadId, ct),
+                    "application/xml");
+            },
+            http.Map);
+    }
+
+    var uploadId = req.Query["uploadId"].ToString();
+    if (!string.IsNullOrEmpty(uploadId))
+    {
+        var parsed = await reader.ReadCompleteMultipartUploadRequest(req.Body, ct);
+        if (parsed is Result<IReadOnlyList<CompletedPart>>.Failure pf) return http.Map(pf.Error);
+        var clientParts = ((Result<IReadOnlyList<CompletedPart>>.Success)parsed).Value
+            .Select(p => (p.Number, p.Etag)).ToList();
+
+        var completed = await multipart.Complete(uploadId, clientParts, ct);
+        return completed.Match<IResult>(
+            outcome =>
+            {
+                res.ContentType = "application/xml";
+                return Results.Stream(async stream =>
+                    await xml.WriteCompleteMultipartUploadResult(stream, bucket, key, outcome.Etag, ct),
+                    "application/xml");
+            },
+            http.Map);
+    }
+
+    return http.Map(new InvalidPathError("POST on object requires ?uploads or ?uploadId"));
+});
+
 app.MapPut("/{bucket}/{**key}", async (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
-    IObjectStore objects, IHttpResultMapper http, IS3XmlWriter xml, IPreconditionEvaluator pre,
+    IObjectStore objects, IMultipartStore multipart, IHttpResultMapper http, IS3XmlWriter xml, IPreconditionEvaluator pre,
     CancellationToken ct) =>
 {
+    var uploadId = req.Query["uploadId"].ToString();
+    var partNumberRaw = req.Query["partNumber"].ToString();
+    if (!string.IsNullOrEmpty(uploadId) && !string.IsNullOrEmpty(partNumberRaw))
+    {
+        if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
+            return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
+
+        var (partBody, partLength) = DecodeRequestBody(req);
+        var partResult = await multipart.UploadPart(uploadId, partNumber, partBody, partLength, ct);
+        return partResult.Match<IResult>(
+            outcome =>
+            {
+                res.Headers.ETag = $"\"{outcome.Etag}\"";
+                return Results.Ok();
+            },
+            http.Map);
+    }
+
     var copySource = req.Headers["x-amz-copy-source"].ToString();
     if (!string.IsNullOrEmpty(copySource))
     {
@@ -148,15 +212,9 @@ app.MapPut("/{bucket}/{**key}", async (
             return Results.StatusCode(412);
     }
 
+    var (body, declaredLength) = DecodeRequestBody(req);
     var contentSha = req.Headers["x-amz-content-sha256"].ToString();
-    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
-        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
-    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
-    var body = isChunked ? (Stream)new AwsChunkedStream(req.Body, sigCtx) : req.Body;
-    var declaredLength = isChunked
-        ? (long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null)
-        : req.ContentLength;
-    var declaredSha = (isChunked || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
+    var declaredSha = (body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64)
         ? null
         : contentSha;
     var declaredMd5 = req.Headers["Content-MD5"].ToString();
@@ -204,7 +262,8 @@ app.MapGet("/{bucket}/{**key}", (
                 return Results.StatusCode(412);
             }
             res.Headers.ETag = $"\"{ok.Etag}\"";
-            res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(ok.Sha256));
+            if (!string.IsNullOrEmpty(ok.Sha256))
+                res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(ok.Sha256));
             foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
             return Results.File(
                 ok.Body,
@@ -227,17 +286,24 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
             res.ContentLength = stat.Size;
             res.ContentType = stat.ContentType;
             res.Headers.ETag = $"\"{stat.Etag}\"";
-            res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(stat.Sha256));
+            if (!string.IsNullOrEmpty(stat.Sha256))
+                res.Headers["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(stat.Sha256));
             res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
             foreach (var (k, v) in stat.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
             return Results.Empty;
         },
         http.Map));
 
-app.MapDelete("/{bucket}/{**key}", (string bucket, string key, IObjectStore objects, IHttpResultMapper http) =>
-    objects.Delete(bucket, key).Match<IResult>(
-        _ => Results.NoContent(),
-        http.Map));
+app.MapDelete("/{bucket}/{**key}", (
+    string bucket, string key,
+    HttpRequest req,
+    IObjectStore objects, IMultipartStore multipart, IHttpResultMapper http) =>
+{
+    var uploadId = req.Query["uploadId"].ToString();
+    return !string.IsNullOrEmpty(uploadId)
+        ? multipart.Abort(uploadId).Match<IResult>(_ => Results.NoContent(), http.Map)
+        : objects.Delete(bucket, key).Match<IResult>(_ => Results.NoContent(), http.Map);
+});
 
 app.Run();
 
@@ -253,6 +319,18 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
         meta[key] = values.ToString();
     }
     return meta;
+}
+
+static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
+{
+    var contentSha = req.Headers["x-amz-content-sha256"].ToString();
+    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
+        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
+    if (!isChunked) return (req.Body, req.ContentLength);
+
+    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
+    var declared = long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null;
+    return (new AwsChunkedStream(req.Body, sigCtx), declared);
 }
 
 static bool TryParseCopySource(string raw, out string bucket, out string key)

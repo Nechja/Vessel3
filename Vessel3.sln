@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vessel3.Server", "Vessel3.Server\Vessel3.Server.csproj", "{90C4E8FA-6E38-7FFA-022C-EDDD21DA552B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vessel3.RealClient", "Vessel3.RealClient\Vessel3.RealClient.csproj", "{6DD4005E-F6A1-4BAF-DBC4-F00CE65E2BCF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{90C4E8FA-6E38-7FFA-022C-EDDD21DA552B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90C4E8FA-6E38-7FFA-022C-EDDD21DA552B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90C4E8FA-6E38-7FFA-022C-EDDD21DA552B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90C4E8FA-6E38-7FFA-022C-EDDD21DA552B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6DD4005E-F6A1-4BAF-DBC4-F00CE65E2BCF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6DD4005E-F6A1-4BAF-DBC4-F00CE65E2BCF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6DD4005E-F6A1-4BAF-DBC4-F00CE65E2BCF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DD4005E-F6A1-4BAF-DBC4-F00CE65E2BCF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {ACE1D45D-A2BF-4F68-ABCF-1E7276D09434}
+	EndGlobalSection
+EndGlobal
