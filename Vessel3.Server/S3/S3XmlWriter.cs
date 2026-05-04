@@ -148,36 +148,42 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
-            switch (e)
+            await (e switch
             {
-                case AllVersionsEntry.Put p:
-                    await w.WriteStartElementAsync(null, "Version", null);
-                    await w.WriteElementStringAsync(null, "Key", null, p.Key);
-                    await w.WriteElementStringAsync(null, "VersionId", null, p.VersionId);
-                    await w.WriteElementStringAsync(null, "IsLatest", null, p.IsLatest ? "true" : "false");
-                    await w.WriteElementStringAsync(null, "LastModified", null,
-                        p.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
-                    await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.WireEtag}\"");
-                    await w.WriteElementStringAsync(null, "Size", null,
-                        p.Size.ToString(CultureInfo.InvariantCulture));
-                    await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
-                    await w.WriteEndElementAsync();
-                    break;
-                case AllVersionsEntry.Marker m:
-                    await w.WriteStartElementAsync(null, "DeleteMarker", null);
-                    await w.WriteElementStringAsync(null, "Key", null, m.Key);
-                    await w.WriteElementStringAsync(null, "VersionId", null, m.VersionId);
-                    await w.WriteElementStringAsync(null, "IsLatest", null, m.IsLatest ? "true" : "false");
-                    await w.WriteElementStringAsync(null, "LastModified", null,
-                        m.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
-                    await w.WriteEndElementAsync();
-                    break;
-            }
+                AllVersionsEntry.Put p => WriteVersionEntry(w, p),
+                AllVersionsEntry.Marker m => WriteDeleteMarkerEntry(w, m),
+                _ => Task.CompletedTask,
+            });
         }
 
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
+    }
+
+    private async Task WriteVersionEntry(XmlWriter w, AllVersionsEntry.Put p)
+    {
+        await w.WriteStartElementAsync(null, "Version", null);
+        await w.WriteElementStringAsync(null, "Key", null, p.Key);
+        await w.WriteElementStringAsync(null, "VersionId", null, p.VersionId);
+        await w.WriteElementStringAsync(null, "IsLatest", null, p.IsLatest ? "true" : "false");
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            p.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.WireEtag}\"");
+        await w.WriteElementStringAsync(null, "Size", null, p.Size.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await w.WriteEndElementAsync();
+    }
+
+    private async Task WriteDeleteMarkerEntry(XmlWriter w, AllVersionsEntry.Marker m)
+    {
+        await w.WriteStartElementAsync(null, "DeleteMarker", null);
+        await w.WriteElementStringAsync(null, "Key", null, m.Key);
+        await w.WriteElementStringAsync(null, "VersionId", null, m.VersionId);
+        await w.WriteElementStringAsync(null, "IsLatest", null, m.IsLatest ? "true" : "false");
+        await w.WriteElementStringAsync(null, "LastModified", null,
+            m.At.UtcDateTime.ToString(Iso8601Ms, CultureInfo.InvariantCulture));
+        await w.WriteEndElementAsync();
     }
 
     public async Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct)
