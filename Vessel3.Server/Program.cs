@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
 using Vessel3.Server.S3;
@@ -27,6 +28,7 @@ builder.Services.AddSingleton<IBlobPool, BlobPool>();
 builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IMultipartStore, MultipartStore>();
+builder.Services.AddSingleton<IGarbageCollector, GarbageCollector>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
@@ -49,6 +51,18 @@ app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry regis
 {
     res.ContentType = "application/xml";
     await xml.WriteListBuckets(res.Body, registry.List(), ct);
+});
+
+app.MapPut("/_admin/gc", async (
+    HttpRequest req, HttpResponse res,
+    IGarbageCollector gc,
+    CancellationToken ct) =>
+{
+    var blobAgeSec = ParseSeconds(req.Query["x-blob-age"], 0);
+    var uploadAgeSec = ParseSeconds(req.Query["x-upload-age"], 7 * 24 * 60 * 60);
+    var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
+    res.ContentType = "application/json";
+    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.GcReport, ct);
 });
 
 app.MapGet("/{bucket}", async (
@@ -474,6 +488,9 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
 }
 
 static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
+static long ParseSeconds(Microsoft.Extensions.Primitives.StringValues v, long fallback) =>
+    long.TryParse(v.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : fallback;
 
 static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
 {

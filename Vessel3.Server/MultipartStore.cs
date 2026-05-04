@@ -34,6 +34,8 @@ internal interface IMultipartStore
     Result<bool> Abort(string uploadId);
     IEnumerable<InProgressUpload> ListUploads(string bucket);
     Result<IReadOnlyList<ListedPart>> ListParts(string uploadId);
+    IEnumerable<string> EnumerateInFlightPartShas();
+    int ReapAbandonedUploads(DateTime cutoffUtc);
 }
 
 internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs) : IMultipartStore
@@ -131,6 +133,36 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             if (meta is null || meta.Bucket != bucket) continue;
             yield return new InProgressUpload(Path.GetFileName(dir), meta.Bucket, meta.Key, meta.CreatedAt);
         }
+    }
+
+    public IEnumerable<string> EnumerateInFlightPartShas()
+    {
+        if (!Directory.Exists(options.Root)) yield break;
+        foreach (var dir in Directory.EnumerateDirectories(options.Root))
+        {
+            var partsDir = Path.Combine(dir, "parts");
+            if (!Directory.Exists(partsDir)) continue;
+            foreach (var path in Directory.EnumerateFiles(partsDir, "*.json"))
+            {
+                var part = JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
+                if (part is not null) yield return part.BlobSha;
+            }
+        }
+    }
+
+    public int ReapAbandonedUploads(DateTime cutoffUtc)
+    {
+        if (!Directory.Exists(options.Root)) return 0;
+        var reaped = 0;
+        foreach (var dir in Directory.EnumerateDirectories(options.Root))
+        {
+            var meta = ReadMeta(dir);
+            if (meta is null) continue;
+            if (meta.CreatedAt.UtcDateTime > cutoffUtc) continue;
+            Directory.Delete(dir, recursive: true);
+            reaped++;
+        }
+        return reaped;
     }
 
     public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId)

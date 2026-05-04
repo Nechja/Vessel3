@@ -24,6 +24,7 @@ internal interface IBucketRegistry : IDisposable
     Result<List<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker);
     Result<VersioningStatus> GetVersioning(string bucket);
     Result<bool> SetVersioning(string bucket, VersioningStatus status);
+    IEnumerable<string> AllReferencedBlobs();
 }
 
 internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketRegistry
@@ -136,6 +137,17 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         if (b is null) return new NotFoundError(bucket);
         b.SetVersioning(status);
         return true;
+    }
+
+    public IEnumerable<string> AllReferencedBlobs()
+    {
+        foreach (var info in List())
+        {
+            var b = Open(info.Name);
+            if (b is null) continue;
+            foreach (var sha in b.Index.ReferencedBlobs())
+                yield return sha;
+        }
     }
 
     public void Dispose()
