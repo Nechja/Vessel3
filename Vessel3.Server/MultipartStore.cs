@@ -137,14 +137,13 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 
     public IEnumerable<string> EnumerateInFlightPartShas()
     {
-        if (!Directory.Exists(options.Root)) yield break;
-        foreach (var dir in Directory.EnumerateDirectories(options.Root))
+        foreach (var dir in EnumerateUploadDirs())
         {
             var partsDir = Path.Combine(dir, "parts");
             if (!Directory.Exists(partsDir)) continue;
             foreach (var path in Directory.EnumerateFiles(partsDir, "*.json"))
             {
-                var part = JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
+                var part = DeserializePartFile(path);
                 if (part is not null) yield return part.BlobSha;
             }
         }
@@ -152,9 +151,8 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 
     public int ReapAbandonedUploads(DateTime cutoffUtc)
     {
-        if (!Directory.Exists(options.Root)) return 0;
         var reaped = 0;
-        foreach (var dir in Directory.EnumerateDirectories(options.Root))
+        foreach (var dir in EnumerateUploadDirs())
         {
             var meta = ReadMeta(dir);
             if (meta is null) continue;
@@ -164,6 +162,9 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         }
         return reaped;
     }
+
+    private IEnumerable<string> EnumerateUploadDirs() =>
+        Directory.Exists(options.Root) ? Directory.EnumerateDirectories(options.Root) : [];
 
     public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId)
     {
@@ -176,7 +177,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 
         foreach (var path in Directory.EnumerateFiles(partsDir, "*.json").OrderBy(p => p, StringComparer.Ordinal))
         {
-            var part = JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
+            var part = DeserializePartFile(path);
             if (part is null) continue;
             result.Add(new ListedPart(part.Number, part.Md5, part.Size, File.GetLastWriteTimeUtc(path)));
         }
@@ -229,11 +230,14 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         if (!Directory.Exists(partsDir)) return map;
         foreach (var path in Directory.EnumerateFiles(partsDir, "*.json"))
         {
-            var part = JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
+            var part = DeserializePartFile(path);
             if (part is not null) map[part.Number] = part;
         }
         return map;
     }
+
+    private static MultipartPart? DeserializePartFile(string path) =>
+        JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
 
     private static string ComputeCompositeMd5(IReadOnlyList<MultipartPart> parts)
     {

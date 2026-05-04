@@ -58,8 +58,8 @@ app.MapPut("/_admin/gc", async (
     IGarbageCollector gc,
     CancellationToken ct) =>
 {
-    var blobAgeSec = ParseSeconds(req.Query["x-blob-age"], 0);
-    var uploadAgeSec = ParseSeconds(req.Query["x-upload-age"], 7 * 24 * 60 * 60);
+    var blobAgeSec = ParseAgeQuery(req.Query, "blob-age", fallback: 0);
+    var uploadAgeSec = ParseAgeQuery(req.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
     var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
     res.ContentType = "application/json";
     await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.GcReport, ct);
@@ -489,8 +489,12 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
 
 static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
-static long ParseSeconds(Microsoft.Extensions.Primitives.StringValues v, long fallback) =>
-    long.TryParse(v.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : fallback;
+static long ParseAgeQuery(IQueryCollection query, string name, long fallback)
+{
+    var raw = Nullify(query[name].ToString()) ?? Nullify(query["x-" + name].ToString());
+    return raw is not null && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+        ? n : fallback;
+}
 
 static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
 {
