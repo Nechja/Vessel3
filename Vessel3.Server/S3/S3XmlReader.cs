@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml;
 using Vessel3.Server;
+using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -13,6 +14,7 @@ internal interface IS3XmlReader
 {
     Task<Result<BatchDeleteRequest>> ReadBatchDeleteRequest(Stream input, CancellationToken ct);
     Task<Result<IReadOnlyList<CompletedPart>>> ReadCompleteMultipartUploadRequest(Stream input, CancellationToken ct);
+    Task<Result<VersioningStatus>> ReadVersioningConfiguration(Stream input, CancellationToken ct);
 }
 
 internal sealed class S3XmlReader : IS3XmlReader
@@ -81,6 +83,41 @@ internal sealed class S3XmlReader : IS3XmlReader
         }
 
         return (Result<IReadOnlyList<CompletedPart>>)parts;
+    }
+
+    public async Task<Result<VersioningStatus>> ReadVersioningConfiguration(Stream input, CancellationToken ct)
+    {
+        try
+        {
+            using var r = XmlReader.Create(input, settings);
+            string? currentField = null;
+            string? statusValue = null;
+            while (await r.ReadAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                switch (r.NodeType)
+                {
+                    case XmlNodeType.Element:
+                        currentField = r.LocalName;
+                        break;
+                    case XmlNodeType.Text:
+                        if (currentField is "Status") statusValue = r.Value;
+                        break;
+                    case XmlNodeType.EndElement:
+                        currentField = null;
+                        break;
+                }
+            }
+            return statusValue is null
+                ? VersioningStatus.Unversioned
+                : Enum.TryParse<VersioningStatus>(statusValue, out var s)
+                    ? s
+                    : (Result<VersioningStatus>)new MalformedXmlError($"unknown Status '{statusValue}'");
+        }
+        catch (XmlException ex)
+        {
+            return new MalformedXmlError(ex.Message);
+        }
     }
 
     private static async Task<CompletedPart?> ReadPartEntry(XmlReader r)

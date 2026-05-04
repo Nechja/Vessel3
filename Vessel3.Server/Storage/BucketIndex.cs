@@ -80,17 +80,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    public Result<PutEntry?> GetCurrentPut(string key)
+    public Result<PutEntry?> GetVersion(string key, string versionId)
     {
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json
               FROM versions
-             WHERE key = $k AND kind = $kp
-             ORDER BY seq DESC
+             WHERE key = $k AND version_id = $v AND kind = $kp
              LIMIT 1
             """;
         cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
         cmd.Parameters.AddWithValue("$kp", KindPut);
         using var r = cmd.ExecuteReader();
         return r.Read()
@@ -104,6 +104,72 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Metadata: DeserializeMetadata(r.GetString(6)),
                 Parts: DeserializeParts(r.GetString(7)))
             : (PutEntry?)null;
+    }
+
+    public Result<PutEntry?> GetCurrentPut(string key)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            SELECT kind, version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json
+              FROM versions
+             WHERE key = $k
+             ORDER BY seq DESC
+             LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$k", key);
+        using var r = cmd.ExecuteReader();
+        return !r.Read() || r.GetInt32(0) is not KindPut
+            ? (PutEntry?)null
+            : new PutEntry(
+                VersionId: r.GetString(1),
+                At: DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(6)),
+                BlobSha: r.GetString(2),
+                Md5: r.GetString(3),
+                Size: r.GetInt64(4),
+                ContentType: r.GetString(5),
+                Metadata: DeserializeMetadata(r.GetString(7)),
+                Parts: DeserializeParts(r.GetString(8)));
+    }
+
+    public List<AllVersionsEntry> ListAllVersions(string? prefix, string? keyMarker)
+    {
+        using var cmd = conn!.CreateCommand();
+        var sql = """
+            SELECT key, version_id, kind, md5, size, at_ms, parts_json
+              FROM versions
+            """;
+        var clauses = new List<string>();
+        if (prefix is not null)
+        {
+            clauses.Add("key LIKE $p ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$p", EscapeLike(prefix) + "%");
+        }
+        if (keyMarker is not null)
+        {
+            clauses.Add("key > $km");
+            cmd.Parameters.AddWithValue("$km", keyMarker);
+        }
+        if (clauses.Count > 0) sql += " WHERE " + string.Join(" AND ", clauses);
+        sql += " ORDER BY key ASC, seq DESC";
+        cmd.CommandText = sql;
+
+        var results = new List<AllVersionsEntry>();
+        using var r = cmd.ExecuteReader();
+        string? lastKey = null;
+        while (r.Read())
+        {
+            var key = r.GetString(0);
+            var isLatest = key != lastKey;
+            lastKey = key;
+            var versionId = r.GetString(1);
+            var kind = r.GetInt32(2);
+            var at = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(5));
+            results.Add(kind is KindPut
+                ? new AllVersionsEntry.Put(key, versionId, at, isLatest,
+                    r.GetString(3), r.GetInt64(4), DeserializeParts(r.GetString(6)))
+                : new AllVersionsEntry.Marker(key, versionId, at, isLatest));
+        }
+        return results;
     }
 
     public IEnumerable<VersionListEntry> ListCurrent(string? prefix, string? startAfter)

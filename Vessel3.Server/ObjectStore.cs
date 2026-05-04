@@ -11,9 +11,10 @@ internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, CancellationToken ct);
     Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride);
-    Result<StoredObject> Get(string bucket, string key);
-    Result<ObjectStat> Stat(string bucket, string key);
-    Result<bool> Delete(string bucket, string key);
+    Result<StoredObject> Get(string bucket, string key, string? versionId = null);
+    Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
+    Result<DeleteOutcome> Delete(string bucket, string key);
+    Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId);
 }
 
 internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre) : IObjectStore
@@ -32,22 +33,30 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             _ => throw new System.Diagnostics.UnreachableException(),
         };
 
-    public Result<StoredObject> Get(string bucket, string key) =>
-        registry.GetCurrentPut(bucket, key).Match<Result<StoredObject>>(
+    public Result<StoredObject> Get(string bucket, string key, string? versionId = null) =>
+        Lookup(bucket, key, versionId).Match<Result<StoredObject>>(
             put => put is null
                 ? new NotFoundError($"{bucket}/{key}")
                 : OpenBlob(put),
             err => err);
 
-    public Result<ObjectStat> Stat(string bucket, string key) =>
-        registry.GetCurrentPut(bucket, key).Match<Result<ObjectStat>>(
+    public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null) =>
+        Lookup(bucket, key, versionId).Match<Result<ObjectStat>>(
             put => put is null
                 ? new NotFoundError($"{bucket}/{key}")
                 : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata),
             err => err);
 
-    public Result<bool> Delete(string bucket, string key) =>
-        registry.AppendHardDeleteCurrent(bucket, key);
+    private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>
+        versionId is null
+            ? registry.GetCurrentPut(bucket, key)
+            : registry.GetVersion(bucket, key, versionId);
+
+    public Result<DeleteOutcome> Delete(string bucket, string key) =>
+        registry.AppendDelete(bucket, key);
+
+    public Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId) =>
+        registry.HardDeleteVersion(bucket, key, versionId);
 
     public Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride) =>
         registry.GetCurrentPut(srcBucket, srcKey).Match<Result<CopyOutcome>>(

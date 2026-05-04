@@ -96,6 +96,30 @@ app.MapGet("/{bucket}", async (
             err => Task.FromResult(http.Map(err)));
     }
 
+    if (req.Query.ContainsKey("versioning"))
+    {
+        return await registry.GetVersioning(bucket).Match<Task<IResult>>(
+            async status =>
+            {
+                res.ContentType = "application/xml";
+                await xml.WriteVersioningConfiguration(res.Body, status, ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)));
+    }
+
+    if (req.Query.ContainsKey("versions"))
+    {
+        return await registry.ListAllVersions(bucket, prefix, null).Match<Task<IResult>>(
+            async entries =>
+            {
+                res.ContentType = "application/xml";
+                await xml.WriteListVersions(res.Body, bucket, prefix, entries, ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)));
+    }
+
     var isV1 = listType is not "2";
     var effectiveStart = isV1 ? marker : startAfter;
     var listReq = new ListRequest(
@@ -112,10 +136,25 @@ app.MapGet("/{bucket}", async (
         err => Task.FromResult(http.Map(err)));
 });
 
-app.MapPut("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
-    registry.Create(bucket).Match<IResult>(
+app.MapPut("/{bucket}", async (
+    string bucket, HttpRequest req,
+    IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http,
+    CancellationToken ct) =>
+{
+    if (req.Query.ContainsKey("versioning"))
+    {
+        var parsed = await reader.ReadVersioningConfiguration(req.Body, ct);
+        if (parsed is Result<VersioningStatus>.Failure pf) return http.Map(pf.Error);
+        var status = ((Result<VersioningStatus>.Success)parsed).Value;
+        return registry.SetVersioning(bucket, status).Match<IResult>(
+            _ => Results.Ok(),
+            http.Map);
+    }
+
+    return registry.Create(bucket).Match<IResult>(
         _ => Results.Ok(),
-        http.Map));
+        http.Map);
+});
 
 app.MapDelete("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
     registry.Delete(bucket).Match<IResult>(
@@ -139,7 +178,7 @@ app.MapPost("/{bucket}", async (
     foreach (var k in request.Keys)
     {
         var result = objects.Delete(bucket, k.Key);
-        outcomes.Add(result is Result<bool>.Failure df
+        outcomes.Add(result is Result<DeleteOutcome>.Failure df
             ? new BatchDeleteOutcome(k.Key, k.VersionId, df.Error)
             : new BatchDeleteOutcome(k.Key, k.VersionId, null));
     }
@@ -299,7 +338,7 @@ app.MapPut("/{bucket}/{**key}", async (
         ? null
         : contentSha;
     var declaredMd5 = req.Headers["Content-MD5"].ToString();
-    var declaredMd5OrNull = string.IsNullOrEmpty(declaredMd5) ? null : declaredMd5;
+    var declaredMd5OrNull = Nullify(declaredMd5);
 
     var metadata = ExtractUserMetadata(req.Headers);
 
@@ -331,6 +370,7 @@ app.MapGet("/{bucket}/{**key}", async (
     CancellationToken ct) =>
 {
     var listPartsUploadId = req.Query["uploadId"].ToString();
+    var getVersionId = req.Query["versionId"].ToString();
     return !string.IsNullOrEmpty(listPartsUploadId)
         ? await multipart.ListParts(listPartsUploadId).Match<Task<IResult>>(
             async parts =>
@@ -340,7 +380,7 @@ app.MapGet("/{bucket}/{**key}", async (
                 return Results.Empty;
             },
             err => Task.FromResult(http.Map(err)))
-        : objects.Get(bucket, key).Match<IResult>(
+        : objects.Get(bucket, key, Nullify(getVersionId)).Match<IResult>(
         ok =>
         {
             var precond = pre.EvaluateForRead(req.Headers, ok.Etag, ok.LastModified);
@@ -371,7 +411,9 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
     string bucket, string key,
     HttpRequest req, HttpResponse res,
     IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) =>
-    objects.Stat(bucket, key).Match<IResult>(
+{
+    var headVersionId = req.Query["versionId"].ToString();
+    return objects.Stat(bucket, key, Nullify(headVersionId)).Match<IResult>(
         stat =>
         {
             var precond = pre.EvaluateForRead(req.Headers, stat.Etag, stat.LastModified);
@@ -386,17 +428,33 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
             foreach (var (k, v) in stat.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
             return Results.Empty;
         },
-        http.Map));
+        http.Map);
+});
 
 app.MapDelete("/{bucket}/{**key}", (
     string bucket, string key,
-    HttpRequest req,
+    HttpRequest req, HttpResponse res,
     IObjectStore objects, IMultipartStore multipart, IHttpResultMapper http) =>
 {
     var uploadId = req.Query["uploadId"].ToString();
-    return !string.IsNullOrEmpty(uploadId)
-        ? multipart.Abort(uploadId).Match<IResult>(_ => Results.NoContent(), http.Map)
-        : objects.Delete(bucket, key).Match<IResult>(_ => Results.NoContent(), http.Map);
+    if (!string.IsNullOrEmpty(uploadId))
+        return multipart.Abort(uploadId).Match<IResult>(_ => Results.NoContent(), http.Map);
+
+    var delVersionId = req.Query["versionId"].ToString();
+    var result = string.IsNullOrEmpty(delVersionId)
+        ? objects.Delete(bucket, key)
+        : objects.DeleteVersion(bucket, key, delVersionId);
+
+    return result.Match<IResult>(
+        outcome =>
+        {
+            if (outcome.Found && !string.IsNullOrEmpty(outcome.VersionId))
+                res.Headers["x-amz-version-id"] = outcome.VersionId;
+            if (outcome.IsDeleteMarker)
+                res.Headers["x-amz-delete-marker"] = "true";
+            return Results.NoContent();
+        },
+        http.Map);
 });
 
 app.Run();
@@ -414,6 +472,8 @@ static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary
     }
     return meta;
 }
+
+static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
 static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
 {

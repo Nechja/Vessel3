@@ -16,9 +16,14 @@ internal interface IBucketRegistry : IDisposable
     IEnumerable<BucketInfo> List();
 
     Result<PutEntry?> GetCurrentPut(string bucket, string key);
+    Result<PutEntry?> GetVersion(string bucket, string key, string versionId);
     Result<PutEntry> AppendPut(string bucket, string key, PutRequest req);
-    Result<bool> AppendHardDeleteCurrent(string bucket, string key);
+    Result<DeleteOutcome> AppendDelete(string bucket, string key);
+    Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId);
     Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
+    Result<List<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker);
+    Result<VersioningStatus> GetVersioning(string bucket);
+    Result<bool> SetVersioning(string bucket, VersioningStatus status);
 }
 
 internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketRegistry
@@ -79,6 +84,13 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             ? b.Index.GetCurrentPut(key)
             : new NotFoundError(bucket);
 
+    public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket) is { } b
+            ? b.Index.GetVersion(key, versionId)
+            : new NotFoundError(bucket);
+
     public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
@@ -86,16 +98,45 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             ? b.AppendPut(key, req)
             : new NotFoundError(bucket);
 
-    public Result<bool> AppendHardDeleteCurrent(string bucket, string key) =>
+    public Result<DeleteOutcome> AppendDelete(string bucket, string key) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
-        : Open(bucket)?.AppendHardDeleteCurrent(key) ?? false;
+        : Open(bucket) is { } b
+            ? b.AppendDelete(key)
+            : new NotFoundError(bucket);
+
+    public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket) is { } b
+            ? b.HardDeleteVersion(key, versionId)
+            : new NotFoundError(bucket);
 
     public Result<IEnumerable<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
         !IsValidName(bucket) ? new InvalidPathError(bucket)
         : Open(bucket) is { } b
             ? new Result<IEnumerable<VersionListEntry>>.Success(b.Index.ListCurrent(prefix, startAfter))
             : new NotFoundError(bucket);
+
+    public Result<List<AllVersionsEntry>> ListAllVersions(string bucket, string? prefix, string? keyMarker) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b
+            ? b.Index.ListAllVersions(prefix, keyMarker)
+            : new NotFoundError(bucket);
+
+    public Result<VersioningStatus> GetVersioning(string bucket) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b ? b.Versioning
+        : (Result<VersioningStatus>)new NotFoundError(bucket);
+
+    public Result<bool> SetVersioning(string bucket, VersioningStatus status)
+    {
+        if (!IsValidName(bucket)) return new InvalidPathError(bucket);
+        var b = Open(bucket);
+        if (b is null) return new NotFoundError(bucket);
+        b.SetVersioning(status);
+        return true;
+    }
 
     public void Dispose()
     {
