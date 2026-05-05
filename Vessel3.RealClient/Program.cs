@@ -389,7 +389,7 @@ await Run("ConcurrencyStress", async () =>
     {
         var writtenKeys = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
         var failures = new System.Collections.Concurrent.ConcurrentBag<string>();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
 
         Task Writer(int wid) => Task.Run(async () =>
         {
@@ -447,9 +447,11 @@ await Run("ConcurrencyStress", async () =>
             }
         });
 
-        var writers = Enumerable.Range(0, writerTasks).Select(Writer);
-        var readers = Enumerable.Range(0, readerTasks).Select(Reader);
-        await Task.WhenAll(writers.Concat(readers).Concat([GcLoop()]));
+        var writers = Enumerable.Range(0, writerTasks).Select(Writer).ToList();
+        var background = Enumerable.Range(0, readerTasks).Select(Reader).Concat([GcLoop()]).ToList();
+        await Task.WhenAll(writers);
+        await cts.CancelAsync();
+        await Task.WhenAll(background);
 
         if (!failures.IsEmpty)
             throw new InvalidOperationException($"{failures.Count} concurrent failures, first: {failures.First()}");
