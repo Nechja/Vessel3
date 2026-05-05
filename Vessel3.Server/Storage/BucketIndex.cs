@@ -172,7 +172,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return results;
     }
 
-    public IEnumerable<VersionListEntry> ListCurrent(string? prefix, string? startAfter)
+    public List<VersionListEntry> ListCurrent(string? prefix, string? startAfter)
     {
         using var cmd = conn!.CreateCommand();
         var sql = """
@@ -195,10 +195,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         sql += " ORDER BY v1.key";
         cmd.CommandText = sql;
 
+        var results = new List<VersionListEntry>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            yield return new VersionListEntry(
+            results.Add(new VersionListEntry(
                 Key: r.GetString(0),
                 VersionId: r.GetString(1),
                 At: DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(6)),
@@ -207,8 +208,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Size: r.GetInt64(4),
                 ContentType: r.GetString(5),
                 Metadata: DeserializeMetadata(r.GetString(7)),
-                Parts: DeserializeParts(r.GetString(8)));
+                Parts: DeserializeParts(r.GetString(8))));
         }
+        return results;
     }
 
     private string SerializeMetadata(IReadOnlyDictionary<string, string> metadata) =>
