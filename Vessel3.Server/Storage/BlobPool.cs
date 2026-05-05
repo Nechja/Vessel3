@@ -13,6 +13,7 @@ internal interface IBlobPool
     bool Exists(string sha);
     Result<bool> Delete(string sha);
     IEnumerable<string> EnumerateAll();
+    DateTime? GetLastWriteUtc(string sha);
 }
 
 internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
@@ -84,6 +85,12 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
     }
 
     public bool Exists(string sha) => File.Exists(PathFor(sha));
+
+    public DateTime? GetLastWriteUtc(string sha)
+    {
+        var path = PathFor(sha);
+        return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
+    }
 
     public Result<bool> Delete(string sha)
     {

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -350,6 +351,141 @@ await Run("VersionedPut", async () =>
     finally
     {
         await CleanupVersionedBucket(s3, vbucket);
+    }
+});
+
+async Task<(int blobsDeleted, int uploadsReaped)> RunGc(int blobAgeSec, int uploadAgeSec)
+{
+    var presign = new GetPreSignedUrlRequest
+    {
+        BucketName = "_admin",
+        Key = "gc",
+        Verb = HttpVerb.PUT,
+        Expires = DateTime.UtcNow.AddMinutes(5),
+        Protocol = Protocol.HTTP,
+    };
+    presign.Parameters.Add("blob-age", blobAgeSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    presign.Parameters.Add("upload-age", uploadAgeSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    var url = await s3.GetPreSignedURLAsync(presign);
+    using var http = new HttpClient();
+    var resp = await http.PutAsync(url, null);
+    if (!resp.IsSuccessStatusCode)
+        throw new InvalidOperationException($"GC failed: {(int)resp.StatusCode} {resp.ReasonPhrase} url={url}");
+    var json = await resp.Content.ReadAsStringAsync();
+    using var doc = JsonDocument.Parse(json);
+    return (doc.RootElement.GetProperty("BlobsDeleted").GetInt32(),
+            doc.RootElement.GetProperty("UploadsReaped").GetInt32());
+}
+
+await Run("GcOrphanBlob", async () =>
+{
+    const string gbucket = "vessel3-realclient-gc";
+    const string gkey = "orphan.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = gbucket });
+    try
+    {
+        await RunGc(blobAgeSec: 0, uploadAgeSec: 86400);
+
+        var payload = new byte[8192];
+        new Random(7).NextBytes(payload);
+        using (var ms = new MemoryStream(payload))
+        {
+            await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = gbucket, Key = gkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+        }
+        await s3.DeleteObjectAsync(gbucket, gkey);
+
+        var after = await RunGc(blobAgeSec: 0, uploadAgeSec: 86400);
+        if (after.blobsDeleted < 1)
+            throw new InvalidOperationException($"GC reported {after.blobsDeleted} blobs deleted; expected at least one orphan from PUT+DELETE");
+
+        var noop = await RunGc(blobAgeSec: 0, uploadAgeSec: 86400);
+        if (noop.blobsDeleted != 0)
+            throw new InvalidOperationException($"second GC should be no-op, got {noop.blobsDeleted}");
+    }
+    finally
+    {
+        try { await s3.DeleteBucketAsync(gbucket); } catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
+    }
+});
+
+await Run("GcKeepsVersionedBlobs", async () =>
+{
+    const string gbucket = "vessel3-realclient-gc-v";
+    const string gkey = "vv.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = gbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = gbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        string v1Id;
+        var v1Body = "first-version-payload";
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(v1Body)))
+        {
+            var p1 = await s3.PutObjectAsync(new PutObjectRequest { BucketName = gbucket, Key = gkey, InputStream = ms, ContentType = "text/plain" });
+            v1Id = p1.VersionId;
+        }
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("second-version-payload")))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = gbucket, Key = gkey, InputStream = ms, ContentType = "text/plain" });
+
+        await RunGc(blobAgeSec: 0, uploadAgeSec: 86400);
+
+        using var got = await s3.GetObjectAsync(new GetObjectRequest { BucketName = gbucket, Key = gkey, VersionId = v1Id });
+        using var sr = new StreamReader(got.ResponseStream);
+        if (await sr.ReadToEndAsync() != v1Body)
+            throw new InvalidOperationException("v1 unreadable after GC; blob was wrongly reclaimed");
+    }
+    finally
+    {
+        await CleanupVersionedBucket(s3, gbucket);
+    }
+});
+
+await Run("GcReapsAbandonedUploads", async () =>
+{
+    const string gbucket = "vessel3-realclient-gc-up";
+    const string gkey = "abandoned.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = gbucket });
+    try
+    {
+        var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        {
+            BucketName = gbucket, Key = gkey, ContentType = "application/octet-stream",
+        });
+
+        const int partSize = 5 * 1024 * 1024;
+        var buf = new byte[partSize];
+        new Random(42).NextBytes(buf);
+        using (var ms = new MemoryStream(buf))
+        {
+            await s3.UploadPartAsync(new UploadPartRequest
+            {
+                BucketName = gbucket, Key = gkey, UploadId = initiate.UploadId,
+                PartNumber = 1, PartSize = partSize, InputStream = ms,
+            });
+        }
+
+        var uploadsBefore = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = gbucket });
+        if (uploadsBefore.MultipartUploads is null || uploadsBefore.MultipartUploads.All(u => u.UploadId != initiate.UploadId))
+            throw new InvalidOperationException("upload missing before reap");
+
+        var (_, reaped) = await RunGc(blobAgeSec: 0, uploadAgeSec: 0);
+        if (reaped < 1)
+            throw new InvalidOperationException($"expected >=1 upload reaped, got {reaped}");
+
+        var uploadsAfter = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = gbucket });
+        if (uploadsAfter.MultipartUploads?.Any(u => u.UploadId == initiate.UploadId) is true)
+            throw new InvalidOperationException("upload still present after reap");
+    }
+    finally
+    {
+        try { await s3.DeleteBucketAsync(gbucket); } catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
     }
 });
 
