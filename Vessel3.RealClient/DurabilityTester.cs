@@ -7,11 +7,27 @@ internal sealed record SavedObject(string Key, string Sha256, string? VersionId)
 internal sealed record RestartState(string Bucket, List<SavedObject> Objects);
 
 internal sealed record SavedPart(int Number, string Etag, string Sha256);
-internal sealed record CrashState(string Bucket, string Key, string UploadId, List<SavedPart> Parts, string ExpectedFinalSha256);
+internal sealed record CrashState(string Bucket, string Key, string UploadId, List<SavedPart> Parts, string ExpectedFinalSha256, string PendingPartBase64);
 
-internal static class DurabilityPhases
+internal static class DurabilityTester
 {
+    private const int PartSize = 5 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
+
+    public static async Task CleanupBucket(AmazonS3Client s3, string bucket)
+    {
+        try
+        {
+            var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = bucket });
+            foreach (var v in lv.Versions ?? [])
+                await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = v.Key, VersionId = v.VersionId });
+            var ups = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = bucket });
+            foreach (var u in ups.MultipartUploads ?? [])
+                await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = bucket, Key = u.Key, UploadId = u.UploadId });
+            await s3.DeleteBucketAsync(bucket);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
+    }
 
     public static async Task<int> RestartWrite(AmazonS3Client s3, string statePath)
     {
@@ -25,7 +41,7 @@ internal static class DurabilityPhases
         {
             BucketName = bucket, Key = "small.bin", InputStream = new MemoryStream(smallBody), ContentType = "application/octet-stream",
         });
-        state.Objects.Add(new SavedObject("small.bin", Hex(SHA256.HashData(smallBody)), null));
+        state.Objects.Add(new SavedObject("small.bin", Convert.ToHexStringLower(SHA256.HashData(smallBody)), null));
 
         await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
         {
@@ -38,33 +54,32 @@ internal static class DurabilityPhases
         {
             BucketName = bucket, Key = "ver.bin", InputStream = new MemoryStream(v1), ContentType = "application/octet-stream",
         });
-        state.Objects.Add(new SavedObject("ver.bin", Hex(SHA256.HashData(v1)), put1.VersionId));
+        state.Objects.Add(new SavedObject("ver.bin", Convert.ToHexStringLower(SHA256.HashData(v1)), put1.VersionId));
 
         var v2 = "version-2-payload-different"u8.ToArray();
         var put2 = await s3.PutObjectAsync(new PutObjectRequest
         {
             BucketName = bucket, Key = "ver.bin", InputStream = new MemoryStream(v2), ContentType = "application/octet-stream",
         });
-        state.Objects.Add(new SavedObject("ver.bin", Hex(SHA256.HashData(v2)), put2.VersionId));
+        state.Objects.Add(new SavedObject("ver.bin", Convert.ToHexStringLower(SHA256.HashData(v2)), put2.VersionId));
 
-        const int partSize = 5 * 1024 * 1024;
         var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
         {
             BucketName = bucket, Key = "multi.bin", ContentType = "application/octet-stream",
         });
         var etags = new List<PartETag>();
         var rng = new Random(42);
-        var fullBytes = new MemoryStream();
+        using var multiHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         for (var i = 0; i < 3; i++)
         {
-            var buf = new byte[partSize];
+            var buf = new byte[PartSize];
             rng.NextBytes(buf);
-            fullBytes.Write(buf, 0, partSize);
+            multiHash.AppendData(buf);
             using var ms = new MemoryStream(buf);
             var up = await s3.UploadPartAsync(new UploadPartRequest
             {
                 BucketName = bucket, Key = "multi.bin", UploadId = initiate.UploadId,
-                PartNumber = i + 1, PartSize = partSize, InputStream = ms,
+                PartNumber = i + 1, PartSize = PartSize, InputStream = ms,
             });
             etags.Add(new PartETag(i + 1, up.ETag));
         }
@@ -72,7 +87,7 @@ internal static class DurabilityPhases
         {
             BucketName = bucket, Key = "multi.bin", UploadId = initiate.UploadId, PartETags = etags,
         });
-        state.Objects.Add(new SavedObject("multi.bin", Hex(SHA256.HashData(fullBytes.ToArray())), null));
+        state.Objects.Add(new SavedObject("multi.bin", Convert.ToHexStringLower(multiHash.GetHashAndReset()), null));
 
         File.WriteAllText(statePath, JsonSerializer.Serialize(state, JsonOpts));
         Console.WriteLine($"restart-write OK: bucket={bucket} objects={state.Objects.Count} state={statePath}");
@@ -92,9 +107,7 @@ internal static class DurabilityPhases
                 {
                     BucketName = state.Bucket, Key = saved.Key, VersionId = saved.VersionId,
                 });
-                using var sink = new MemoryStream();
-                await got.ResponseStream.CopyToAsync(sink);
-                var actual = Hex(SHA256.HashData(sink.ToArray()));
+                var actual = Convert.ToHexStringLower(SHA256.HashData(got.ResponseStream));
                 if (actual != saved.Sha256)
                     throw new InvalidOperationException($"sha mismatch on {saved.Key} (versionId={saved.VersionId ?? "<latest>"}): expected {saved.Sha256}, got {actual}");
                 Console.WriteLine($"  ok: {saved.Key}{(saved.VersionId is null ? "" : "@" + saved.VersionId)} sha={actual}");
@@ -126,33 +139,29 @@ internal static class DurabilityPhases
             BucketName = bucket, Key = key, ContentType = "application/octet-stream",
         });
 
-        const int partSize = 5 * 1024 * 1024;
         var rng = new Random(99);
-        var allBytes = new MemoryStream();
+        var parts = new byte[3][];
+        for (var i = 0; i < 3; i++) { parts[i] = new byte[PartSize]; rng.NextBytes(parts[i]); }
+
         var saved = new List<SavedPart>();
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 2; i++)
         {
-            var buf = new byte[partSize];
-            rng.NextBytes(buf);
-            allBytes.Write(buf, 0, partSize);
-
-            if (i < 2)
+            using var ms = new MemoryStream(parts[i]);
+            var up = await s3.UploadPartAsync(new UploadPartRequest
             {
-                using var ms = new MemoryStream(buf);
-                var up = await s3.UploadPartAsync(new UploadPartRequest
-                {
-                    BucketName = bucket, Key = key, UploadId = initiate.UploadId,
-                    PartNumber = i + 1, PartSize = partSize, InputStream = ms,
-                });
-                saved.Add(new SavedPart(i + 1, up.ETag, Hex(SHA256.HashData(buf))));
-            }
-            else
-            {
-                saved.Add(new SavedPart(i + 1, "<pending>", Hex(SHA256.HashData(buf))));
-            }
+                BucketName = bucket, Key = key, UploadId = initiate.UploadId,
+                PartNumber = i + 1, PartSize = PartSize, InputStream = ms,
+            });
+            saved.Add(new SavedPart(i + 1, up.ETag, Convert.ToHexStringLower(SHA256.HashData(parts[i]))));
         }
+        saved.Add(new SavedPart(3, "<pending>", Convert.ToHexStringLower(SHA256.HashData(parts[2]))));
 
-        var state = new CrashState(bucket, key, initiate.UploadId, saved, Hex(SHA256.HashData(allBytes.ToArray())));
+        var allBytes = new byte[PartSize * 3];
+        for (var i = 0; i < 3; i++) Array.Copy(parts[i], 0, allBytes, i * PartSize, PartSize);
+        var state = new CrashState(
+            bucket, key, initiate.UploadId, saved,
+            Convert.ToHexStringLower(SHA256.HashData(allBytes)),
+            Convert.ToBase64String(parts[2]));
         File.WriteAllText(statePath, JsonSerializer.Serialize(state, JsonOpts));
         Console.WriteLine($"crash-multipart-write OK: uploadId={initiate.UploadId} parts uploaded=2/3");
         return 0;
@@ -176,17 +185,13 @@ internal static class DurabilityPhases
             if (existingParts.Parts is null || existingParts.Parts.Count != 2)
                 throw new InvalidOperationException($"expected 2 parts surviving crash, got {existingParts.Parts?.Count ?? 0}");
 
-            const int partSize = 5 * 1024 * 1024;
-            var rng = new Random(99);
-            for (var i = 0; i < 2; i++) rng.NextBytes(new byte[partSize]);
-            var part3 = new byte[partSize];
-            rng.NextBytes(part3);
+            var part3 = Convert.FromBase64String(state.PendingPartBase64);
             using (var ms = new MemoryStream(part3))
             {
                 var up = await s3.UploadPartAsync(new UploadPartRequest
                 {
                     BucketName = state.Bucket, Key = state.Key, UploadId = state.UploadId,
-                    PartNumber = 3, PartSize = partSize, InputStream = ms,
+                    PartNumber = 3, PartSize = part3.Length, InputStream = ms,
                 });
                 state.Parts[2] = state.Parts[2] with { Etag = up.ETag };
             }
@@ -198,9 +203,7 @@ internal static class DurabilityPhases
             });
 
             using var got = await s3.GetObjectAsync(state.Bucket, state.Key);
-            using var sink = new MemoryStream();
-            await got.ResponseStream.CopyToAsync(sink);
-            var actual = Hex(SHA256.HashData(sink.ToArray()));
+            var actual = Convert.ToHexStringLower(SHA256.HashData(got.ResponseStream));
             if (actual != state.ExpectedFinalSha256)
                 throw new InvalidOperationException($"final sha mismatch: expected {state.ExpectedFinalSha256}, got {actual}");
 
@@ -214,20 +217,4 @@ internal static class DurabilityPhases
         }
     }
 
-    private static async Task CleanupBucket(AmazonS3Client s3, string bucket)
-    {
-        try
-        {
-            var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = bucket });
-            foreach (var v in lv.Versions ?? [])
-                await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = v.Key, VersionId = v.VersionId });
-            var ups = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = bucket });
-            foreach (var u in ups.MultipartUploads ?? [])
-                await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = bucket, Key = u.Key, UploadId = u.UploadId });
-            await s3.DeleteBucketAsync(bucket);
-        }
-        catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
-    }
-
-    private static string Hex(byte[] bytes) => Convert.ToHexStringLower(bytes);
 }
