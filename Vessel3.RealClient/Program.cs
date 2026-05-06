@@ -377,6 +377,128 @@ async Task<(int blobsDeleted, int uploadsReaped)> RunGc(int blobAgeSec, int uplo
             doc.RootElement.GetProperty("UploadsReaped").GetInt32());
 }
 
+await Run("ConcurrencyStress", async () =>
+{
+    const string sbucket = "vessel3-realclient-stress";
+    const int writerTasks = 16;
+    const int readerTasks = 8;
+    const int writesPerTask = 100;
+    const int gcInterval = 25;
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = sbucket });
+    try
+    {
+        var writtenKeys = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
+        var failures = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+
+        Task Writer(int wid) => Task.Run(async () =>
+        {
+            var rng = new Random(wid * 1000);
+            for (var i = 0; i < writesPerTask && !cts.IsCancellationRequested; i++)
+            {
+                try
+                {
+                    var k = $"w{wid}/k{i}";
+                    var payload = new byte[256 + rng.Next(2048)];
+                    rng.NextBytes(payload);
+                    using var ms = new MemoryStream(payload);
+                    await s3.PutObjectAsync(new PutObjectRequest
+                    {
+                        BucketName = sbucket, Key = k, InputStream = ms, ContentType = "application/octet-stream",
+                    }, cts.Token);
+                    writtenKeys[k] = 0;
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) { failures.Add($"writer{wid}#{i}: {ex.GetType().Name}: {ex.Message}"); }
+            }
+        });
+
+        Task Reader(int rid) => Task.Run(async () =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                try
+                {
+                    var list = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = sbucket }, cts.Token);
+                    if (list.S3Objects is { Count: > 0 })
+                    {
+                        var pick = list.S3Objects[rid % list.S3Objects.Count];
+                        using var got = await s3.GetObjectAsync(sbucket, pick.Key, cts.Token);
+                        await got.ResponseStream.CopyToAsync(Stream.Null, cts.Token);
+                    }
+                }
+                catch (OperationCanceledException) { return; }
+                catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404) { /* raced delete */ }
+                catch (Exception ex) { failures.Add($"reader{rid}: {ex.GetType().Name}: {ex.Message}"); }
+            }
+        });
+
+        Task GcLoop() => Task.Run(async () =>
+        {
+            for (var n = 0; !cts.IsCancellationRequested; n++)
+            {
+                try
+                {
+                    await RunGc(blobAgeSec: 0, uploadAgeSec: 86400);
+                    await Task.Delay(gcInterval, cts.Token);
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) { failures.Add($"gc#{n}: {ex.GetType().Name}: {ex.Message}"); }
+            }
+        });
+
+        var writers = Enumerable.Range(0, writerTasks).Select(Writer).ToList();
+        var background = Enumerable.Range(0, readerTasks).Select(Reader).Concat([GcLoop()]).ToList();
+        await Task.WhenAll(writers);
+        await cts.CancelAsync();
+        await Task.WhenAll(background);
+
+        if (!failures.IsEmpty)
+            throw new InvalidOperationException($"{failures.Count} concurrent failures, first: {failures.First()}");
+
+        var finalKeys = new HashSet<string>();
+        string? token = null;
+        do
+        {
+            var page = await s3.ListObjectsV2Async(new ListObjectsV2Request
+            {
+                BucketName = sbucket, ContinuationToken = token,
+            });
+            foreach (var o in page.S3Objects ?? []) finalKeys.Add(o.Key);
+            token = page.IsTruncated ? page.NextContinuationToken : null;
+        } while (token is not null);
+
+        var missing = writtenKeys.Keys.Where(k => !finalKeys.Contains(k)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidOperationException($"{missing.Count} written keys missing from final list ({writtenKeys.Count} written, {finalKeys.Count} listed), e.g. '{missing[0]}'");
+    }
+    finally
+    {
+        try
+        {
+            string? token = null;
+            do
+            {
+                var page = await s3.ListObjectsV2Async(new ListObjectsV2Request
+                {
+                    BucketName = sbucket, ContinuationToken = token,
+                });
+                if (page.S3Objects is { Count: > 0 })
+                {
+                    await s3.DeleteObjectsAsync(new DeleteObjectsRequest
+                    {
+                        BucketName = sbucket,
+                        Objects = page.S3Objects.Select(o => new KeyVersion { Key = o.Key }).ToList(),
+                    });
+                }
+                token = page.IsTruncated ? page.NextContinuationToken : null;
+            } while (token is not null);
+            await s3.DeleteBucketAsync(sbucket);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"  cleanup warning: {ex.Message}"); }
+    }
+});
+
 await Run("GcOrphanBlob", async () =>
 {
     const string gbucket = "vessel3-realclient-gc";
