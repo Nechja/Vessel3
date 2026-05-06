@@ -104,3 +104,26 @@ jobs:
       - name: Stop container
         if: always() && matrix.mode == 'container'
         run: docker rm -f vessel3 || true
+
+  durability:
+    runs-on: ubuntu-latest
+    name: probe (durability)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build server (JIT)
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Build probe
+        run: dotnet build Vessel3.RealClient -c Release --nologo
+
+      - name: Run restart + crash recovery orchestrator
+        run: bash tests/restart-durability.sh
+
+      - name: Server log on failure
+        if: failure()
+        run: tail -200 /tmp/vessel3-restart-server.log || true

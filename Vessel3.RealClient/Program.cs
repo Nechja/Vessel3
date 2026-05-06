@@ -22,6 +22,21 @@ var config = new AmazonS3Config
 
 using var s3 = new AmazonS3Client(new BasicAWSCredentials(accessKey, secretKey), config);
 
+if (args.Length > 0)
+{
+    var statePath = Environment.GetEnvironmentVariable("VESSEL3_PROBE_STATE") ?? "/tmp/vessel3-probe-state.json";
+    switch (args[0])
+    {
+        case "restart-write": return await DurabilityPhases.RestartWrite(s3, statePath);
+        case "restart-verify": return await DurabilityPhases.RestartVerify(s3, statePath);
+        case "crash-multipart-write": return await DurabilityPhases.CrashMultipartWrite(s3, statePath);
+        case "crash-multipart-finish": return await DurabilityPhases.CrashMultipartFinish(s3, statePath);
+        default:
+            Console.Error.WriteLine($"unknown phase: {args[0]}");
+            return 2;
+    }
+}
+
 const string bucket = "vessel3-realclient";
 const string key = "hello.txt";
 const string body = "Hello, Vessel3!\n";
