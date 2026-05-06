@@ -22,6 +22,21 @@ var config = new AmazonS3Config
 
 using var s3 = new AmazonS3Client(new BasicAWSCredentials(accessKey, secretKey), config);
 
+if (args.Length > 0)
+{
+    var statePath = Environment.GetEnvironmentVariable("VESSEL3_PROBE_STATE") ?? "/tmp/vessel3-probe-state.json";
+    switch (args[0])
+    {
+        case "restart-write": return await DurabilityTester.RestartWrite(s3, statePath);
+        case "restart-verify": return await DurabilityTester.RestartVerify(s3, statePath);
+        case "crash-multipart-write": return await DurabilityTester.CrashMultipartWrite(s3, statePath);
+        case "crash-multipart-finish": return await DurabilityTester.CrashMultipartFinish(s3, statePath);
+        default:
+            Console.Error.WriteLine($"unknown phase: {args[0]}");
+            return 2;
+    }
+}
+
 const string bucket = "vessel3-realclient";
 const string key = "hello.txt";
 const string body = "Hello, Vessel3!\n";
@@ -194,7 +209,7 @@ await Run("ListObjectVersions", async () =>
     }
     finally
     {
-        await CleanupVersionedBucket(s3, vbucket);
+        await DurabilityTester.CleanupBucket(s3, vbucket);
     }
 });
 
@@ -244,7 +259,7 @@ await Run("DeleteVersionId", async () =>
     }
     finally
     {
-        await CleanupVersionedBucket(s3, vbucket);
+        await DurabilityTester.CleanupBucket(s3, vbucket);
     }
 });
 
@@ -297,7 +312,7 @@ await Run("VersionedDelete", async () =>
     }
     finally
     {
-        await CleanupVersionedBucket(s3, vbucket);
+        await DurabilityTester.CleanupBucket(s3, vbucket);
     }
 });
 
@@ -350,7 +365,7 @@ await Run("VersionedPut", async () =>
     }
     finally
     {
-        await CleanupVersionedBucket(s3, vbucket);
+        await DurabilityTester.CleanupBucket(s3, vbucket);
     }
 });
 
@@ -565,7 +580,7 @@ await Run("GcKeepsVersionedBlobs", async () =>
     }
     finally
     {
-        await CleanupVersionedBucket(s3, gbucket);
+        await DurabilityTester.CleanupBucket(s3, gbucket);
     }
 });
 
@@ -1278,20 +1293,6 @@ Console.WriteLine();
 Console.WriteLine("ALL GOOD");
 return 0;
 
-static async Task CleanupVersionedBucket(AmazonS3Client s3, string bucket)
-{
-    try
-    {
-        var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = bucket });
-        foreach (var v in lv.Versions ?? [])
-            await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = v.Key, VersionId = v.VersionId });
-        await s3.DeleteBucketAsync(bucket);
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"  cleanup warning: {ex.Message}");
-    }
-}
 
 static async Task Run(string name, Func<Task> action)
 {

@@ -259,6 +259,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     private void EnsureSchema()
     {
+        using var pragma = conn!.CreateCommand();
+        pragma.CommandText = """
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA busy_timeout = 5000;
+            """;
+        pragma.ExecuteNonQuery();
+
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS versions (
