@@ -131,7 +131,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Parts: DeserializeParts(r.GetString(8)));
     }
 
-    public List<AllVersionsEntry> ListAllVersions(string? prefix, string? keyMarker)
+    public (List<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit)
     {
         using var cmd = conn!.CreateCommand();
         var sql = """
@@ -150,14 +150,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             cmd.Parameters.AddWithValue("$km", keyMarker);
         }
         if (clauses.Count > 0) sql += " WHERE " + string.Join(" AND ", clauses);
-        sql += " ORDER BY key ASC, seq DESC";
+        sql += " ORDER BY key ASC, seq DESC LIMIT $lim";
+        cmd.Parameters.AddWithValue("$lim", limit + 1);
         cmd.CommandText = sql;
 
-        var results = new List<AllVersionsEntry>();
+        var results = new List<AllVersionsEntry>(limit);
         using var r = cmd.ExecuteReader();
         string? lastKey = null;
+        var truncated = false;
         while (r.Read())
         {
+            if (results.Count >= limit) { truncated = true; break; }
             var key = r.GetString(0);
             var isLatest = key != lastKey;
             lastKey = key;
@@ -169,7 +172,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                     r.GetString(3), r.GetInt64(4), DeserializeParts(r.GetString(6)))
                 : new AllVersionsEntry.Marker(key, versionId, at, isLatest));
         }
-        return results;
+        return (results, truncated);
     }
 
     public List<VersionListEntry> ListCurrent(string? prefix, string? startAfter)
@@ -286,23 +289,5 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
             """;
         cmd.ExecuteNonQuery();
-
-        if (!ColumnExists("versions", "parts_json"))
-        {
-            using var alter = conn!.CreateCommand();
-            alter.CommandText = "ALTER TABLE versions ADD COLUMN parts_json TEXT NOT NULL DEFAULT ''";
-            alter.ExecuteNonQuery();
-        }
-    }
-
-    private bool ColumnExists(string table, string column)
-    {
-        using var cmd = conn!.CreateCommand();
-        cmd.CommandText = $"PRAGMA table_info({table})";
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
-            if (string.Equals(r.GetString(1), column, StringComparison.Ordinal))
-                return true;
-        return false;
     }
 }

@@ -20,7 +20,7 @@ internal interface IS3XmlWriter
     Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
     Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
     Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct);
-    Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, CancellationToken ct);
+    Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, CancellationToken ct);
 }
 
 internal sealed class S3XmlWriter : IS3XmlWriter
@@ -135,15 +135,20 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, CancellationToken ct)
+    public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, CancellationToken ct)
     {
         await using var w = XmlWriter.Create(output, settings);
         await w.WriteStartDocumentAsync();
         await w.WriteStartElementAsync(null, "ListVersionsResult", S3Namespace);
         await w.WriteElementStringAsync(null, "Name", null, bucket);
         await w.WriteElementStringAsync(null, "Prefix", null, prefix ?? "");
-        await w.WriteElementStringAsync(null, "MaxKeys", null, "1000");
-        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
+        await w.WriteElementStringAsync(null, "MaxKeys", null, maxKeys.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(null, "IsTruncated", null, isTruncated ? "true" : "false");
+        if (isTruncated && entries.Count > 0)
+        {
+            await w.WriteElementStringAsync(null, "NextKeyMarker", null, entries[^1].Key);
+            await w.WriteElementStringAsync(null, "NextVersionIdMarker", null, entries[^1].VersionId);
+        }
 
         foreach (var e in entries)
         {

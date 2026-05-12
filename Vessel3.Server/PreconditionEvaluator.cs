@@ -40,18 +40,17 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
     {
         var ifMatch = headers["If-Match"].ToString();
         var ifNoneMatch = headers["If-None-Match"].ToString();
-        var quoted = currentEtag is not null ? $"\"{currentEtag}\"" : null;
 
         if (!string.IsNullOrEmpty(ifMatch) && ifMatch is not "*")
         {
-            if (quoted is null) return Precondition.Failed;
-            if (!ifMatch.Contains(quoted, StringComparison.Ordinal)) return Precondition.Failed;
+            if (currentEtag is null) return Precondition.Failed;
+            if (!EtagListContains(ifMatch, currentEtag)) return Precondition.Failed;
         }
 
         if (!string.IsNullOrEmpty(ifNoneMatch))
         {
             if (ifNoneMatch is "*" && currentEtag is not null) return Precondition.Failed;
-            if (quoted is not null && ifNoneMatch.Contains(quoted, StringComparison.Ordinal))
+            if (currentEtag is not null && EtagListContains(ifNoneMatch, currentEtag))
                 return Precondition.Failed;
         }
 
@@ -64,11 +63,10 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
 
     private Precondition EvaluateRead(string ifMatch, string ifNoneMatch, string ifModSince, string ifUnmodSince, string etag, DateTimeOffset lastModified)
     {
-        var quoted = $"\"{etag}\"";
         var lastModSec = TruncateToSecond(lastModified);
 
         if (!string.IsNullOrEmpty(ifMatch) && ifMatch is not "*"
-            && !ifMatch.Contains(quoted, StringComparison.Ordinal))
+            && !EtagListContains(ifMatch, etag))
             return Precondition.Failed;
 
         if (!string.IsNullOrEmpty(ifUnmodSince)
@@ -77,13 +75,24 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
             return Precondition.Failed;
 
         var noneMatchHit = !string.IsNullOrEmpty(ifNoneMatch)
-            && (ifNoneMatch is "*" || ifNoneMatch.Contains(quoted, StringComparison.Ordinal));
+            && (ifNoneMatch is "*" || EtagListContains(ifNoneMatch, etag));
         var modSinceHit = string.IsNullOrEmpty(ifNoneMatch)
             && !string.IsNullOrEmpty(ifModSince)
             && TryParseHttpDate(ifModSince, out var modSince)
             && lastModSec <= modSince;
 
         return noneMatchHit || modSinceHit ? Precondition.NotModified : Precondition.Pass;
+    }
+
+    private static bool EtagListContains(string headerValue, string etag)
+    {
+        foreach (var raw in headerValue.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
+            if (t.Length >= 2 && t[0] == '"' && t[^1] == '"') t = t[1..^1];
+            if (string.Equals(t, etag, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     private bool TryParseHttpDate(string s, out DateTimeOffset dt)
