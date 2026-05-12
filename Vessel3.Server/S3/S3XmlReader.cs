@@ -109,8 +109,8 @@ internal sealed class S3XmlReader : IS3XmlReader
                 }
             }
             return statusValue is null
-                ? VersioningStatus.Unversioned
-                : Enum.TryParse<VersioningStatus>(statusValue, out var s)
+                ? new MalformedXmlError("VersioningConfiguration missing Status element")
+                : Enum.TryParse<VersioningStatus>(statusValue, out var s) && s is not VersioningStatus.Unversioned
                     ? s
                     : (Result<VersioningStatus>)new MalformedXmlError($"unknown Status '{statusValue}'");
         }

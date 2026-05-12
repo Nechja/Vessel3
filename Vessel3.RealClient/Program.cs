@@ -31,6 +31,8 @@ if (args.Length > 0)
         case "restart-verify": return await DurabilityTester.RestartVerify(s3, statePath);
         case "crash-multipart-write": return await DurabilityTester.CrashMultipartWrite(s3, statePath);
         case "crash-multipart-finish": return await DurabilityTester.CrashMultipartFinish(s3, statePath);
+        case "anon": return await AnonScenarios.RunAll(
+            Environment.GetEnvironmentVariable("VESSEL3_ANON_ENDPOINT") ?? "http://127.0.0.1:9101");
         default:
             Console.Error.WriteLine($"unknown phase: {args[0]}");
             return 2;
@@ -1288,6 +1290,185 @@ await Run("DeleteObjects",  async () =>
 });
 
 await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
+
+await Run("ConcurrentPut", async () =>
+{
+    // Regression for the unversioned lost-update race: N concurrent PUTs to the same key
+    // must leave the bucket with exactly one entry for that key.
+    const string cbucket = "vessel3-realclient-concurrent";
+    const string ckey = "race.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = cbucket });
+    try
+    {
+        var tasks = Enumerable.Range(0, 16).Select(i =>
+        {
+            var payload = Encoding.UTF8.GetBytes($"writer-{i}");
+            return s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = cbucket, Key = ckey,
+                InputStream = new MemoryStream(payload),
+                ContentType = "application/octet-stream",
+            });
+        }).ToArray();
+        await Task.WhenAll(tasks);
+
+        var listed = await s3.ListObjectsV2Async(new ListObjectsV2Request { BucketName = cbucket });
+        var matches = listed.S3Objects?.Count(o => o.Key == ckey) ?? 0;
+        if (matches != 1)
+            throw new InvalidOperationException($"unversioned bucket has {matches} rows for '{ckey}' after concurrent puts; expected 1");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, cbucket);
+    }
+});
+
+await Run("MultipartCopyEtag", async () =>
+{
+    // Regression for the multipart-copy bare-md5 bug: dest ETag must keep the "-N" suffix.
+    const string mbucket = "vessel3-realclient-mpcopy";
+    const string srcKey = "mp-src.bin";
+    const string dstKey = "mp-dst.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = mbucket });
+    try
+    {
+        const int partSize = 5 * 1024 * 1024;
+        var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        {
+            BucketName = mbucket, Key = srcKey, ContentType = "application/octet-stream",
+        });
+        var etags = new List<PartETag>();
+        var rng = new Random(7);
+        for (var i = 0; i < 2; i++)
+        {
+            var buf = new byte[partSize];
+            rng.NextBytes(buf);
+            using var ms = new MemoryStream(buf);
+            var up = await s3.UploadPartAsync(new UploadPartRequest
+            {
+                BucketName = mbucket, Key = srcKey, UploadId = initiate.UploadId,
+                PartNumber = i + 1, PartSize = partSize, InputStream = ms,
+            });
+            etags.Add(new PartETag(i + 1, up.ETag));
+        }
+        await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = mbucket, Key = srcKey, UploadId = initiate.UploadId, PartETags = etags,
+        });
+
+        await s3.CopyObjectAsync(new CopyObjectRequest
+        {
+            SourceBucket = mbucket, SourceKey = srcKey,
+            DestinationBucket = mbucket, DestinationKey = dstKey,
+        });
+
+        var head = await s3.GetObjectMetadataAsync(mbucket, dstKey);
+        var etag = head.ETag.Trim('"');
+        if (!etag.EndsWith("-2", StringComparison.Ordinal))
+            throw new InvalidOperationException($"multipart copy dest ETag '{etag}' lacks '-N' suffix");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, mbucket);
+    }
+});
+
+await Run("IfMatchList", async () =>
+{
+    // Regression for comma-separated entity-tag lists: If-Match must match any tag in the list.
+    const string ibucket = "vessel3-realclient-ifmatch";
+    const string ikey = "im.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = ibucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("v1"));
+        var first = await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = ibucket, Key = ikey, InputStream = ms, ContentType = "text/plain",
+        });
+        var realEtag = first.ETag.Trim('"');
+
+        var listMatchesOne = $"\"bogus0000000000000000000000000000\", \"{realEtag}\"";
+        var listMatchesNone = "\"bogus0000000000000000000000000000\", \"bogus1111111111111111111111111111\"";
+
+        using (var ms2 = new MemoryStream(Encoding.UTF8.GetBytes("v2")))
+        {
+            var req = new PutObjectRequest
+            {
+                BucketName = ibucket, Key = ikey, InputStream = ms2, ContentType = "text/plain",
+            };
+            req.Headers["If-Match"] = listMatchesOne;
+            await s3.PutObjectAsync(req);
+        }
+
+        try
+        {
+            using var ms3 = new MemoryStream(Encoding.UTF8.GetBytes("v3"));
+            var req = new PutObjectRequest
+            {
+                BucketName = ibucket, Key = ikey, InputStream = ms3, ContentType = "text/plain",
+            };
+            req.Headers["If-Match"] = listMatchesNone;
+            await s3.PutObjectAsync(req);
+            throw new InvalidOperationException("PUT with If-Match list of non-matching tags should have failed");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
+        {
+            // expected
+        }
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, ibucket);
+    }
+});
+
+await Run("ListVersionsPaging", async () =>
+{
+    // Regression for ListAllVersions pagination: MaxKeys must truncate with NextKeyMarker / NextVersionIdMarker.
+    const string vbucket = "vessel3-realclient-vpag";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = vbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        for (var i = 0; i < 5; i++)
+        {
+            using var ms = new MemoryStream(Encoding.UTF8.GetBytes($"v{i}"));
+            await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = vbucket, Key = $"k{i:D2}.bin",
+                InputStream = ms, ContentType = "application/octet-stream",
+            });
+        }
+
+        var first = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket, MaxKeys = 2 });
+        if (!first.IsTruncated)
+            throw new InvalidOperationException("ListVersions with MaxKeys=2 should be truncated for 5 versions");
+        if (string.IsNullOrEmpty(first.NextKeyMarker))
+            throw new InvalidOperationException("truncated ListVersions response missing NextKeyMarker");
+        var firstCount = first.Versions?.Count ?? 0;
+        if (firstCount != 2)
+            throw new InvalidOperationException($"first page returned {firstCount} entries, expected 2");
+
+        var next = await s3.ListVersionsAsync(new ListVersionsRequest
+        {
+            BucketName = vbucket, MaxKeys = 2, KeyMarker = first.NextKeyMarker,
+        });
+        if (next.Versions is null || next.Versions.Count == 0)
+            throw new InvalidOperationException("follow-up ListVersions page empty");
+        if (next.Versions[0].Key == first.Versions![0].Key)
+            throw new InvalidOperationException("follow-up page returned a key from the first page");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, vbucket);
+    }
+});
 
 Console.WriteLine();
 Console.WriteLine("ALL GOOD");

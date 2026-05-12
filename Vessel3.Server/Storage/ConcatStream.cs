@@ -74,6 +74,17 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         if (target < 0 || target > totalLength)
             throw new ArgumentOutOfRangeException(nameof(offset));
 
+        if (currentStream is not null && currentIndex >= 0 && currentIndex < parts.Count)
+        {
+            var partEnd = currentPartStart + parts[currentIndex].Size;
+            if (target >= currentPartStart && target < partEnd)
+            {
+                currentStream.Seek(target - currentPartStart, SeekOrigin.Begin);
+                position = target;
+                return position;
+            }
+        }
+
         position = target;
         DisposeCurrent();
         currentIndex = -1;

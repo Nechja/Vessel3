@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
+using static Vessel3.Server.RequestHelpers;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -58,7 +59,7 @@ app.MapPut("/_admin/gc", async (
     IGarbageCollector gc,
     CancellationToken ct) =>
 {
-    var blobAgeSec = ParseAgeQuery(req.Query, "blob-age", fallback: 0);
+    var blobAgeSec = ParseAgeQuery(req.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
     var uploadAgeSec = ParseAgeQuery(req.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
     var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
     res.ContentType = "application/json";
@@ -124,11 +125,13 @@ app.MapGet("/{bucket}", async (
 
     if (req.Query.ContainsKey("versions"))
     {
-        return await registry.ListAllVersions(bucket, prefix, null).Match<Task<IResult>>(
-            async entries =>
+        var keyMarker = Nullify(req.Query["key-marker"].ToString());
+        var versionMax = Math.Clamp(maxKeys ?? 1000, 1, 1000);
+        return await registry.ListAllVersions(bucket, prefix, keyMarker, versionMax).Match<Task<IResult>>(
+            async page =>
             {
                 res.ContentType = "application/xml";
-                await xml.WriteListVersions(res.Body, bucket, prefix, entries, ct);
+                await xml.WriteListVersions(res.Body, bucket, prefix, page.Entries, page.IsTruncated, versionMax, ct);
                 return Results.Empty;
             },
             err => Task.FromResult(http.Map(err)));
@@ -472,69 +475,3 @@ app.MapDelete("/{bucket}/{**key}", (
 });
 
 app.Run();
-
-static IReadOnlyDictionary<string, string> ExtractUserMetadata(IHeaderDictionary headers)
-{
-    const string prefix = "x-amz-meta-";
-    var meta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var (name, values) in headers)
-    {
-        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
-        var key = name[prefix.Length..].ToLowerInvariant();
-        if (key.Length is 0) continue;
-        meta[key] = values.ToString();
-    }
-    return meta;
-}
-
-static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
-
-static long ParseAgeQuery(IQueryCollection query, string name, long fallback)
-{
-    var raw = Nullify(query[name].ToString()) ?? Nullify(query["x-" + name].ToString());
-    return raw is not null && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
-        ? n : fallback;
-}
-
-static (Stream Body, long? DeclaredLength) DecodeRequestBody(HttpRequest req)
-{
-    var contentSha = req.Headers["x-amz-content-sha256"].ToString();
-    var isChunked = req.Headers.ContentEncoding.ToString().Contains("aws-chunked", StringComparison.Ordinal)
-        || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
-    if (!isChunked) return (req.Body, req.ContentLength);
-
-    var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
-    var declared = long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null;
-    return (new AwsChunkedStream(req.Body, sigCtx), declared);
-}
-
-static bool TryParseByteRange(string raw, long size, out long start, out long end)
-{
-    start = 0;
-    end = 0;
-    const string prefix = "bytes=";
-    if (!raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-    var rest = raw[prefix.Length..];
-    var dash = rest.IndexOf('-', StringComparison.Ordinal);
-    if (dash < 0) return false;
-    if (!long.TryParse(rest[..dash], NumberStyles.Integer, CultureInfo.InvariantCulture, out start)) return false;
-    var endStr = rest[(dash + 1)..];
-    end = string.IsNullOrEmpty(endStr) ? size - 1
-        : long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var e) ? e
-        : -1;
-    return end >= start && end < size;
-}
-
-static bool TryParseCopySource(string raw, out string bucket, out string key)
-{
-    bucket = string.Empty;
-    key = string.Empty;
-    var trimmed = raw.StartsWith('/') ? raw[1..] : raw;
-    var qm = trimmed.IndexOf('?', StringComparison.Ordinal);
-    if (qm >= 0) trimmed = trimmed[..qm];
-    var slash = trimmed.IndexOf('/', StringComparison.Ordinal);
-    if (slash <= 0 || slash == trimmed.Length - 1) return false;
-    bucket = trimmed[..slash];
-    key = Uri.UnescapeDataString(trimmed[(slash + 1)..]);
-    return true;
-}

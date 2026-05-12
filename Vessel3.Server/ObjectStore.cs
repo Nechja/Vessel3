@@ -72,7 +72,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                             Metadata: metadataOverride ?? srcEntry.Metadata,
                             Parts: srcEntry.Parts))
                         .Match<Result<CopyOutcome>>(
-                            written => new CopyOutcome(written.Md5, written.At, written.VersionId),
+                            written => new CopyOutcome(written.WireEtag, written.At, written.VersionId),
                             err => err),
             err => err);
 

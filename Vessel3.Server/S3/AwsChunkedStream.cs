@@ -51,7 +51,7 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
                 await ReadCrLf(ct);
             }
 
-            if (sigCtx is not null)
+            if (sigCtx is { SigningKey.Length: > 0 })
             {
                 VerifyChunkSignature(currentChunk.AsSpan(0, size), declaredSig);
                 previousSignature = declaredSig;
