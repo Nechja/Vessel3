@@ -44,7 +44,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 {
     public Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata) =>
         registry.Exists(bucket).Match<Result<CreateUploadOutcome>>(
-            exists => !exists ? new NotFoundError(bucket)
+            exists => !exists ? new NoSuchBucketError(bucket)
                 : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
                 : CreateUpload(bucket, key, contentType, metadata),
             err => err);

@@ -22,13 +22,25 @@ public class S3XmlReaderTests
         Assert.Equal("b.txt", ok.Value.Keys[1].Key);
     }
 
-    [Fact(Skip = "Latent bug: ReadElementContentAsStringAsync leaves the sub-reader on the next start element, causing the outer ReadAsync to skip past <VersionId>. The Server's batch-delete path is currently only exercised by callers that omit VersionId.")]
+    [Fact]
     public async Task BatchDelete_ParsesVersionId()
     {
         const string xml = "<Delete><Object><Key>b.txt</Key><VersionId>v1</VersionId></Object></Delete>";
         var r = await new S3XmlReader().ReadBatchDeleteRequest(S(xml), CancellationToken.None);
         var ok = Assert.IsType<Result<BatchDeleteRequest>.Success>(r);
         Assert.Equal("v1", ok.Value.Keys[0].VersionId);
+    }
+
+    [Fact]
+    public async Task BatchDelete_QuietBeforeObject_ParsesKeys()
+    {
+        const string xml = "<Delete><Quiet>false</Quiet><Object><Key>a.txt</Key></Object><Object><Key>b.txt</Key></Object></Delete>";
+        var r = await new S3XmlReader().ReadBatchDeleteRequest(S(xml), CancellationToken.None);
+        var ok = Assert.IsType<Result<BatchDeleteRequest>.Success>(r);
+        Assert.False(ok.Value.Quiet);
+        Assert.Equal(2, ok.Value.Keys.Count);
+        Assert.Equal("a.txt", ok.Value.Keys[0].Key);
+        Assert.Equal("b.txt", ok.Value.Keys[1].Key);
     }
 
     [Fact]

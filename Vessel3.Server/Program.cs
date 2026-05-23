@@ -90,7 +90,7 @@ app.MapGet("/{bucket}", async (
         return await registry.Exists(bucket).Match<Task<IResult>>(
             async exists =>
             {
-                if (!exists) return http.Map(new NotFoundError(bucket));
+                if (!exists) return http.Map(new NoSuchBucketError(bucket));
                 res.ContentType = "application/xml";
                 await xml.WriteLocationConstraint(res.Body, serverRegion.Value, ct);
                 return Results.Empty;
@@ -104,7 +104,7 @@ app.MapGet("/{bucket}", async (
         return await registry.Exists(bucket).Match<Task<IResult>>(
             async exists =>
             {
-                if (!exists) return http.Map(new NotFoundError(bucket));
+                if (!exists) return http.Map(new NoSuchBucketError(bucket));
                 res.ContentType = "application/xml";
                 await xml.WriteListMultipartUploads(res.Body, bucket, multipart.ListUploads(bucket), ct);
                 return Results.Empty;
@@ -333,7 +333,7 @@ app.MapPut("/{bucket}/{**key}", async (
         var resolvedVersion = versionId
             ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur } ? cur.VersionId : null);
         return resolvedVersion is null
-            ? http.Map(new NotFoundError($"{bucket}/{key}"))
+            ? http.Map(new NoSuchKeyError(key))
             : registry.PutRetention(bucket, key, resolvedVersion, retention, bypass).Match<IResult>(
                 _ => Results.Ok(),
                 http.Map);
@@ -348,7 +348,7 @@ app.MapPut("/{bucket}/{**key}", async (
         var resolvedVersion = versionId
             ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur } ? cur.VersionId : null);
         return resolvedVersion is null
-            ? http.Map(new NotFoundError($"{bucket}/{key}"))
+            ? http.Map(new NoSuchKeyError(key))
             : registry.PutLegalHold(bucket, key, resolvedVersion, on).Match<IResult>(
                 _ => Results.Ok(),
                 http.Map);
@@ -454,7 +454,10 @@ app.MapPut("/{bucket}/{**key}", async (
         var existing = objects.Stat(bucket, key);
         var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
         if (pre.EvaluateForWrite(req.Headers, currentEtag) is Precondition.Failed)
+        {
+            await req.Body.CopyToAsync(Stream.Null, ct);
             return Results.StatusCode(412);
+        }
     }
 
     var (body, declaredLength) = DecodeRequestBody(req);
@@ -569,7 +572,7 @@ app.MapGet("/{bucket}/{**key}", async (
         var versionId = Nullify(req.Query["versionId"].ToString())
             ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur } ? cur.VersionId : null);
         return versionId is null
-            ? http.Map(new NotFoundError($"{bucket}/{key}"))
+            ? http.Map(new NoSuchKeyError(key))
             : await registry.GetRetention(bucket, key, versionId).Match<Task<IResult>>(
                 async ret =>
                 {
@@ -586,7 +589,7 @@ app.MapGet("/{bucket}/{**key}", async (
         var versionId = Nullify(req.Query["versionId"].ToString())
             ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur2 } ? cur2.VersionId : null);
         return versionId is null
-            ? http.Map(new NotFoundError($"{bucket}/{key}"))
+            ? http.Map(new NoSuchKeyError(key))
             : await registry.GetLegalHold(bucket, key, versionId).Match<Task<IResult>>(
                 async on =>
                 {
@@ -623,10 +626,10 @@ app.MapGet("/{bucket}/{**key}", async (
                 return Results.StatusCode(412);
             }
             res.Headers.ETag = $"\"{ok.Etag}\"";
-            EmitChecksumHeaders(res.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
             foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
 
             var rangeRaw = req.Headers.Range.ToString();
+            var isRangedSlice = false;
             if (!string.IsNullOrEmpty(rangeRaw))
             {
                 var parsed = RequestHelpers.ParseByteRange(rangeRaw, ok.Size);
@@ -641,9 +644,13 @@ app.MapGet("/{bucket}/{**key}", async (
                         break;
                     case RequestHelpers.ByteRange.Normal n:
                         req.Headers.Range = $"bytes={n.Start.ToString(CultureInfo.InvariantCulture)}-{n.End.ToString(CultureInfo.InvariantCulture)}";
+                        isRangedSlice = true;
                         break;
                 }
             }
+
+            if (!isRangedSlice)
+                EmitChecksumHeaders(res.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
 
             return Results.File(
                 ok.Body,

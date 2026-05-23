@@ -62,7 +62,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             ? new MethodNotAllowedError($"{bucket}/{key} target is a delete marker")
             : Lookup(bucket, key, versionId).Match<Result<IReadOnlyDictionary<string, string>>>(
                 put => put is null
-                    ? new NotFoundError($"{bucket}/{key}")
+                    ? new NoSuchKeyError(key)
                     : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>()),
                 err => err);
 
@@ -82,21 +82,21 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     public Result<StoredObject> Get(string bucket, string key, string? versionId = null) =>
         Lookup(bucket, key, versionId).Match<Result<StoredObject>>(
             put => put is null
-                ? new NotFoundError($"{bucket}/{key}")
+                ? new NoSuchKeyError(key)
                 : OpenBlob(put),
             err => err);
 
     public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null) =>
         Lookup(bucket, key, versionId).Match<Result<ObjectAttributesData>>(
             put => put is null
-                ? new NotFoundError($"{bucket}/{key}")
+                ? new NoSuchKeyError(key)
                 : new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts),
             err => err);
 
     public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null) =>
         Lookup(bucket, key, versionId).Match<Result<ObjectStat>>(
             put => put is null
-                ? new NotFoundError($"{bucket}/{key}")
+                ? new NoSuchKeyError(key)
                 : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
                     new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null)),
             err => err);
@@ -115,7 +115,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     public Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride) =>
         registry.GetCurrentPut(srcBucket, srcKey).Match<Result<CopyOutcome>>(
             srcEntry => srcEntry is null
-                ? new NotFoundError($"{srcBucket}/{srcKey}")
+                ? new NoSuchKeyError(srcKey)
                 : pre.EvaluateCopySource(copyHeaders, srcEntry.Md5, srcEntry.At) is Precondition.Failed
                     ? new PreconditionFailedError($"{srcBucket}/{srcKey}")
                     : registry.AppendPut(destBucket, destKey, new PutRequest(

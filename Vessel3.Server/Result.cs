@@ -9,6 +9,18 @@ internal sealed record NotFoundError(string Resource)
     : Error("NotFound", $"{Resource} not found")
 { public override int Status => 404; }
 
+internal sealed record NoSuchBucketError(string Bucket)
+    : Error("NoSuchBucket", $"The specified bucket does not exist: {Bucket}")
+{ public override int Status => 404; }
+
+internal sealed record NoSuchKeyError(string Key)
+    : Error("NoSuchKey", $"The specified key does not exist: {Key}")
+{ public override int Status => 404; }
+
+internal sealed record NoSuchVersionError(string Key, string VersionId)
+    : Error("NoSuchVersion", $"The specified version does not exist: {Key}@{VersionId}")
+{ public override int Status => 404; }
+
 internal sealed record InvalidPathError(string Detail)
     : Error("InvalidPath", Detail)
 { public override int Status => 400; }
