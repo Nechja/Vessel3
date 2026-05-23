@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
+    <PackageReference Include="System.IO.Hashing" Version="*" />
   </ItemGroup>
 
 </Project>

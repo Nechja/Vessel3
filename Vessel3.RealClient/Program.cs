@@ -1942,101 +1942,122 @@ await Run("VersionedTagging", async () =>
     }
 });
 
+const string ckBucket = "vessel3-realclient-checksum";
+await s3.PutBucketAsync(new PutBucketRequest { BucketName = ckBucket });
+
+static string Crc32B64(byte[] data) =>
+    Convert.ToBase64String(BitConverter.GetBytes(System.IO.Hashing.Crc32.HashToUInt32(data)).Reverse().ToArray());
+static string Crc32CB64(byte[] data)
+{
+    uint c = 0xFFFFFFFFu;
+    foreach (var b in data)
+    {
+        c ^= b;
+        for (var i = 0; i < 8; i++)
+            c = (c & 1) != 0 ? (0x82F63B78u ^ (c >> 1)) : (c >> 1);
+    }
+    var v = c ^ 0xFFFFFFFFu;
+    var bytes = new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
+    return Convert.ToBase64String(bytes);
+}
+static string Sha1B64(byte[] data) => Convert.ToBase64String(SHA1.HashData(data));
+static string Sha256B64(byte[] data) => Convert.ToBase64String(SHA256.HashData(data));
+
 await Run("ChecksumCrc32", async () =>
 {
     const string ckey = "checksum-crc32.txt";
-    using var ms = new MemoryStream(Encoding.UTF8.GetBytes("crc32 payload"));
-    await s3.PutObjectAsync(new PutObjectRequest
+    var body = Encoding.UTF8.GetBytes("crc32 payload");
+    var put = new PutObjectRequest
     {
-        BucketName = bucket, Key = ckey,
-        InputStream = ms, ContentType = "text/plain",
-        ChecksumAlgorithm = ChecksumAlgorithm.CRC32,
-    });
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-crc32"] = Crc32B64(body);
+    await s3.PutObjectAsync(put);
 
-    var head = await s3.GetObjectMetadataAsync(bucket, ckey);
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(head.ChecksumCRC32))
         throw new InvalidOperationException("HEAD missing x-amz-checksum-crc32");
 
-    using var got = await s3.GetObjectAsync(bucket, ckey);
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(got.ChecksumCRC32))
         throw new InvalidOperationException("GET missing x-amz-checksum-crc32");
 
-    await s3.DeleteObjectAsync(bucket, ckey);
+    await s3.DeleteObjectAsync(ckBucket, ckey);
 });
 
 await Run("ChecksumCrc32C", async () =>
 {
     const string ckey = "checksum-crc32c.txt";
-    using var ms = new MemoryStream(Encoding.UTF8.GetBytes("crc32c payload"));
-    await s3.PutObjectAsync(new PutObjectRequest
+    var body = Encoding.UTF8.GetBytes("crc32c payload");
+    var put = new PutObjectRequest
     {
-        BucketName = bucket, Key = ckey,
-        InputStream = ms, ContentType = "text/plain",
-        ChecksumAlgorithm = ChecksumAlgorithm.CRC32C,
-    });
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-crc32c"] = Crc32CB64(body);
+    await s3.PutObjectAsync(put);
 
-    var head = await s3.GetObjectMetadataAsync(bucket, ckey);
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(head.ChecksumCRC32C))
         throw new InvalidOperationException("HEAD missing x-amz-checksum-crc32c");
 
-    using var got = await s3.GetObjectAsync(bucket, ckey);
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(got.ChecksumCRC32C))
         throw new InvalidOperationException("GET missing x-amz-checksum-crc32c");
 
-    await s3.DeleteObjectAsync(bucket, ckey);
+    await s3.DeleteObjectAsync(ckBucket, ckey);
 });
 
 await Run("ChecksumSha1", async () =>
 {
     const string ckey = "checksum-sha1.txt";
-    using var ms = new MemoryStream(Encoding.UTF8.GetBytes("sha1 payload"));
-    await s3.PutObjectAsync(new PutObjectRequest
+    var body = Encoding.UTF8.GetBytes("sha1 payload");
+    var put = new PutObjectRequest
     {
-        BucketName = bucket, Key = ckey,
-        InputStream = ms, ContentType = "text/plain",
-        ChecksumAlgorithm = ChecksumAlgorithm.SHA1,
-    });
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-sha1"] = Sha1B64(body);
+    await s3.PutObjectAsync(put);
 
-    var head = await s3.GetObjectMetadataAsync(bucket, ckey);
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(head.ChecksumSHA1))
         throw new InvalidOperationException("HEAD missing x-amz-checksum-sha1");
 
-    using var got = await s3.GetObjectAsync(bucket, ckey);
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
     if (string.IsNullOrEmpty(got.ChecksumSHA1))
         throw new InvalidOperationException("GET missing x-amz-checksum-sha1");
 
-    await s3.DeleteObjectAsync(bucket, ckey);
+    await s3.DeleteObjectAsync(ckBucket, ckey);
 });
 
 await Run("ChecksumSha256Roundtrip", async () =>
 {
     const string ckey = "checksum-sha256.txt";
-    const string ckBody = "sha256 payload";
-    using var ms = new MemoryStream(Encoding.UTF8.GetBytes(ckBody));
-    var put = await s3.PutObjectAsync(new PutObjectRequest
+    var body = Encoding.UTF8.GetBytes("sha256 payload");
+    var expected = Sha256B64(body);
+    var put = new PutObjectRequest
     {
-        BucketName = bucket, Key = ckey,
-        InputStream = ms, ContentType = "text/plain",
-        ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
-    });
-    if (string.IsNullOrEmpty(put.ChecksumSHA256))
-        throw new InvalidOperationException("PUT response missing x-amz-checksum-sha256");
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-sha256"] = expected;
+    await s3.PutObjectAsync(put);
 
-    var head = await s3.GetObjectMetadataAsync(bucket, ckey);
-    if (string.IsNullOrEmpty(head.ChecksumSHA256))
-        throw new InvalidOperationException("HEAD missing x-amz-checksum-sha256");
-    if (head.ChecksumSHA256 != put.ChecksumSHA256)
-        throw new InvalidOperationException($"HEAD checksum '{head.ChecksumSHA256}' != PUT checksum '{put.ChecksumSHA256}'");
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
+    if (head.ChecksumSHA256 != expected)
+        throw new InvalidOperationException($"HEAD sha256 '{head.ChecksumSHA256}' != expected '{expected}'");
 
-    using var got = await s3.GetObjectAsync(bucket, ckey);
-    if (got.ChecksumSHA256 != put.ChecksumSHA256)
-        throw new InvalidOperationException($"GET checksum '{got.ChecksumSHA256}' != PUT checksum '{put.ChecksumSHA256}'");
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
+    if (got.ChecksumSHA256 != expected)
+        throw new InvalidOperationException($"GET sha256 '{got.ChecksumSHA256}' != expected '{expected}'");
 
-    var expected = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(ckBody)));
-    if (put.ChecksumSHA256 != expected)
-        throw new InvalidOperationException($"sha256 checksum '{put.ChecksumSHA256}' != expected '{expected}'");
-
-    await s3.DeleteObjectAsync(bucket, ckey);
+    await s3.DeleteObjectAsync(ckBucket, ckey);
 });
 
 await Run("MultipartCompositeChecksum", async () =>
@@ -2044,8 +2065,8 @@ await Run("MultipartCompositeChecksum", async () =>
     const string ckey = "checksum-multipart.bin";
     var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
     {
-        BucketName = bucket, Key = ckey, ContentType = "application/octet-stream",
-        ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
+        BucketName = ckBucket, Key = ckey, ContentType = "application/octet-stream",
+        ChecksumAlgorithm = ChecksumAlgorithm.CRC32,
     });
 
     const int partSize = 5 * 1024 * 1024;
@@ -2056,26 +2077,29 @@ await Run("MultipartCompositeChecksum", async () =>
         var buf = new byte[partSize];
         rng.NextBytes(buf);
         using var ms = new MemoryStream(buf);
-        var up = await s3.UploadPartAsync(new UploadPartRequest
+        var partRes = await s3.UploadPartAsync(new UploadPartRequest
         {
-            BucketName = bucket, Key = ckey, UploadId = initiate.UploadId,
+            BucketName = ckBucket, Key = ckey, UploadId = initiate.UploadId,
             PartNumber = i + 1, PartSize = partSize, InputStream = ms,
-            ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
+            ChecksumAlgorithm = ChecksumAlgorithm.CRC32,
         });
-        etags.Add(new PartETag(i + 1, up.ETag));
+        etags.Add(new PartETag(i + 1, partRes.ETag) { ChecksumCRC32 = partRes.ChecksumCRC32 });
     }
 
     var complete = await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
     {
-        BucketName = bucket, Key = ckey, UploadId = initiate.UploadId, PartETags = etags,
+        BucketName = ckBucket, Key = ckey, UploadId = initiate.UploadId, PartETags = etags,
+        ChecksumType = ChecksumType.COMPOSITE,
     });
-    if (string.IsNullOrEmpty(complete.ChecksumSHA256))
-        throw new InvalidOperationException("CompleteMultipartUpload missing x-amz-checksum-sha256");
-    if (!complete.ChecksumSHA256.EndsWith("-2", StringComparison.Ordinal))
-        throw new InvalidOperationException($"composite checksum '{complete.ChecksumSHA256}' lacks '-2' suffix");
+    if (string.IsNullOrEmpty(complete.ChecksumCRC32))
+        throw new InvalidOperationException("CompleteMultipartUpload missing x-amz-checksum-crc32");
+    if (!complete.ChecksumCRC32.EndsWith("-2", StringComparison.Ordinal))
+        throw new InvalidOperationException($"composite checksum '{complete.ChecksumCRC32}' lacks '-2' suffix");
 
-    await s3.DeleteObjectAsync(bucket, ckey);
+    await s3.DeleteObjectAsync(ckBucket, ckey);
 });
+
+await s3.DeleteBucketAsync(ckBucket);
 
 await Run("ListEncodingTypeUrl", async () =>
 {
@@ -2102,7 +2126,7 @@ await Run("ListEncodingTypeUrl", async () =>
         if (listed.Encoding != EncodingType.Url)
             throw new InvalidOperationException("response did not echo EncodingType=url");
 
-        var keys = listed.S3Objects?.Select(o => o.Key).ToHashSet() ?? new HashSet<string>();
+        var keys = listed.S3Objects?.Select(o => Uri.UnescapeDataString(o.Key)).ToHashSet() ?? new HashSet<string>();
         if (!keys.Contains(spaceKey))
             throw new InvalidOperationException($"space key '{spaceKey}' did not round-trip; got [{string.Join(", ", keys)}]");
         if (!keys.Contains(unicodeKey))

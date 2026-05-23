@@ -110,6 +110,22 @@ internal static class ChecksumAlgorithms
         }
     }
 
+    public static ChecksumSet MergeTrailers(ChecksumSet existing, Stream body)
+    {
+        if (body is not Vessel3.Server.S3.AwsChunkedStream chunked) return existing;
+        var trailers = chunked.Trailers;
+        if (trailers.Count is 0) return existing;
+        string? Read(string name, string? current) =>
+            current is not null ? current
+            : !trailers.TryGetValue(name, out var raw) || string.IsNullOrEmpty(raw) ? null
+            : Base64ToHex(raw);
+        return new ChecksumSet(
+            Read(HeaderCrc32, existing.Crc32),
+            Read(HeaderCrc32C, existing.Crc32C),
+            Read(HeaderSha1, existing.Sha1),
+            Read(HeaderSha256, existing.Sha256));
+    }
+
     public static string Composite(ChecksumAlgorithm algo, IEnumerable<string> partHexValues)
     {
         switch (algo)

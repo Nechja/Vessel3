@@ -61,6 +61,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         if (written is Result<StoredBlob>.Failure f) return f.Error;
         var blob = ((Result<StoredBlob>.Success)written).Value;
 
+        declaredChecksums = ChecksumAlgorithms.MergeTrailers(declaredChecksums, body);
         if (declaredChecksums.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"part {partNumber} crc32 mismatch");
         if (declaredChecksums.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
