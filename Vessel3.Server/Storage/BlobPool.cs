@@ -66,6 +66,7 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
             crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
             crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
+            temp.Flush(flushToDisk: true);
         }
 
         var finalPath = PathFor(sha);

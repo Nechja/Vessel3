@@ -8,6 +8,11 @@ using static Vessel3.Server.RequestHelpers;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxRequestBodySize = 5L * 1024 * 1024 * 1024;
+});
+
 var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);

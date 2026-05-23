@@ -65,7 +65,8 @@ internal static class RequestHelpers
             || contentSha.Contains("STREAMING-", StringComparison.Ordinal);
         if (!isChunked) return (req.Body, req.ContentLength);
 
-        var sigCtx = req.HttpContext.Items["sigctx"] as SignatureContext;
+        var payloadHasPerChunkSignatures = contentSha.StartsWith("STREAMING-AWS4-HMAC-SHA256-PAYLOAD", StringComparison.Ordinal);
+        var sigCtx = payloadHasPerChunkSignatures ? req.HttpContext.Items["sigctx"] as SignatureContext : null;
         var declared = long.TryParse(req.Headers["x-amz-decoded-content-length"].ToString(), out var dl) ? dl : (long?)null;
         return (new AwsChunkedStream(req.Body, sigCtx), declared);
     }
