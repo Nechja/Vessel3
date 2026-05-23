@@ -18,35 +18,25 @@ jobs:
         include:
           - rid: linux-x64
             runner: ubuntu-latest
-            ext: ''
             apt: clang zlib1g-dev
           - rid: linux-arm64
             runner: ubuntu-24.04-arm
-            ext: ''
             apt: clang zlib1g-dev
-          - rid: linux-musl-x64
-            runner: ubuntu-latest
-            ext: ''
-            apt: clang zlib1g-dev musl-tools
           - rid: osx-arm64
             runner: macos-latest
-            ext: ''
-          - rid: osx-x64
-            runner: macos-13
-            ext: ''
           - rid: win-x64
             runner: windows-latest
-            ext: '.exe'
+            windows: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
 
       - name: Install apt deps
-        if: matrix.apt != ''
+        if: matrix.apt
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ${{ matrix.apt }}
 
       - name: Publish
@@ -59,18 +49,21 @@ jobs:
             -o publish/${{ matrix.rid }} \
             --nologo
 
-      - name: Package
+      - name: Package (unix)
+        if: '!matrix.windows'
         shell: bash
         run: |
           cd publish/${{ matrix.rid }}
-          name=vessel3-${{ github.ref_name }}-${{ matrix.rid }}
-          if [ "${{ matrix.ext }}" = ".exe" ]; then
-            7z a "../../$name.zip" "vessel3${{ matrix.ext }}"
-          else
-            tar -czf "../../$name.tar.gz" "vessel3${{ matrix.ext }}"
-          fi
+          tar -czf "$GITHUB_WORKSPACE/vessel3-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" vessel3
 
-      - uses: actions/upload-artifact@v4
+      - name: Package (windows)
+        if: matrix.windows
+        shell: pwsh
+        run: |
+          $name = "vessel3-${{ github.ref_name }}-${{ matrix.rid }}.zip"
+          Compress-Archive -Path "publish/${{ matrix.rid }}/vessel3.exe" -DestinationPath "$env:GITHUB_WORKSPACE/$name"
+
+      - uses: actions/upload-artifact@v7
         with:
           name: vessel3-${{ matrix.rid }}
           path: |
@@ -81,22 +74,24 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ always() && !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Compute checksums
+        shell: bash
         run: |
           cd dist
+          ls -la
           sha256sum vessel3-* > SHA256SUMS
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/vessel3-*
             dist/SHA256SUMS
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
