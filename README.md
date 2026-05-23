@@ -2,7 +2,6 @@
 
 [![probe](https://github.com/Nechja/Vessel3/actions/workflows/probe.yml/badge.svg)](https://github.com/Nechja/Vessel3/actions/workflows/probe.yml)
 [![container](https://github.com/Nechja/Vessel3/actions/workflows/container.yml/badge.svg)](https://github.com/Nechja/Vessel3/actions/workflows/container.yml)
-[![release](https://img.shields.io/github/v/release/Nechja/Vessel3?include_prereleases&sort=semver)](https://github.com/Nechja/Vessel3/releases)
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
