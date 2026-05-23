@@ -39,20 +39,27 @@ internal sealed class S3XmlReader : IS3XmlReader
         try
         {
             using var r = XmlReader.Create(input, settings);
-            while (await r.ReadAsync())
+            var advanced = true;
+            while (advanced)
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element) continue;
+                if (r.NodeType is not XmlNodeType.Element) { advanced = await r.ReadAsync(); continue; }
 
                 if (r.LocalName is "Object")
                 {
                     var key = await ReadObjectEntry(r);
                     if (key is not null) keys.Add(key);
+                    advanced = await r.ReadAsync();
                 }
                 else if (r.LocalName is "Quiet")
                 {
                     var raw = await r.ReadElementContentAsStringAsync();
                     quiet = raw.Equals("true", StringComparison.OrdinalIgnoreCase);
+                    advanced = !r.EOF;
+                }
+                else
+                {
+                    advanced = await r.ReadAsync();
                 }
             }
         }
@@ -344,11 +351,24 @@ internal sealed class S3XmlReader : IS3XmlReader
         string? key = null;
         string? versionId = null;
         using var sub = r.ReadSubtree();
-        while (await sub.ReadAsync())
+        var advanced = await sub.ReadAsync();
+        while (advanced)
         {
-            if (sub.NodeType is not XmlNodeType.Element) continue;
-            if (sub.LocalName is "Key") key = await sub.ReadElementContentAsStringAsync();
-            else if (sub.LocalName is "VersionId") versionId = await sub.ReadElementContentAsStringAsync();
+            if (sub.NodeType is not XmlNodeType.Element) { advanced = await sub.ReadAsync(); continue; }
+            if (sub.LocalName is "Key")
+            {
+                key = await sub.ReadElementContentAsStringAsync();
+                advanced = !sub.EOF;
+            }
+            else if (sub.LocalName is "VersionId")
+            {
+                versionId = await sub.ReadElementContentAsStringAsync();
+                advanced = !sub.EOF;
+            }
+            else
+            {
+                advanced = await sub.ReadAsync();
+            }
         }
         return key is not null ? new BatchDeleteKey(key, versionId) : null;
     }

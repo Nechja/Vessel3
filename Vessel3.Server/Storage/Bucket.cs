@@ -191,7 +191,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
         lock (writeGate)
         {
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
-                return new NotFoundError($"{key}@{versionId}");
+                return new NoSuchVersionError(key, versionId);
 
             var (current, _) = Index.GetLock(key, versionId);
             if (current is not null)
@@ -214,7 +214,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
         lock (writeGate)
         {
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
-                return new NotFoundError($"{key}@{versionId}");
+                return new NoSuchVersionError(key, versionId);
             log.Append(new PutLegalHoldEvent(0, DateTimeOffset.UtcNow, key, versionId, on)).ApplyTo(Index);
             return true;
         }
