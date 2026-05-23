@@ -57,7 +57,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
 
     public Result<bool> Create(string bucket)
     {
-        if (!IsValidName(bucket)) return new InvalidPathError(bucket);
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
         if (Directory.Exists(path)) return false;
@@ -69,7 +69,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
 
     public Result<bool> Delete(string bucket)
     {
-        if (!IsValidName(bucket)) return new InvalidPathError(bucket);
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
         if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
@@ -87,7 +87,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
     public Result<bool> Exists(string bucket) =>
         IsValidName(bucket)
             ? Directory.Exists(Path.Combine(bucketsRoot, bucket))
-            : new InvalidPathError(bucket);
+            : new InvalidBucketNameError(bucket);
 
     public IEnumerable<BucketInfo> List()
     {
@@ -112,12 +112,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
 
     public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? b.ObjectLock
         : (Result<ObjectLockConfig?>)new NoSuchBucketError(bucket);
 
     public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? b.SetObjectLock(cfg)
         : (Result<bool>)new NoSuchBucketError(bucket);
 
@@ -145,26 +145,26 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         OnBucket<List<VersionListEntry>>(bucket, b => b.Index.ListCurrent(prefix, startAfter));
 
     private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? body(b)
         : new NoSuchBucketError(bucket);
 
     private Result<T> OnKey<T>(string bucket, string key, Func<Bucket, Result<T>> body) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
         : Open(bucket) is { } b ? body(b)
         : new NoSuchBucketError(bucket);
 
     public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit)
     {
-        if (!IsValidName(bucket)) return new InvalidPathError(bucket);
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
         var (entries, truncated) = b.Index.ListAllVersions(prefix, keyMarker, limit);
         return new VersionsPage(entries, truncated);
     }
 
     public Result<VersioningStatus> GetVersioning(string bucket) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? b.Versioning
         : (Result<VersioningStatus>)new NoSuchBucketError(bucket);
 
@@ -197,7 +197,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             : Open(bucket) is { } b ? b.Index.GetVersionKind(key, versionId) : null;
 
     public Result<bool> SetVersioning(string bucket, VersioningStatus status) =>
-        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? b.SetVersioning(status)
         : (Result<bool>)new NoSuchBucketError(bucket);
 

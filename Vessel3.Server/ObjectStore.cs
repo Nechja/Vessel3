@@ -4,8 +4,8 @@ namespace Vessel3.Server;
 
 internal sealed record PutOutcome(string Etag, string Sha256, string VersionId, long Size, ChecksumSet Checksums);
 internal sealed record CopyOutcome(string Etag, DateTimeOffset LastModified, string VersionId);
-internal sealed record StoredObject(Stream Body, long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums);
-internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums);
+internal sealed record StoredObject(Stream Body, long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums, IReadOnlyDictionary<string, string>? SystemHeaders = null);
+internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums, IReadOnlyDictionary<string, string>? SystemHeaders = null);
 
 internal sealed record ObjectAttributesData(
     long Size, DateTimeOffset LastModified, string Etag, string Sha256,
@@ -13,7 +13,7 @@ internal sealed record ObjectAttributesData(
 
 internal interface IObjectStore
 {
-    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false);
+    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null);
     Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride);
     Result<StoredObject> Get(string bucket, string key, string? versionId = null);
     Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
@@ -27,7 +27,7 @@ internal interface IObjectStore
 
 internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre) : IObjectStore
 {
-    public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false)
+    public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null)
     {
         var written = await blobs.Write(body, declaredSize, ct);
         if (written is Result<StoredBlob>.Failure bf) return bf.Error;
@@ -54,7 +54,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             declaredChecksums.Crc32C is null ? null : blob.Crc32C,
             declaredChecksums.Sha1 is null ? null : blob.Sha1,
             declaredChecksums.Sha256 is null ? null : blob.Sha);
-        return RecordPut(bucket, key, blob, contentType, metadata, tags, toStore, retention, legalHoldOn);
+        return RecordPut(bucket, key, blob, contentType, metadata, tags, toStore, retention, legalHoldOn, systemHeaders);
     }
 
     public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId) =>
@@ -98,7 +98,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             put => put is null
                 ? new NoSuchKeyError(key)
                 : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
-                    new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null)),
+                    new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders),
             err => err);
 
     private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>
@@ -125,13 +125,14 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                             ContentType: srcEntry.ContentType,
                             Metadata: metadataOverride ?? srcEntry.Metadata,
                             Parts: srcEntry.Parts,
-                            Tags: tagsOverride ?? srcEntry.Tags))
+                            Tags: tagsOverride ?? srcEntry.Tags,
+                            SystemHeaders: srcEntry.SystemHeaders))
                         .Match<Result<CopyOutcome>>(
                             written => new CopyOutcome(written.WireEtag, written.At, written.VersionId),
                             err => err),
             err => err);
 
-    private Result<PutOutcome> RecordPut(string bucket, string key, StoredBlob blob, string? contentType, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet toStore, Retention? retention, bool legalHoldOn)
+    private Result<PutOutcome> RecordPut(string bucket, string key, StoredBlob blob, string? contentType, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet toStore, Retention? retention, bool legalHoldOn, IReadOnlyDictionary<string, string>? systemHeaders)
     {
         var resolved = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType;
         return registry.AppendPut(bucket, key, new PutRequest(
@@ -145,7 +146,8 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                 Crc32C: toStore.Crc32C,
                 Sha1: toStore.Sha1,
                 Retention: retention,
-                LegalHoldOn: legalHoldOn)).Match<Result<PutOutcome>>(
+                LegalHoldOn: legalHoldOn,
+                SystemHeaders: systemHeaders)).Match<Result<PutOutcome>>(
             entry => new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size, toStore),
             err => err);
     }
@@ -154,9 +156,9 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     {
         var sums = new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null);
         return put.Parts is { } parts
-            ? new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums)
+            ? new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders)
             : blobs.Open(put.BlobSha).Match<Result<StoredObject>>(
-                stream => new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums),
+                stream => new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders),
                 err => err);
     }
 }

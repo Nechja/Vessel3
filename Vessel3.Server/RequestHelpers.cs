@@ -19,6 +19,36 @@ internal static class RequestHelpers
         return meta;
     }
 
+    public static readonly string[] SystemHeaderNames =
+    [
+        "Content-Disposition",
+        "Content-Language",
+        "Content-Encoding",
+        "Cache-Control",
+        "Expires",
+    ];
+
+    public static IReadOnlyDictionary<string, string>? ExtractSystemHeaders(IHeaderDictionary headers)
+    {
+        Dictionary<string, string>? dict = null;
+        foreach (var name in SystemHeaderNames)
+        {
+            var v = headers[name].ToString();
+            if (string.IsNullOrEmpty(v)) continue;
+            dict ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            dict[name] = v;
+        }
+        return dict;
+    }
+
+    public static void EmitSystemHeaders(IHeaderDictionary headers, IReadOnlyDictionary<string, string>? source)
+    {
+        if (source is null) return;
+        foreach (var name in SystemHeaderNames)
+            if (source.TryGetValue(name, out var v) && !string.IsNullOrEmpty(v))
+                headers[name] = v;
+    }
+
     public static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
     public static long ParseAgeQuery(IQueryCollection query, string name, long fallback)

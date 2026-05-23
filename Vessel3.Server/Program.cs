@@ -505,7 +505,8 @@ app.MapPut("/{bucket}/{**key}", async (
     Result<PutOutcome> result;
     try
     {
-        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, declaredMd5OrNull, metadata, initialTags, declaredChecksums, ct, initialRetention, initialHold);
+        var systemHeaders = ExtractSystemHeaders(req.Headers);
+        result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, declaredMd5OrNull, metadata, initialTags, declaredChecksums, ct, initialRetention, initialHold, systemHeaders);
     }
     catch (InvalidDataException ex)
     {
@@ -627,6 +628,7 @@ app.MapGet("/{bucket}/{**key}", async (
             }
             res.Headers.ETag = $"\"{ok.Etag}\"";
             foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
+            EmitSystemHeaders(res.Headers, ok.SystemHeaders);
 
             var rangeRaw = req.Headers.Range.ToString();
             var isRangedSlice = false;
@@ -679,6 +681,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (
             EmitChecksumHeaders(res.Headers, stat.Checksums, fallbackSha256Hex: stat.Sha256);
             res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
             foreach (var (k, v) in stat.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
+            EmitSystemHeaders(res.Headers, stat.SystemHeaders);
             return Results.Empty;
         },
         http.Map);

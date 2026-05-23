@@ -122,6 +122,13 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             prevNumber = n;
         }
 
+        const long MinPartSize = 5 * 1024 * 1024;
+        for (var i = 0; i < ordered.Count - 1; i++)
+        {
+            if (ordered[i].Size < MinPartSize)
+                return new EntityTooSmallError(ordered[i].Number, ordered[i].Size, MinPartSize);
+        }
+
         var composite = ComputeCompositeMd5(ordered);
         var totalSize = 0L;
         foreach (var p in ordered) totalSize += p.Size;

@@ -26,6 +26,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         conn = null;
     }
 
+    public Microsoft.Data.Sqlite.SqliteTransaction BeginTransaction() => conn!.BeginTransaction();
+
     public long MaxSeq()
     {
         using var cmd = conn!.CreateCommand();
@@ -39,8 +41,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
               (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json, tags_json,
-               crc32, crc32c, sha1, retention_mode, retain_until, legal_hold)
-            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj, $tj, $c32, $c32c, $s1, $rm, $ru, $lh)
+               crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers)
+            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj, $tj, $c32, $c32c, $s1, $rm, $ru, $lh, $sh)
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -62,6 +64,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$ru",
             (object?)ev.RetainUntilUnixSeconds ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lh", ev.LegalHoldOn ? 1 : 0);
+        cmd.Parameters.AddWithValue("$sh", SerializeMetadata(ev.SystemHeaders ?? new Dictionary<string, string>()));
         cmd.ExecuteNonQuery();
     }
 
@@ -128,7 +131,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
-                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers
               FROM versions
              WHERE key = $k AND version_id = $v AND kind = $kp
              LIMIT 1
@@ -152,7 +155,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Crc32C: NullIfEmpty(r.GetString(10)),
                 Sha1: NullIfEmpty(r.GetString(11)),
                 Retention: ReadRetention(r, 12, 13),
-                LegalHoldOn: ReadLegalHold(r, 14))
+                LegalHoldOn: ReadLegalHold(r, 14),
+                SystemHeaders: ReadSystemHeaders(r, 15))
             : (PutEntry?)null;
     }
 
@@ -175,7 +179,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             SELECT kind, version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
-                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers
               FROM versions
              WHERE key = $k
              ORDER BY seq DESC
@@ -199,7 +203,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Crc32C: NullIfEmpty(r.GetString(11)),
                 Sha1: NullIfEmpty(r.GetString(12)),
                 Retention: ReadRetention(r, 13, 14),
-                LegalHoldOn: ReadLegalHold(r, 15));
+                LegalHoldOn: ReadLegalHold(r, 15),
+                SystemHeaders: ReadSystemHeaders(r, 16));
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
@@ -209,6 +214,13 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             || !Enum.TryParse<RetentionMode>(r.GetString(modeCol), out var mode)
                 ? null
                 : new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(untilCol)));
+
+    private IReadOnlyDictionary<string, string>? ReadSystemHeaders(Microsoft.Data.Sqlite.SqliteDataReader r, int col)
+    {
+        if (r.IsDBNull(col)) return null;
+        var dict = DeserializeMetadata(r.GetString(col));
+        return dict.Count is 0 ? null : dict;
+    }
 
     private static bool ReadLegalHold(Microsoft.Data.Sqlite.SqliteDataReader r, int col) =>
         !r.IsDBNull(col) && r.GetInt64(col) is 1;
@@ -372,7 +384,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 sha1          TEXT NOT NULL DEFAULT '',
                 retention_mode TEXT,
                 retain_until  INTEGER,
-                legal_hold    INTEGER
+                legal_hold    INTEGER,
+                system_headers TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
@@ -395,6 +408,12 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         AddColumnIfMissing("retention_mode", "TEXT");
         AddColumnIfMissing("retain_until", "INTEGER");
         AddColumnIfMissing("legal_hold", "INTEGER");
+        if (!HasColumn("versions", "system_headers"))
+        {
+            using var alter = conn!.CreateCommand();
+            alter.CommandText = "ALTER TABLE versions ADD COLUMN system_headers TEXT NOT NULL DEFAULT '{}'";
+            alter.ExecuteNonQuery();
+        }
     }
 
     private bool HasColumn(string table, string column)

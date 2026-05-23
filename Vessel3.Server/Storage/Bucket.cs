@@ -82,34 +82,39 @@ internal sealed class Bucket(string name, string path) : IDisposable
     {
         lock (writeGate)
         {
-            switch (Versioning)
-            {
-                case VersioningStatus.Unversioned:
-                    if (Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } oldU })
-                        log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, oldU.VersionId)).ApplyTo(Index);
-                    break;
-                case VersioningStatus.Suspended:
-                    if (LatestVersionId(key) is "null")
-                        log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")).ApplyTo(Index);
-                    break;
-                case VersioningStatus.Enabled:
-                default:
-                    break;
-            }
-
             var versionId = Versioning is VersioningStatus.Suspended ? "null" : Ulid.NewUlid().ToString();
-            var ev = (PutEvent)log.Append(new PutEvent(
+            var putEvent = new PutEvent(
                 0, DateTimeOffset.UtcNow, key, versionId,
                 req.BlobSha, req.Md5, req.Size, req.ContentType, req.Metadata, req.Parts,
                 req.Tags, req.Crc32, req.Crc32C, req.Sha1,
                 RetentionMode: req.Retention?.Mode,
                 RetainUntilUnixSeconds: req.Retention?.RetainUntilDate.ToUnixTimeSeconds(),
-                LegalHoldOn: req.LegalHoldOn));
-            ev.ApplyTo(Index);
+                LegalHoldOn: req.LegalHoldOn,
+                SystemHeaders: req.SystemHeaders);
 
-            return new PutEntry(versionId, ev.At, req.BlobSha, req.Md5, req.Size, req.ContentType, req.Metadata, req.Parts,
+            HardDeleteEvent? hardDelete = Versioning switch
+            {
+                VersioningStatus.Unversioned when Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } oldU }
+                    => new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, oldU.VersionId),
+                VersioningStatus.Suspended when LatestVersionId(key) is "null"
+                    => new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null"),
+                _ => null,
+            };
+
+            var assignedPut = (PutEvent)log.Append(putEvent);
+            HardDeleteEvent? assignedHd = hardDelete is null ? null : (HardDeleteEvent)log.Append(hardDelete);
+
+            using (var tx = Index.BeginTransaction())
+            {
+                assignedHd?.ApplyTo(Index);
+                assignedPut.ApplyTo(Index);
+                tx.Commit();
+            }
+
+            return new PutEntry(versionId, assignedPut.At, req.BlobSha, req.Md5, req.Size, req.ContentType, req.Metadata, req.Parts,
                 req.Tags, req.Crc32, req.Crc32C, req.Sha1,
-                Retention: req.Retention, LegalHoldOn: req.LegalHoldOn);
+                Retention: req.Retention, LegalHoldOn: req.LegalHoldOn,
+                SystemHeaders: req.SystemHeaders);
         }
     }
 

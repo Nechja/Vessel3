@@ -94,7 +94,7 @@ public sealed class UrlEncodingTests
     }
 
     [Fact]
-    public async Task ListObjects_NextContinuationToken_IsPercentEncoded()
+    public async Task ListObjects_NextContinuationToken_NotEncoded()
     {
         var req = Req();
         var page = new ListPage(
@@ -102,7 +102,7 @@ public sealed class UrlEncodingTests
             NextContinuationToken: "tok en", LastKey: null, KeyCount: 0);
         var doc = await WriteList(req, page);
 
-        Assert.Equal("tok%20en", ElementText(doc, "NextContinuationToken"));
+        Assert.Equal("tok en", ElementText(doc, "NextContinuationToken"));
     }
 
     [Fact]

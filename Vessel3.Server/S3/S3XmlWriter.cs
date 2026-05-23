@@ -101,7 +101,7 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         if (req.IsV1 && page.IsTruncated && page.LastKey is not null)
             await w.WriteElementStringAsync(null, "NextMarker", null, Encode(page.LastKey, urlEncode));
         if (!req.IsV1 && page.NextContinuationToken is not null)
-            await w.WriteElementStringAsync(null, "NextContinuationToken", null, Encode(page.NextContinuationToken, urlEncode));
+            await w.WriteElementStringAsync(null, "NextContinuationToken", null, page.NextContinuationToken);
 
         foreach (var entry in page.Entries)
         {
