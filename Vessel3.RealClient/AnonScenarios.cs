@@ -20,9 +20,6 @@ internal static class AnonScenarios
 
         await Run("ChunkedUpload", async () =>
         {
-            // Regression for fix #1: AwsChunkedStream must accept a request when SigV4 verification
-            // is disabled (AlwaysPassVerifier). Pre-fix, the empty SigningKey blew up on the first
-            // chunk signature check even though the verifier had waved the request through.
             var payload = Encoding.UTF8.GetBytes("hello chunked world");
             var body = new MemoryStream();
             var header = Encoding.ASCII.GetBytes($"{payload.Length:x}\r\n");
@@ -48,7 +45,6 @@ internal static class AnonScenarios
 
         await Run("InvalidBucketName", async () =>
         {
-            // Regression for fix #6: server must reject invalid bucket names with 400.
             foreach (var bad in InvalidBucketNames)
             {
                 using var resp = await http.PutAsync(bad, new StringContent(""));
@@ -59,7 +55,6 @@ internal static class AnonScenarios
 
         await Run("MalformedVersioningXml", async () =>
         {
-            // Regression for fix #14: missing Status element must be a 400, not silently Unversioned.
             var body = new StringContent(
                 "<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"/>",
                 Encoding.UTF8, "application/xml");

@@ -15,7 +15,6 @@ public class PutTaggingEventTests
         Directory.CreateDirectory(dir);
         try
         {
-            // Phase 1: open bucket, write a put + a put-tagging via the registry, close.
             string versionId;
             using (var b = new Bucket("test", dir))
             {
@@ -31,8 +30,6 @@ public class PutTaggingEventTests
                     new Dictionary<string, string> { ["env"] = "prod" });
             }
 
-            // Phase 2: reopen — index gets rebuilt from log.
-            // Force fresh index by deleting the sqlite db so replay must reapply.
             File.Delete(Path.Combine(dir, "index.db"));
             File.Delete(Path.Combine(dir, "index.db-wal"));
             File.Delete(Path.Combine(dir, "index.db-shm"));

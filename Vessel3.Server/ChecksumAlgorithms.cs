@@ -1,10 +1,9 @@
 using System.IO.Hashing;
-#pragma warning disable CA5350 // SHA1 is required by the S3 wire protocol; not used for security
+#pragma warning disable CA5350
 using System.Security.Cryptography;
 
 namespace Vessel3.Server;
 
-/// <summary>Streaming CRC-32C (Castagnoli, polynomial 0x1EDC6F41, reflected). Hex-out.</summary>
 internal sealed class Crc32C
 {
     private static readonly uint[] Table = BuildTable();
@@ -45,14 +44,6 @@ internal sealed class Crc32C
     }
 }
 
-/// <summary>
-/// Wire-side checksum algorithms supported on PUT object / UploadPart / CompleteMultipartUpload.
-/// S3 carries checksum values as base64 of the raw hash bytes; we convert to lowercase hex at the
-/// storage boundary so all four sit alongside the existing SHA256/MD5 columns in the same shape.
-/// Composite (multipart) value is hash(concat(decoded part-bytes)); the "-N" suffix is appended
-/// by the caller. SHA1/SHA256 truly are composite; CRC32/CRC32C use the same shape — acceptable
-/// for the COMPOSITE-mode S3 wire format we emit.
-/// </summary>
 internal enum ChecksumAlgorithm { Crc32, Crc32C, Sha1, Sha256 }
 
 internal static class ChecksumAlgorithms
@@ -83,7 +74,6 @@ internal static class ChecksumAlgorithms
         }
     }
 
-    /// <summary>Compute all four checksums of a buffer; returns lowercase hex (CRCs big-endian).</summary>
     public static (string Crc32, string Crc32C, string Sha1, string Sha256) ComputeAll(ReadOnlySpan<byte> data)
     {
         var c32 = CrcUInt32ToHex(System.IO.Hashing.Crc32.HashToUInt32(data));
@@ -93,7 +83,6 @@ internal static class ChecksumAlgorithms
         return (c32, c32c, s1, s256);
     }
 
-    /// <summary>Big-endian 4 bytes of a CRC value, as lowercase hex — matches S3 wire byte order.</summary>
     public static string CrcUInt32ToHex(uint v)
     {
         ReadOnlySpan<byte> dst = [
@@ -105,11 +94,9 @@ internal static class ChecksumAlgorithms
         return Convert.ToHexStringLower(dst);
     }
 
-    /// <summary>Convert a hex-encoded hash to S3 wire base64.</summary>
     public static string HexToBase64(string hex) =>
         string.IsNullOrEmpty(hex) ? "" : Convert.ToBase64String(Convert.FromHexString(hex));
 
-    /// <summary>Convert an S3 wire base64 checksum to lowercase hex; returns null on malformed input.</summary>
     public static string? Base64ToHex(string b64)
     {
         if (string.IsNullOrEmpty(b64)) return null;
@@ -123,7 +110,6 @@ internal static class ChecksumAlgorithms
         }
     }
 
-    /// <summary>Composite-mode object checksum: hash(concat(decoded-part-hex-bytes)) as lowercase hex.</summary>
     public static string Composite(ChecksumAlgorithm algo, IEnumerable<string> partHexValues)
     {
         switch (algo)
@@ -158,7 +144,6 @@ internal static class ChecksumAlgorithms
     }
 }
 
-/// <summary>Per-PUT (and per-part) bundle of checksum hex values; null = not computed/declared.</summary>
 internal sealed record ChecksumSet(string? Crc32, string? Crc32C, string? Sha1, string? Sha256)
 {
     public static ChecksumSet Empty { get; } = new(null, null, null, null);

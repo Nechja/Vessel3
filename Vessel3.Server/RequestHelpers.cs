@@ -53,13 +53,6 @@ internal static class RequestHelpers
         return false;
     }
 
-    /// <summary>
-    /// Tri-state range parse outcome.
-    /// - <see cref="Normal"/>: single satisfiable range; serve 206 with [Start..End].
-    /// - <see cref="Unsatisfiable"/>: syntactically valid but start beyond EOF; emit 416 with Content-Range bytes */size.
-    /// - <see cref="Ignored"/>: header should be ignored entirely (multi-range, malformed,
-    ///   or non-"bytes=" units). Caller returns 200 full body. S3 returns full object on multi-range.
-    /// </summary>
     internal abstract record ByteRange
     {
         internal sealed record Normal(long Start, long End) : ByteRange;
@@ -74,7 +67,6 @@ internal static class RequestHelpers
         if (!raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return new ByteRange.Ignored();
         var rest = raw[prefix.Length..].Trim();
 
-        // Multi-range (comma-separated): S3 returns full body; ignore the header.
         if (rest.Contains(',', StringComparison.Ordinal)) return new ByteRange.Ignored();
 
         var dash = rest.IndexOf('-', StringComparison.Ordinal);
@@ -83,7 +75,6 @@ internal static class RequestHelpers
         var startStr = rest[..dash];
         var endStr = rest[(dash + 1)..];
 
-        // Suffix range: bytes=-N → last N bytes.
         if (string.IsNullOrEmpty(startStr))
         {
             if (!long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n < 0)
@@ -97,16 +88,13 @@ internal static class RequestHelpers
         if (!long.TryParse(startStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var start) || start < 0)
             return new ByteRange.Ignored();
 
-        // Start beyond EOF: 416.
         if (start >= size) return new ByteRange.Unsatisfiable();
 
-        // Open end: bytes=N- → N..size-1.
         if (string.IsNullOrEmpty(endStr)) return new ByteRange.Normal(start, size - 1);
 
         if (!long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var end) || end < start)
             return new ByteRange.Ignored();
 
-        // Clamp end to last byte (RFC 7233).
         if (end >= size) end = size - 1;
         return new ByteRange.Normal(start, end);
     }

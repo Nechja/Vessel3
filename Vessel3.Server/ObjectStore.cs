@@ -7,10 +7,6 @@ internal sealed record CopyOutcome(string Etag, DateTimeOffset LastModified, str
 internal sealed record StoredObject(Stream Body, long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums);
 internal sealed record ObjectStat(long Size, DateTimeOffset LastModified, string Etag, string Sha256, string ContentType, IReadOnlyDictionary<string, string> Metadata, ChecksumSet Checksums);
 
-/// <summary>
-/// Full attribute view for GetObjectAttributes: same as <see cref="ObjectStat"/>
-/// plus the multipart Parts manifest (null for single-part PUTs).
-/// </summary>
 internal sealed record ObjectAttributesData(
     long Size, DateTimeOffset LastModified, string Etag, string Sha256,
     IReadOnlyList<Vessel3.Server.Storage.MultipartPart>? Parts);
@@ -43,7 +39,6 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal))
             return new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}");
 
-        // Per-algorithm checksum echo: client sends base64(raw-bytes), we compare to lowercase-hex of computed value.
         if (declaredChecksums.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"crc32 declared (hex){c32}, actual {blob.Crc32}");
         if (declaredChecksums.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
@@ -53,7 +48,6 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
         if (declaredChecksums.Sha256 is { } s256 && !string.Equals(s256, blob.Sha, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"sha256(checksum) declared (hex){s256}, actual {blob.Sha}");
 
-        // Persist whichever the client declared (hex) so we can echo them later.
         var toStore = new ChecksumSet(
             declaredChecksums.Crc32 is null ? null : blob.Crc32,
             declaredChecksums.Crc32C is null ? null : blob.Crc32C,

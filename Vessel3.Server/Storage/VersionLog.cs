@@ -39,7 +39,6 @@ internal sealed class VersionLog(string path) : IDisposable
             var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
             writer.Write(body);
             writer.WriteByte((byte)'\n');
-            // fsync per event so every acknowledged write survives crash; throughput ceiling lives here.
             writer.Flush(flushToDisk: true);
         }
         return withSeq;

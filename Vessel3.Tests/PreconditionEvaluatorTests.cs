@@ -92,7 +92,6 @@ public class PreconditionEvaluatorTests
     [Fact]
     public void Read_IfNoneMatch_Suppresses_IfModifiedSince()
     {
-        // If-None-Match present + no match → 304 only if If-None-Match hit, ignore If-Modified-Since.
         var ims = Modified.AddSeconds(60).ToString("R");
         var r = new PreconditionEvaluator().EvaluateForRead(
             H(("If-None-Match", "\"other\""), ("If-Modified-Since", ims)),

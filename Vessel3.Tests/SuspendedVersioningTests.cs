@@ -48,7 +48,6 @@ public class SuspendedVersioningTests : IDisposable
         bucket.AppendPut("k", Req("second"));
         bucket.AppendPut("k", Req("third"));
 
-        // After repeated Suspended PUTs, there must be exactly one "null" version remaining.
         var (entries, _) = bucket.Index.ListAllVersions(prefix: null, keyMarker: null, limit: 100);
         var forKey = entries.Where(e => e.Key == "k").ToList();
         Assert.Single(forKey);
@@ -69,7 +68,6 @@ public class SuspendedVersioningTests : IDisposable
         var vNull = bucket.AppendPut("k", Req("vsusp")).VersionId;
         Assert.Equal("null", vNull);
 
-        // v1 and v2 should both still exist (not garbage collected by the Suspended write).
         var (entries, _) = bucket.Index.ListAllVersions(prefix: null, keyMarker: null, limit: 100);
         var ids = entries.Where(e => e.Key == "k").Select(e => e.VersionId).ToHashSet();
         Assert.Contains(v1, ids);
@@ -77,7 +75,6 @@ public class SuspendedVersioningTests : IDisposable
         Assert.Contains("null", ids);
         Assert.Equal(3, ids.Count);
 
-        // Re-enabling and PUTting must not lose existing versions.
         bucket.SetVersioning(VersioningStatus.Enabled);
         var v3 = bucket.AppendPut("k", Req("v3")).VersionId;
         Assert.NotEqual("null", v3);
@@ -101,7 +98,6 @@ public class SuspendedVersioningTests : IDisposable
         Assert.True(outcome.IsDeleteMarker);
         Assert.Equal("null", outcome.VersionId);
 
-        // The prior null put must be gone; only the null delete marker remains.
         var (entries, _) = bucket.Index.ListAllVersions(prefix: null, keyMarker: null, limit: 100);
         var forKey = entries.Where(e => e.Key == "k").ToList();
         Assert.Single(forKey);

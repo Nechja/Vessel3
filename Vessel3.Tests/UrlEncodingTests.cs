@@ -6,11 +6,6 @@ using Xunit;
 
 namespace Vessel3.Tests;
 
-// EncodingType=url is RFC 3986 percent-encoding (Uri.EscapeDataString):
-//   space -> %20, '+' -> %2B, '/' -> %2F, '&' -> %26, unicode -> UTF-8 %XX,
-//   control chars -> %XX. Unreserved A-Za-z0-9-._~ stay literal.
-// The Encode helper is private, so these tests exercise it through the public
-// XML-writer entry points and read the raw element text back out.
 public sealed class UrlEncodingTests
 {
     private static readonly XNamespace Ns = "http://s3.amazonaws.com/doc/2006-03-01/";
@@ -21,7 +16,6 @@ public sealed class UrlEncodingTests
         using var ms = new MemoryStream();
         await writer.WriteListObjects(ms, req, page, CancellationToken.None);
         ms.Position = 0;
-        // Disabling document-type checks not needed; parse straight.
         return XDocument.Load(ms);
     }
 
@@ -36,13 +30,13 @@ public sealed class UrlEncodingTests
         doc.Descendants(Ns + name).FirstOrDefault()?.Value;
 
     [Theory]
-    [InlineData("a b", "a%20b")]               // space -> %20 (not '+')
-    [InlineData("plus+sign", "plus%2Bsign")]   // '+' -> %2B per RFC 3986
-    [InlineData("a/b/c", "a%2Fb%2Fc")]         // '/' -> %2F
-    [InlineData("x&y", "x%26y")]               // '&' -> %26
-    [InlineData("café", "caf%C3%A9")]     // unicode -> UTF-8 percent bytes
-    [InlineData("ctlend", "ctl%01end")]  // control char -> %01
-    [InlineData("plain-key_1.txt", "plain-key_1.txt")] // unreserved stays literal
+    [InlineData("a b", "a%20b")]
+    [InlineData("plus+sign", "plus%2Bsign")]
+    [InlineData("a/b/c", "a%2Fb%2Fc")]
+    [InlineData("x&y", "x%26y")]
+    [InlineData("café", "caf%C3%A9")]
+    [InlineData("ctlend", "ctl%01end")]
+    [InlineData("plain-key_1.txt", "plain-key_1.txt")]
     public async Task ListObjects_Key_IsPercentEncoded(string rawKey, string expectedEncoded)
     {
         var page = Page(new ListEntry.Contents(rawKey, 3, DateTimeOffset.UnixEpoch, "etag"));
@@ -58,7 +52,6 @@ public sealed class UrlEncodingTests
         var doc = await WriteList(Req(encodingType: null), page);
 
         Assert.Equal("a b/c", ElementText(doc, "Key"));
-        // EncodingType element only emitted when url-encoding is on.
         Assert.Null(ElementText(doc, "EncodingType"));
     }
 

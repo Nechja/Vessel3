@@ -4,7 +4,6 @@ using Amazon.S3.Model;
 
 internal static class Smoke
 {
-    // Bare-minimum CRUD probe — for "did I break the wire?" loops before the full RealClient run.
     public static async Task<int> Run(AmazonS3Client s3)
     {
         const string bucket = "vessel3-smoke";

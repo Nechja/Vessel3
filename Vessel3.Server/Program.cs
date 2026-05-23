@@ -124,7 +124,6 @@ app.MapGet("/{bucket}", async (
             err => Task.FromResult(http.Map(err)));
     }
 
-    // --- BEGIN object-lock ---
     if (req.Query.ContainsKey("object-lock"))
     {
         return await registry.GetObjectLock(bucket).Match<Task<IResult>>(
@@ -137,7 +136,6 @@ app.MapGet("/{bucket}", async (
             },
             err => Task.FromResult(http.Map(err)));
     }
-    // --- END object-lock ---
 
     if (req.Query.ContainsKey("versions"))
     {
@@ -184,7 +182,6 @@ app.MapPut("/{bucket}", async (
             http.Map);
     }
 
-    // --- BEGIN object-lock ---
     if (req.Query.ContainsKey("object-lock"))
     {
         var parsed = await reader.ReadObjectLockConfiguration(req.Body, ct);
@@ -194,7 +191,6 @@ app.MapPut("/{bucket}", async (
             _ => Results.Ok(),
             http.Map);
     }
-    // --- END object-lock ---
 
     return registry.Create(bucket).Match<IResult>(
         _ => Results.Ok(),
@@ -273,8 +269,6 @@ app.MapPost("/{bucket}/{**key}", async (
         var clientParts = parsedParts
             .Select(p => (p.Number, p.Etag, p.Sums)).ToList();
 
-        // Pick composite algorithm: header x-amz-checksum-type or x-amz-sdk-checksum-algorithm wins,
-        // else first declared in any per-part element, else none.
         ChecksumAlgorithm? compositeAlgo = null;
         var sdkAlgo = req.Headers["x-amz-sdk-checksum-algorithm"].ToString();
         if (!string.IsNullOrEmpty(sdkAlgo) && ChecksumAlgorithms.TryParseName(sdkAlgo, out var a)) compositeAlgo = a;
@@ -312,7 +306,6 @@ app.MapPut("/{bucket}/{**key}", async (
     IObjectStore objects, IMultipartStore multipart, IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http, IS3XmlWriter xml, IPreconditionEvaluator pre,
     CancellationToken ct) =>
 {
-    // --- BEGIN tagging ---
     if (req.Query.ContainsKey("tagging"))
     {
         var parsedTags = await reader.ReadTagging(req.Body, ct);
@@ -328,9 +321,7 @@ app.MapPut("/{bucket}/{**key}", async (
             },
             http.Map);
     }
-    // --- END tagging ---
 
-    // --- BEGIN retention ---
     if (req.Query.ContainsKey("retention"))
     {
         var versionId = Nullify(req.Query["versionId"].ToString());
@@ -347,9 +338,7 @@ app.MapPut("/{bucket}/{**key}", async (
                 _ => Results.Ok(),
                 http.Map);
     }
-    // --- END retention ---
 
-    // --- BEGIN legal-hold ---
     if (req.Query.ContainsKey("legal-hold"))
     {
         var versionId = Nullify(req.Query["versionId"].ToString());
@@ -364,7 +353,6 @@ app.MapPut("/{bucket}/{**key}", async (
                 _ => Results.Ok(),
                 http.Map);
     }
-    // --- END legal-hold ---
 
     var uploadId = req.Query["uploadId"].ToString();
     var partNumberRaw = req.Query["partNumber"].ToString();
@@ -439,7 +427,6 @@ app.MapPut("/{bucket}/{**key}", async (
             ? ExtractUserMetadata(req.Headers)
             : null;
 
-        // --- BEGIN tagging ---
         IReadOnlyDictionary<string, string>? tagsOverride = null;
         var tagDirective = req.Headers["x-amz-tagging-directive"].ToString();
         if (tagDirective.Equals("REPLACE", StringComparison.OrdinalIgnoreCase))
@@ -449,7 +436,6 @@ app.MapPut("/{bucket}/{**key}", async (
             if (parsedHdr is Result<IReadOnlyDictionary<string, string>>.Failure tf) return http.Map(tf.Error);
             tagsOverride = ((Result<IReadOnlyDictionary<string, string>>.Success)parsedHdr).Value;
         }
-        // --- END tagging ---
 
         return TryParseCopySource(copySource, out var srcBucket, out var srcKey)
             ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride).Match<IResult>(
@@ -484,16 +470,11 @@ app.MapPut("/{bucket}/{**key}", async (
     if (declaredChecksums is null)
         return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
 
-    // --- BEGIN tagging ---
     var taggingHeader = req.Headers["x-amz-tagging"].ToString();
     var parsedTagHdr = TagSet.ParseHeader(taggingHeader);
     if (parsedTagHdr is Result<IReadOnlyDictionary<string, string>>.Failure tagFail) return http.Map(tagFail.Error);
     var initialTags = ((Result<IReadOnlyDictionary<string, string>>.Success)parsedTagHdr).Value;
-    // --- END tagging ---
 
-    // --- BEGIN object-lock ---
-    // Initial-PUT retention / legal-hold: explicit headers override; otherwise
-    // apply the bucket's default retention rule if one is set.
     Retention? initialRetention = null;
     var lockModeHeader = req.Headers["x-amz-object-lock-mode"].ToString();
     var lockUntilHeader = req.Headers["x-amz-object-lock-retain-until-date"].ToString();
@@ -517,7 +498,6 @@ app.MapPut("/{bucket}/{**key}", async (
     }
     var initialHold = req.Headers["x-amz-object-lock-legal-hold"].ToString()
         .Equals("ON", StringComparison.OrdinalIgnoreCase);
-    // --- END object-lock ---
 
     Result<PutOutcome> result;
     try
@@ -546,7 +526,6 @@ app.MapGet("/{bucket}/{**key}", async (
     IObjectStore objects, IMultipartStore multipart, IBucketRegistry registry, IS3XmlWriter xml, IHttpResultMapper http, IPreconditionEvaluator pre,
     CancellationToken ct) =>
 {
-    // --- BEGIN attributes ---
     if (req.Query.ContainsKey("attributes"))
     {
         var attrVersionId = req.Query["versionId"].ToString();
@@ -572,9 +551,7 @@ app.MapGet("/{bucket}/{**key}", async (
             },
             err => Task.FromResult(http.Map(err)));
     }
-    // --- END attributes ---
 
-    // --- BEGIN tagging ---
     if (req.Query.ContainsKey("tagging"))
     {
         var versionIdQ = Nullify(req.Query["versionId"].ToString());
@@ -586,9 +563,7 @@ app.MapGet("/{bucket}/{**key}", async (
             },
             http.Map);
     }
-    // --- END tagging ---
 
-    // --- BEGIN retention ---
     if (req.Query.ContainsKey("retention"))
     {
         var versionId = Nullify(req.Query["versionId"].ToString())
@@ -605,9 +580,7 @@ app.MapGet("/{bucket}/{**key}", async (
                 },
                 err => Task.FromResult(http.Map(err)));
     }
-    // --- END retention ---
 
-    // --- BEGIN legal-hold ---
     if (req.Query.ContainsKey("legal-hold"))
     {
         var versionId = Nullify(req.Query["versionId"].ToString())
@@ -623,7 +596,6 @@ app.MapGet("/{bucket}/{**key}", async (
                 },
                 err => Task.FromResult(http.Map(err)));
     }
-    // --- END legal-hold ---
 
     var listPartsUploadId = req.Query["uploadId"].ToString();
     var getVersionId = req.Query["versionId"].ToString();
@@ -654,13 +626,6 @@ app.MapGet("/{bucket}/{**key}", async (
             EmitChecksumHeaders(res.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
             foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
 
-            // --- BEGIN range ---
-            // S3 Range semantics differ from RFC 7233 in two ways we honor here:
-            //   1. A multi-range header (e.g. "bytes=0-9,20-29") is ignored — return full 200 body.
-            //   2. Suffix ("bytes=-N"), open-end ("bytes=N-"), unsatisfiable (start >= size).
-            // We pre-parse, then either: strip the Range header (full body),
-            // rewrite it to a normalized "bytes=start-end" form that ASP.NET's built-in range
-            // processor understands, or emit 416 directly with Content-Range: bytes */size.
             var rangeRaw = req.Headers.Range.ToString();
             if (!string.IsNullOrEmpty(rangeRaw))
             {
@@ -672,17 +637,13 @@ app.MapGet("/{bucket}/{**key}", async (
                         res.Headers["Content-Range"] = $"bytes */{ok.Size.ToString(CultureInfo.InvariantCulture)}";
                         return Results.StatusCode(416);
                     case RequestHelpers.ByteRange.Ignored:
-                        // Strip so ASP.NET serves the full body.
                         req.Headers.Remove("Range");
                         break;
                     case RequestHelpers.ByteRange.Normal n:
-                        // Rewrite to a canonical form. ASP.NET's built-in handler handles bytes=N-M
-                        // robustly and emits 206 + Content-Range.
                         req.Headers.Range = $"bytes={n.Start.ToString(CultureInfo.InvariantCulture)}-{n.End.ToString(CultureInfo.InvariantCulture)}";
                         break;
                 }
             }
-            // --- END range ---
 
             return Results.File(
                 ok.Body,
@@ -725,7 +686,6 @@ app.MapDelete("/{bucket}/{**key}", (
     if (!string.IsNullOrEmpty(uploadId))
         return multipart.Abort(uploadId).Match<IResult>(_ => Results.NoContent(), http.Map);
 
-    // --- BEGIN tagging ---
     if (req.Query.ContainsKey("tagging"))
     {
         var tagVersionId = Nullify(req.Query["versionId"].ToString());
@@ -738,7 +698,6 @@ app.MapDelete("/{bucket}/{**key}", (
             },
             http.Map);
     }
-    // --- END tagging ---
 
     var delVersionId = req.Query["versionId"].ToString();
     var bypassGovernance = req.Headers["x-amz-bypass-governance-retention"].ToString()
@@ -761,8 +720,6 @@ app.MapDelete("/{bucket}/{**key}", (
 
 app.Run();
 
-// Parses the per-algorithm checksum headers (base64 raw bytes) and converts to lowercase hex.
-// Returns null if any header is present but malformed (caller should reply 400 BadDigest).
 static ChecksumSet? ParseDeclaredChecksums(IHeaderDictionary headers)
 {
     string? Decode(string name)
@@ -781,8 +738,6 @@ static ChecksumSet? ParseDeclaredChecksums(IHeaderDictionary headers)
         : new ChecksumSet(c32, c32c, s1, s256);
 }
 
-// Emits x-amz-checksum-* headers from stored hex values. For backwards compat the SHA256 column
-// (BlobSha) is echoed when the client never declared a per-algorithm checksum at PUT time.
 static void EmitChecksumHeaders(IHeaderDictionary headers, ChecksumSet sums, string fallbackSha256Hex)
 {
     if (sums.Crc32 is { } c32) headers[ChecksumAlgorithms.HeaderCrc32] = ChecksumAlgorithms.HexToBase64(c32);

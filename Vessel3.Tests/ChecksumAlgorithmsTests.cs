@@ -6,7 +6,6 @@ namespace Vessel3.Tests;
 
 public sealed class ChecksumAlgorithmsTests
 {
-    // Textbook empty-input vectors — stable anchors that need no external compute.
     [Fact]
     public void ComputeAll_EmptyInput_MatchesKnownVectors()
     {
@@ -18,8 +17,6 @@ public sealed class ChecksumAlgorithmsTests
         Assert.Equal("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", sha256);
     }
 
-    // "123456789" is the canonical CRC test string; CRC32 (zlib) and CRC32C (Castagnoli)
-    // have well-known check values: 0xCBF43926 and 0xE3069283 respectively.
     [Fact]
     public void ComputeAll_Check123456789_MatchesKnownCrcVectors()
     {
@@ -28,7 +25,6 @@ public sealed class ChecksumAlgorithmsTests
 
         Assert.Equal("cbf43926", crc32);
         Assert.Equal("e3069283", crc32c);
-        // SHA1/SHA256 of "123456789" — standard reference digests.
         Assert.Equal("f7c3bc1d808e04732adf679965ccc34ca7ae3441", sha1);
         Assert.Equal("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225", sha256);
     }
@@ -62,7 +58,6 @@ public sealed class ChecksumAlgorithmsTests
     [Fact]
     public void HexToBase64_KnownValue()
     {
-        // SHA256("") raw bytes base64-encoded — the S3 wire form.
         var b64 = ChecksumAlgorithms.HexToBase64("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
         Assert.Equal("47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=", b64);
     }
@@ -108,7 +103,6 @@ public sealed class ChecksumAlgorithmsTests
         Assert.Equal(ChecksumAlgorithms.HeaderSha256, ChecksumAlgorithms.HeaderFor(ChecksumAlgorithm.Sha256));
     }
 
-    // A single-part composite must equal the hash of that one part's raw bytes.
     [Theory]
     [InlineData("Sha1")]
     [InlineData("Sha256")]
@@ -119,7 +113,6 @@ public sealed class ChecksumAlgorithmsTests
         var algo = Enum.Parse<ChecksumAlgorithm>(algoName);
         var data = Encoding.ASCII.GetBytes("123456789");
         var (crc32, crc32c, sha1, sha256) = ChecksumAlgorithms.ComputeAll(data);
-        // The hex of the part, fed as the lone part to Composite.
         var partHex = algo switch
         {
             ChecksumAlgorithm.Crc32 => crc32,
@@ -131,8 +124,6 @@ public sealed class ChecksumAlgorithmsTests
 
         var composite = ChecksumAlgorithms.Composite(algo, new[] { partHex });
 
-        // Composite hashes the decoded part-hex bytes; verify it equals hashing
-        // the raw decoded bytes directly for that algorithm.
         var expected = algo switch
         {
             ChecksumAlgorithm.Crc32 => ChecksumAlgorithms.CrcUInt32ToHex(
@@ -161,7 +152,6 @@ public sealed class ChecksumAlgorithmsTests
         Assert.NotEqual(single, pair);
     }
 
-    // Verify-mismatch: a declared checksum that disagrees with the computed one.
     [Fact]
     public void ComputeAll_MismatchDetected()
     {
@@ -170,7 +160,6 @@ public sealed class ChecksumAlgorithmsTests
 
         Assert.NotEqual(declaredWrong, sha256);
 
-        // Same payload always agrees with itself — the verify-match case.
         var (_, _, _, sha256Again) = ChecksumAlgorithms.ComputeAll(Encoding.ASCII.GetBytes("the real payload"));
         Assert.Equal(sha256, sha256Again);
     }

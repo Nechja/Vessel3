@@ -26,10 +26,6 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
             var blobCutoff = now - minBlobAge;
             var uploadCutoff = now - minUploadAge;
 
-            // Snapshot blobs *before* the referenced set so a put that adds a blob and
-            // then writes its index entry mid-GC will only show up in the referenced set —
-            // never solely in the blob list. The mtime guard (minBlobAge > 0) is the
-            // primary protection; this ordering is belt-and-suspenders.
             var candidates = blobs.EnumerateAll().ToList();
 
             var referenced = new HashSet<string>(StringComparer.Ordinal);

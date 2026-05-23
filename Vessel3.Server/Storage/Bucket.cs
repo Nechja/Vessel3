@@ -16,8 +16,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
     public BucketIndex Index { get; } = new(Path.Combine(path, "index.db"));
     public DateTimeOffset CreatedAt { get; private set; }
     public VersioningStatus Versioning { get; private set; }
-    /// Null when never configured; non-null thereafter. Once `Enabled = true`
-    /// it can be re-PUT to refresh the default rule but cannot be turned off.
     public ObjectLockConfig? ObjectLock { get; private set; }
 
     public void Open()
@@ -40,8 +38,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
 
     public Result<bool> SetVersioning(VersioningStatus status)
     {
-        // Once Object Lock is enabled, AWS forbids suspending versioning;
-        // returning the bucket to an unversioned state would break retention.
         if (ObjectLock is { Enabled: true }
             && status is VersioningStatus.Suspended or VersioningStatus.Unversioned)
             return new InvalidBucketStateError("cannot suspend versioning on a bucket with Object Lock enabled");
@@ -60,10 +56,8 @@ internal sealed class Bucket(string name, string path) : IDisposable
 
     public Result<bool> SetObjectLock(ObjectLockConfig cfg)
     {
-        // AWS: Object Lock can only be enabled when versioning is Enabled.
         if (cfg.Enabled && Versioning is not VersioningStatus.Enabled)
             return new InvalidBucketStateError("Object Lock requires versioning to be Enabled");
-        // Once Enabled, cannot be disabled.
         if (ObjectLock is { Enabled: true } && !cfg.Enabled)
             return new InvalidBucketStateError("Object Lock cannot be disabled once enabled");
 
@@ -84,16 +78,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
             ? JsonSerializer.Deserialize(File.ReadAllText(objectLockPath), ObjectLockJsonContext.Default.ObjectLockConfig)
             : null;
 
-    /// <summary>
-    /// Writes a new object version. State machine driven by <see cref="Versioning"/>:
-    /// <list type="bullet">
-    ///   <item><b>Unversioned</b>: hard-delete prior put (if any), insert with fresh Ulid version_id.</item>
-    ///   <item><b>Enabled</b>: append-only, fresh Ulid version_id, prior versions retained.</item>
-    ///   <item><b>Suspended</b>: version_id is literal "null". If the latest row for this key is itself
-    ///     version_id="null" (put OR delete-marker), hard-delete it first to satisfy the
-    ///     (key, version_id) UNIQUE constraint. Non-"null" prior versions are preserved.</item>
-    /// </list>
-    /// </summary>
     public PutEntry AppendPut(string key, PutRequest req)
     {
         lock (writeGate)
@@ -142,7 +126,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
     {
         lock (writeGate)
         {
-            // Enforce hold/retention on the exact targeted version.
             var (ret, hold) = Index.GetLock(key, versionId);
             if (hold) return new AccessDeniedError($"legal hold on {key}@{versionId}");
             if (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow)
@@ -157,16 +140,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
         }
     }
 
-    /// <summary>
-    /// Deletes per <see cref="Versioning"/>:
-    /// <list type="bullet">
-    ///   <item><b>Unversioned</b>: hard-delete current put; 404 if absent. Retention/legal-hold enforced.</item>
-    ///   <item><b>Enabled</b>: append a delete marker with fresh Ulid version_id.</item>
-    ///   <item><b>Suspended</b>: append a delete marker with version_id="null". If the latest row is
-    ///     already version_id="null" (put or marker), hard-delete it first. Older non-"null"
-    ///     versions remain intact.</item>
-    /// </list>
-    /// </summary>
     public Result<DeleteOutcome> AppendDelete(string key, bool bypassGovernance)
     {
         lock (writeGate)
@@ -175,8 +148,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
             {
                 case VersioningStatus.Enabled:
                 {
-                    // Versioned DELETE writes a delete marker — it does not remove
-                    // any existing version, so retention/hold are not breached.
                     var markerVersion = Ulid.NewUlid().ToString();
                     log.Append(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, markerVersion)).ApplyTo(Index);
                     return new DeleteOutcome(markerVersion, IsDeleteMarker: true, Found: true);
@@ -196,7 +167,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
                     if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old })
                         return new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false);
 
-                    // Unversioned delete actually removes bytes; treat as hard delete.
                     if (old.LegalHoldOn)
                         return new AccessDeniedError($"legal hold on {key}");
                     if (old.Retention is { } r && r.RetainUntilDate > DateTimeOffset.UtcNow)
@@ -220,7 +190,6 @@ internal sealed class Bucket(string name, string path) : IDisposable
     {
         lock (writeGate)
         {
-            // The version must exist as a Put — retention on delete markers is nonsensical.
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
                 return new NotFoundError($"{key}@{versionId}");
 

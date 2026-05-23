@@ -171,7 +171,6 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
         OnKey<PutTaggingOutcome>(bucket, key, b =>
         {
-            // Resolve which version receives the tags: explicit versionId or current head.
             var resolved = versionId;
             if (resolved is null)
             {

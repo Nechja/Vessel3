@@ -76,10 +76,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>
-    /// Returns the kind of a specific version, or null if that version does not exist.
-    /// Used by ?tagging routes to distinguish 405 (tagging a delete-marker version) from 404.
-    /// </summary>
     public int? GetVersionKind(string key, string versionId)
     {
         using var cmd = conn!.CreateCommand();
@@ -90,10 +86,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return r.Read() ? r.GetInt32(0) : (int?)null;
     }
 
-    /// <summary>
-    /// Returns the kind of the current head for a key, or null if no head exists.
-    /// Used by ?tagging routes to distinguish 404 (no head) from 405 (delete-marker head).
-    /// </summary>
     public int? GetCurrentKind(string key)
     {
         using var cmd = conn!.CreateCommand();
@@ -164,13 +156,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             : (PutEntry?)null;
     }
 
-    /// <summary>
-    /// Returns the version_id of the most-recent row for <paramref name="key"/>
-    /// (put or delete-marker), or null if the key has no rows. Used by the Suspended
-    /// versioning state machine to detect an existing "null" version that must be
-    /// hard-deleted before inserting a new one (the (key, version_id) UNIQUE index
-    /// would otherwise reject the insert).
-    /// </summary>
     public string? LatestVersionId(string key)
     {
         using var cmd = conn!.CreateCommand();
@@ -394,7 +379,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.ExecuteNonQuery();
 
-        // Additive columns added after the original schema; tolerate older DBs.
         if (!HasColumn("versions", "tags_json"))
         {
             using var alter = conn!.CreateCommand();

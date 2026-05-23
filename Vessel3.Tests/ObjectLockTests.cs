@@ -37,13 +37,11 @@ public sealed class ObjectLockTests : IDisposable
         const string b = "lock-req-ver";
         Assert.IsType<Result<bool>.Success>(registry.Create(b));
 
-        // Bucket has no versioning; enabling object lock must fail.
         var setResult = registry.SetObjectLock(b, new ObjectLockConfig(Enabled: true, Default: null));
         var failure = Assert.IsType<Result<bool>.Failure>(setResult);
         Assert.IsType<InvalidBucketStateError>(failure.Error);
         Assert.Equal(409, failure.Error.Status);
 
-        // Enable versioning and retry — should succeed.
         Assert.IsType<Result<bool>.Success>(registry.SetVersioning(b, VersioningStatus.Enabled));
         Assert.IsType<Result<bool>.Success>(registry.SetObjectLock(b, new ObjectLockConfig(Enabled: true, Default: null)));
     }
@@ -88,17 +86,14 @@ public sealed class ObjectLockTests : IDisposable
         Assert.IsType<Result<bool>.Success>(registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Compliance, until), bypassGovernance: false));
 
-        // Lowering by date is rejected — even with the bypass header.
         var lowered = registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Compliance, until.AddDays(-1)), bypassGovernance: true);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<bool>.Failure>(lowered).Error);
 
-        // Downgrading to GOVERNANCE is rejected too.
         var downgraded = registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Governance, until.AddDays(1)), bypassGovernance: true);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<bool>.Failure>(downgraded).Error);
 
-        // Extending is fine.
         Assert.IsType<Result<bool>.Success>(registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Compliance, until.AddDays(7)), bypassGovernance: false));
     }
@@ -116,20 +111,16 @@ public sealed class ObjectLockTests : IDisposable
         var until = DateTimeOffset.UtcNow.AddDays(30);
         registry.PutRetention(b, "k", v, new Retention(RetentionMode.Governance, until), bypassGovernance: false);
 
-        // Lowering without bypass — denied.
         var noBypass = registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Governance, until.AddDays(-5)), bypassGovernance: false);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<bool>.Failure>(noBypass).Error);
 
-        // Same operation WITH bypass — allowed.
         Assert.IsType<Result<bool>.Success>(registry.PutRetention(b, "k", v,
             new Retention(RetentionMode.Governance, until.AddDays(-5)), bypassGovernance: true));
 
-        // Delete without bypass blocked while retention is active.
         var del = registry.HardDeleteVersion(b, "k", v, bypassGovernance: false);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<DeleteOutcome>.Failure>(del).Error);
 
-        // Delete with bypass succeeds.
         var delBypass = registry.HardDeleteVersion(b, "k", v, bypassGovernance: true);
         Assert.IsType<Result<DeleteOutcome>.Success>(delBypass);
     }
@@ -145,11 +136,9 @@ public sealed class ObjectLockTests : IDisposable
         var v = Assert.IsType<Result<PutEntry>.Success>(registry.AppendPut(b, "k", MakePut())).Value.VersionId;
         Assert.IsType<Result<bool>.Success>(registry.PutLegalHold(b, "k", v, on: true));
 
-        // Bypass header does NOT defeat legal hold.
         var blocked = registry.HardDeleteVersion(b, "k", v, bypassGovernance: true);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<DeleteOutcome>.Failure>(blocked).Error);
 
-        // Remove the hold; delete now succeeds.
         Assert.IsType<Result<bool>.Success>(registry.PutLegalHold(b, "k", v, on: false));
         Assert.IsType<Result<DeleteOutcome>.Success>(registry.HardDeleteVersion(b, "k", v, bypassGovernance: false));
     }
@@ -173,7 +162,6 @@ public sealed class ObjectLockTests : IDisposable
         Assert.Equal(RetentionMode.Governance, put.Retention!.Mode);
         Assert.True(put.Retention.RetainUntilDate > now);
 
-        // Delete blocked.
         var del = registry.HardDeleteVersion(b, "k", put.VersionId, bypassGovernance: false);
         Assert.IsType<AccessDeniedError>(Assert.IsType<Result<DeleteOutcome>.Failure>(del).Error);
     }

@@ -1,14 +1,9 @@
-#pragma warning disable CA5350 // SHA1 needed for the S3 wire protocol; not used for security
+#pragma warning disable CA5350
 using System.Security.Cryptography;
 using Vessel3.Server;
 
 namespace Vessel3.Server.Storage;
 
-/// <summary>
-/// All hashes computed during the streaming write. Sha = SHA256 (lowercase hex, primary blob key);
-/// Crc32/Crc32C/Sha1 are also lowercase hex of the raw hash bytes, to be base64-encoded at the S3
-/// wire boundary. Md5 is the ETag input.
-/// </summary>
 internal sealed record StoredBlob(string Sha, string Md5, string Crc32, string Crc32C, string Sha1, long Size);
 internal sealed record BlobPoolOptions(string Root);
 
@@ -69,7 +64,6 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             sha = Convert.ToHexStringLower(sha256.GetHashAndReset());
             md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
             sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
-            // S3 wire format for CRC32/CRC32C is big-endian raw bytes (then base64'd at the boundary).
             crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
             crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
         }

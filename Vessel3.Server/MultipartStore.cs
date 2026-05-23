@@ -14,7 +14,6 @@ internal sealed record CompleteUploadOutcome(string Etag, string VersionId, long
 internal sealed record InProgressUpload(string UploadId, string Bucket, string Key, DateTimeOffset Initiated);
 internal sealed record ListedPart(int Number, string Etag, long Size, DateTimeOffset LastModified);
 
-/// <summary>Client-asserted per-part record from the CompleteMultipartUpload XML body.</summary>
 internal sealed record CompletedPartChecksums(string? Crc32, string? Crc32C, string? Sha1, string? Sha256);
 
 internal sealed record UploadMeta(
@@ -62,7 +61,6 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         if (written is Result<StoredBlob>.Failure f) return f.Error;
         var blob = ((Result<StoredBlob>.Success)written).Value;
 
-        // Validate declared per-part checksums against the streamed blob.
         if (declaredChecksums.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"part {partNumber} crc32 mismatch");
         if (declaredChecksums.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
@@ -107,8 +105,6 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             if (!string.Equals(clientEtag, part.Md5, StringComparison.OrdinalIgnoreCase))
                 return new InvalidPartError($"part {n} etag mismatch: client {clientEtag}, server {part.Md5}");
 
-            // Per-part checksum verification: each declared per-algorithm checksum (decoded to hex)
-            // must match the stored part's computed value.
             if (sums is not null)
             {
                 if (sums.Crc32 is { } a && !string.Equals(a, part.Crc32, StringComparison.OrdinalIgnoreCase))
@@ -129,7 +125,6 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         var totalSize = 0L;
         foreach (var p in ordered) totalSize += p.Size;
 
-        // Compute the per-object COMPOSITE checksum for whichever algorithm the client declared.
         var objectSums = ChecksumSet.Empty;
         if (compositeAlgo is { } algo)
         {

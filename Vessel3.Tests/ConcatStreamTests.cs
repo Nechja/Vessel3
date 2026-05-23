@@ -57,9 +57,6 @@ public class ConcatStreamTests
     [Fact]
     public void Seek_AcrossParts()
     {
-        // Seek lands inside part 1 ("4567"); reading must produce the right
-        // bytes across the boundary into part 2 ("89"). Stream may return
-        // short reads at the boundary, so ReadExactly to fill the buffer.
         var (parts, blobs) = Setup("0123"u8.ToArray(), "4567"u8.ToArray(), "89"u8.ToArray());
         using var s = new ConcatStream(parts, blobs);
         s.Seek(5, SeekOrigin.Begin);

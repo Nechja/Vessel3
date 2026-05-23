@@ -65,7 +65,6 @@ public class AwsChunkedStreamTests
     [Fact]
     public async Task BadChunkTerminator_Throws()
     {
-        // Missing \r\n after chunk data.
         var bad = "5\r\nhello0\r\n\r\n"u8.ToArray();
         var input = new MemoryStream(bad);
         using var s = new AwsChunkedStream(input);

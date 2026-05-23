@@ -250,7 +250,6 @@ await Run("DeleteVersionId", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
         {
-            // expected
         }
 
         using var got = await s3.GetObjectAsync(vbucket, vkey);
@@ -302,7 +301,6 @@ await Run("VersionedDelete", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
         {
-            // expected
         }
 
         using var got = await s3.GetObjectAsync(new GetObjectRequest
@@ -720,7 +718,6 @@ await Run("ConditionalPut", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
     {
-        // expected
     }
 });
 
@@ -921,7 +918,6 @@ await Run("MultipartBadEtag", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1044,7 +1040,6 @@ await Run("MultipartEmpty", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1097,7 +1092,6 @@ await Run("MultipartMissingPart", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1145,7 +1139,6 @@ await Run("MultipartDupNumber", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
         {
-            // expected
         }
     }
 
@@ -1238,7 +1231,6 @@ await Run("MultipartAbort", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
     {
-        // expected
     }
 });
 
@@ -1294,8 +1286,6 @@ await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
 
 await Run("ConcurrentPut", async () =>
 {
-    // Regression for the unversioned lost-update race: N concurrent PUTs to the same key
-    // must leave the bucket with exactly one entry for that key.
     const string cbucket = "vessel3-realclient-concurrent";
     const string ckey = "race.bin";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = cbucket });
@@ -1326,7 +1316,6 @@ await Run("ConcurrentPut", async () =>
 
 await Run("MultipartCopyEtag", async () =>
 {
-    // Regression for the multipart-copy bare-md5 bug: dest ETag must keep the "-N" suffix.
     const string mbucket = "vessel3-realclient-mpcopy";
     const string srcKey = "mp-src.bin";
     const string dstKey = "mp-dst.bin";
@@ -1376,7 +1365,6 @@ await Run("MultipartCopyEtag", async () =>
 
 await Run("IfMatchList", async () =>
 {
-    // Regression for comma-separated entity-tag lists: If-Match must match any tag in the list.
     const string ibucket = "vessel3-realclient-ifmatch";
     const string ikey = "im.bin";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = ibucket });
@@ -1415,7 +1403,6 @@ await Run("IfMatchList", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
         {
-            // expected
         }
     }
     finally
@@ -1426,7 +1413,6 @@ await Run("IfMatchList", async () =>
 
 await Run("ListVersionsPaging", async () =>
 {
-    // Regression for ListAllVersions pagination: MaxKeys must truncate with NextKeyMarker / NextVersionIdMarker.
     const string vbucket = "vessel3-realclient-vpag";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
     try
@@ -1661,7 +1647,6 @@ await Run("RangeMultiFullObject", async () =>
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Add("Range", "bytes=0-3,10-13");
         var resp = await http.SendAsync(req);
-        // S3 returns full 200 for multi-range.
         if ((int)resp.StatusCode != 200)
             throw new InvalidOperationException($"multi-range expected full 200, got {(int)resp.StatusCode}");
         var got = await resp.Content.ReadAsStringAsync();
@@ -1677,7 +1662,6 @@ await Run("SuspendedVersioning", async () =>
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = sbucket });
     try
     {
-        // Enabled phase: two real versions.
         await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
         {
             BucketName = sbucket,
@@ -1689,7 +1673,6 @@ await Run("SuspendedVersioning", async () =>
         using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v2")))
             v2Id = (await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" })).VersionId;
 
-        // Suspend: subsequent puts must use literal "null" as version id.
         await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
         {
             BucketName = sbucket,
@@ -1701,7 +1684,6 @@ await Run("SuspendedVersioning", async () =>
         if (suspId != "null")
             throw new InvalidOperationException($"Suspended PUT versionId '{suspId}' != 'null'");
 
-        // Second suspended PUT must overwrite the prior null version (not stack).
         using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("suspended-2")))
             await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" });
 
@@ -1714,14 +1696,12 @@ await Run("SuspendedVersioning", async () =>
         if (!ids.Contains(v1Id) || !ids.Contains(v2Id))
             throw new InvalidOperationException($"Enabled-era versions lost; ids: {string.Join(",", ids)}");
 
-        // GET latest should return suspended-2 body.
         using var got = await s3.GetObjectAsync(sbucket, skey);
         using var sr = new StreamReader(got.ResponseStream);
         var latestBody = await sr.ReadToEndAsync();
         if (latestBody != "suspended-2")
             throw new InvalidOperationException($"latest GET '{latestBody}' != 'suspended-2'");
 
-        // Re-enable and put again: existing versions remain.
         await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
         {
             BucketName = sbucket,
@@ -1873,7 +1853,6 @@ await Run("CopyTaggingDirective", async () =>
             });
         }
 
-        // Default: COPY inherits source tags.
         await s3.CopyObjectAsync(new CopyObjectRequest
         {
             SourceBucket = tbucket, SourceKey = srcKey,
@@ -1884,7 +1863,6 @@ await Run("CopyTaggingDirective", async () =>
         if (inhMap.GetValueOrDefault("origin") != "src")
             throw new InvalidOperationException($"default COPY did not inherit source tags (got {inherited.Tagging.Count})");
 
-        // REPLACE: COPY uses x-amz-tagging on copy request.
         var copyReplaceReq = new CopyObjectRequest
         {
             SourceBucket = tbucket, SourceKey = srcKey,
@@ -1936,7 +1914,6 @@ await Run("VersionedTagging", async () =>
             v2 = p.VersionId;
         }
 
-        // PUT tags targeting v1 explicitly.
         await s3.PutObjectTaggingAsync(new PutObjectTaggingRequest
         {
             BucketName = tbucket, Key = tkey, VersionId = v1,
@@ -1951,7 +1928,6 @@ await Run("VersionedTagging", async () =>
         if (v1Map["ver"] != "1-edited")
             throw new InvalidOperationException($"v1 tags: got '{v1Map["ver"]}', expected '1-edited'");
 
-        // v2 should remain "2"
         var gotV2 = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest
         {
             BucketName = tbucket, Key = tkey, VersionId = v2,
@@ -2056,7 +2032,6 @@ await Run("ChecksumSha256Roundtrip", async () =>
     if (got.ChecksumSHA256 != put.ChecksumSHA256)
         throw new InvalidOperationException($"GET checksum '{got.ChecksumSHA256}' != PUT checksum '{put.ChecksumSHA256}'");
 
-    // Independently verify the wire value: base64(SHA256(body)).
     var expected = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(ckBody)));
     if (put.ChecksumSHA256 != expected)
         throw new InvalidOperationException($"sha256 checksum '{put.ChecksumSHA256}' != expected '{expected}'");
@@ -2128,7 +2103,6 @@ await Run("ListEncodingTypeUrl", async () =>
             throw new InvalidOperationException("response did not echo EncodingType=url");
 
         var keys = listed.S3Objects?.Select(o => o.Key).ToHashSet() ?? new HashSet<string>();
-        // The SDK auto-decodes percent-encoding; keys must round-trip to the originals.
         if (!keys.Contains(spaceKey))
             throw new InvalidOperationException($"space key '{spaceKey}' did not round-trip; got [{string.Join(", ", keys)}]");
         if (!keys.Contains(unicodeKey))
@@ -2146,7 +2120,6 @@ await Run("ObjectLockRequiresVersioning", async () =>
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
     try
     {
-        // No versioning enabled — enabling Object Lock must yield 409 InvalidBucketState.
         try
         {
             await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
@@ -2161,7 +2134,6 @@ await Run("ObjectLockRequiresVersioning", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 409)
         {
-            // expected
         }
     }
     finally
@@ -2254,7 +2226,6 @@ await Run("RetentionGovernance", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
         {
-            // expected
         }
     }
     finally
@@ -2298,7 +2269,6 @@ await Run("RetentionCompliance", async () =>
             Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Compliance, RetainUntilDate = until },
         });
 
-        // Compliance + bypass header must still refuse to lower.
         try
         {
             var lowerReq = new PutObjectRetentionRequest
@@ -2311,10 +2281,8 @@ await Run("RetentionCompliance", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
         {
-            // expected
         }
 
-        // Bypass header doesn't break compliance delete either.
         try
         {
             var del = new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true };
@@ -2323,7 +2291,6 @@ await Run("RetentionCompliance", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
         {
-            // expected
         }
     }
     finally
@@ -2366,7 +2333,6 @@ await Run("BypassGovernanceDelete", async () =>
             Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Governance, RetainUntilDate = DateTime.UtcNow.AddDays(10) },
         });
 
-        // Bypass header on GOVERNANCE delete works.
         await s3.DeleteObjectAsync(new DeleteObjectRequest
         {
             BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true,
@@ -2423,7 +2389,6 @@ await Run("LegalHold", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
         {
-            // expected
         }
 
         await s3.PutObjectLegalHoldAsync(new PutObjectLegalHoldRequest
@@ -2474,12 +2439,10 @@ await Run("DefaultRetentionAppliedOnPut", async () =>
             vid = put.VersionId;
         }
 
-        // GET retention should now reflect the default rule.
         var got = await s3.GetObjectRetentionAsync(new GetObjectRetentionRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
         if (got.Retention?.Mode != ObjectLockRetentionMode.Governance)
             throw new InvalidOperationException($"default retention not applied: mode {got.Retention?.Mode}");
 
-        // Delete blocked.
         try
         {
             await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
@@ -2487,10 +2450,8 @@ await Run("DefaultRetentionAppliedOnPut", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
         {
-            // expected
         }
 
-        // Bypass clears it.
         await s3.DeleteObjectAsync(new DeleteObjectRequest
         {
             BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true,
@@ -2505,7 +2466,6 @@ await Run("DefaultRetentionAppliedOnPut", async () =>
 Console.WriteLine();
 Console.WriteLine("ALL GOOD");
 return 0;
-
 
 static async Task Run(string name, Func<Task> action)
 {

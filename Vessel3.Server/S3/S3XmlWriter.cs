@@ -28,11 +28,6 @@ internal interface IS3XmlWriter
     Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
 }
 
-/// <summary>
-/// Subset of object attributes the client asked for, plus the resolved values to emit.
-/// Driven by the comma-separated <c>x-amz-object-attributes</c> header. Fields not
-/// requested by the client are left null and omitted from the response XML.
-/// </summary>
 internal sealed record ObjectAttributesRequest(
     bool WantEtag, string? Etag,
     bool WantChecksum, string? ChecksumSha256Base64,
@@ -126,7 +121,6 @@ internal sealed class S3XmlWriter : IS3XmlWriter
 
     private static bool IsUrlEncoding(string? type) => string.Equals(type, "url", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>RFC 3986 percent-encoding for S3 EncodingType=url (space becomes %20 not +).</summary>
     private static string Encode(string raw, bool urlEncode) => urlEncode ? Uri.EscapeDataString(raw) : raw;
 
     public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
@@ -228,7 +222,6 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteStartElementAsync(null, "GetObjectAttributesOutput", S3Namespace);
 
         if (req.WantEtag && req.Etag is not null)
-            // S3 emits ETag without quotes here (unlike Contents listings).
             await w.WriteElementStringAsync(null, "ETag", null, req.Etag);
 
         if (req.WantChecksum && !string.IsNullOrEmpty(req.ChecksumSha256Base64))
@@ -238,7 +231,6 @@ internal sealed class S3XmlWriter : IS3XmlWriter
             await w.WriteEndElementAsync();
         }
 
-        // ObjectParts is only meaningful for multipart objects.
         if (req.WantObjectParts && req.Parts is { Count: > 0 } parts)
         {
             await w.WriteStartElementAsync(null, "ObjectParts", null);
@@ -252,7 +244,6 @@ internal sealed class S3XmlWriter : IS3XmlWriter
                     p.Number.ToString(CultureInfo.InvariantCulture));
                 await w.WriteElementStringAsync(null, "Size", null,
                     p.Size.ToString(CultureInfo.InvariantCulture));
-                // BlobSha is the per-part sha256 in hex; emit as base64 per S3 wire format.
                 if (!string.IsNullOrEmpty(p.BlobSha))
                     await w.WriteElementStringAsync(null, "ChecksumSHA256", null,
                         Convert.ToBase64String(Convert.FromHexString(p.BlobSha)));
@@ -423,7 +414,6 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteElementStringAsync(null, "Bucket", null, bucket);
         await w.WriteElementStringAsync(null, "Key", null, key);
         await w.WriteElementStringAsync(null, "ETag", null, $"\"{etag}\"");
-        // Composite-mode object checksum: base64(raw-hash-bytes) + "-N" parts-count suffix.
         var suffix = $"-{partsCount.ToString(CultureInfo.InvariantCulture)}";
         if (objectChecksums.Crc32 is { } c32)
             await w.WriteElementStringAsync(null, "ChecksumCRC32", null, ChecksumAlgorithms.HexToBase64(c32) + suffix);
