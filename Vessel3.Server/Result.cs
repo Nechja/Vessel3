@@ -81,6 +81,10 @@ internal sealed record EntityTooSmallError(int PartNumber, long Actual, long Min
     : Error("EntityTooSmall", $"part {PartNumber} is {Actual} bytes; minimum is {Minimum}")
 { public override int Status => 400; }
 
+internal sealed record InsufficientStorageError(string Detail)
+    : Error("InternalError", $"Storage full: {Detail}")
+{ public override int Status => 507; }
+
 internal sealed record InvalidTagError(string Detail)
     : Error("InvalidTag", Detail)
 { public override int Status => 400; }
