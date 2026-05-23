@@ -7,8 +7,8 @@ namespace Vessel3.Server.Storage;
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
-    private const int KindPut = 0;
-    private const int KindDeleteMarker = 1;
+    internal const int KindPut = 0;
+    internal const int KindDeleteMarker = 1;
 
     private SqliteConnection? conn;
 
@@ -38,8 +38,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json)
-            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj)
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json, tags_json,
+               crc32, crc32c, sha1, retention_mode, retain_until, legal_hold)
+            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj, $tj, $c32, $c32c, $s1, $rm, $ru, $lh)
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -52,7 +53,56 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$mj", SerializeMetadata(ev.Metadata));
         cmd.Parameters.AddWithValue("$pj", SerializeParts(ev.Parts));
+        cmd.Parameters.AddWithValue("$tj", SerializeMetadata(ev.Tags ?? new Dictionary<string, string>()));
+        cmd.Parameters.AddWithValue("$c32", (object?)ev.Crc32 ?? "");
+        cmd.Parameters.AddWithValue("$c32c", (object?)ev.Crc32C ?? "");
+        cmd.Parameters.AddWithValue("$s1", (object?)ev.Sha1 ?? "");
+        cmd.Parameters.AddWithValue("$rm",
+            (object?)ev.RetentionMode?.ToString() ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ru",
+            (object?)ev.RetainUntilUnixSeconds ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$lh", ev.LegalHoldOn ? 1 : 0);
         cmd.ExecuteNonQuery();
+    }
+
+    public void UpdateTags(string key, string versionId, IReadOnlyDictionary<string, string> tags)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = "UPDATE versions SET tags_json = $tj WHERE key = $k AND version_id = $v AND kind = $kp";
+        cmd.Parameters.AddWithValue("$tj", SerializeMetadata(tags));
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
+        cmd.Parameters.AddWithValue("$kp", KindPut);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Returns the kind of a specific version, or null if that version does not exist.
+    /// Used by ?tagging routes to distinguish 405 (tagging a delete-marker version) from 404.
+    /// </summary>
+    public int? GetVersionKind(string key, string versionId)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = "SELECT kind FROM versions WHERE key = $k AND version_id = $v LIMIT 1";
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? r.GetInt32(0) : (int?)null;
+    }
+
+    /// <summary>
+    /// Returns the kind of the current head for a key, or null if no head exists.
+    /// Used by ?tagging routes to distinguish 404 (no head) from 405 (delete-marker head).
+    /// </summary>
+    public int? GetCurrentKind(string key)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            SELECT kind FROM versions WHERE key = $k ORDER BY seq DESC LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$k", key);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? r.GetInt32(0) : (int?)null;
     }
 
     public void Insert(DeleteMarkerEvent ev)
@@ -60,8 +110,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
-              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json)
-            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at, '{}', '')
+              (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json, tags_json,
+               crc32, crc32c, sha1)
+            VALUES ($s, $k, $v, '', '', $kd, 0, '', $at, '{}', '', '{}', '', '', '')
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -84,7 +135,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
-            SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json
+            SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
               FROM versions
              WHERE key = $k AND version_id = $v AND kind = $kp
              LIMIT 1
@@ -102,15 +154,43 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Size: r.GetInt64(3),
                 ContentType: r.GetString(4),
                 Metadata: DeserializeMetadata(r.GetString(6)),
-                Parts: DeserializeParts(r.GetString(7)))
+                Parts: DeserializeParts(r.GetString(7)),
+                Tags: DeserializeMetadata(r.GetString(8)),
+                Crc32: NullIfEmpty(r.GetString(9)),
+                Crc32C: NullIfEmpty(r.GetString(10)),
+                Sha1: NullIfEmpty(r.GetString(11)),
+                Retention: ReadRetention(r, 12, 13),
+                LegalHoldOn: ReadLegalHold(r, 14))
             : (PutEntry?)null;
+    }
+
+    /// <summary>
+    /// Returns the version_id of the most-recent row for <paramref name="key"/>
+    /// (put or delete-marker), or null if the key has no rows. Used by the Suspended
+    /// versioning state machine to detect an existing "null" version that must be
+    /// hard-deleted before inserting a new one (the (key, version_id) UNIQUE index
+    /// would otherwise reject the insert).
+    /// </summary>
+    public string? LatestVersionId(string key)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            SELECT version_id FROM versions
+             WHERE key = $k
+             ORDER BY seq DESC
+             LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$k", key);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? r.GetString(0) : null;
     }
 
     public Result<PutEntry?> GetCurrentPut(string key)
     {
         using var cmd = conn!.CreateCommand();
         cmd.CommandText = """
-            SELECT kind, version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json
+            SELECT kind, version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
               FROM versions
              WHERE key = $k
              ORDER BY seq DESC
@@ -128,8 +208,25 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Size: r.GetInt64(4),
                 ContentType: r.GetString(5),
                 Metadata: DeserializeMetadata(r.GetString(7)),
-                Parts: DeserializeParts(r.GetString(8)));
+                Parts: DeserializeParts(r.GetString(8)),
+                Tags: DeserializeMetadata(r.GetString(9)),
+                Crc32: NullIfEmpty(r.GetString(10)),
+                Crc32C: NullIfEmpty(r.GetString(11)),
+                Sha1: NullIfEmpty(r.GetString(12)),
+                Retention: ReadRetention(r, 13, 14),
+                LegalHoldOn: ReadLegalHold(r, 15));
     }
+
+    private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private static Retention? ReadRetention(Microsoft.Data.Sqlite.SqliteDataReader r, int modeCol, int untilCol) =>
+        r.IsDBNull(modeCol) || r.IsDBNull(untilCol)
+            || !Enum.TryParse<RetentionMode>(r.GetString(modeCol), out var mode)
+                ? null
+                : new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(untilCol)));
+
+    private static bool ReadLegalHold(Microsoft.Data.Sqlite.SqliteDataReader r, int col) =>
+        !r.IsDBNull(col) && r.GetInt64(col) is 1;
 
     public (List<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit)
     {
@@ -283,11 +380,108 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 content_type  TEXT NOT NULL,
                 at_ms         INTEGER NOT NULL,
                 md_json       TEXT NOT NULL DEFAULT '{}',
-                parts_json    TEXT NOT NULL DEFAULT ''
+                parts_json    TEXT NOT NULL DEFAULT '',
+                tags_json     TEXT NOT NULL DEFAULT '{}',
+                crc32         TEXT NOT NULL DEFAULT '',
+                crc32c        TEXT NOT NULL DEFAULT '',
+                sha1          TEXT NOT NULL DEFAULT '',
+                retention_mode TEXT,
+                retain_until  INTEGER,
+                legal_hold    INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
             """;
         cmd.ExecuteNonQuery();
+
+        // Additive columns added after the original schema; tolerate older DBs.
+        if (!HasColumn("versions", "tags_json"))
+        {
+            using var alter = conn!.CreateCommand();
+            alter.CommandText = "ALTER TABLE versions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'";
+            alter.ExecuteNonQuery();
+        }
+        foreach (var col in new[] { "crc32", "crc32c", "sha1" })
+        {
+            if (HasColumn("versions", col)) continue;
+            using var add = conn!.CreateCommand();
+            add.CommandText = $"ALTER TABLE versions ADD COLUMN {col} TEXT NOT NULL DEFAULT ''";
+            add.ExecuteNonQuery();
+        }
+        AddColumnIfMissing("retention_mode", "TEXT");
+        AddColumnIfMissing("retain_until", "INTEGER");
+        AddColumnIfMissing("legal_hold", "INTEGER");
+    }
+
+    private bool HasColumn(string table, string column)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (r.GetString(1).Equals(column, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private void AddColumnIfMissing(string name, string type)
+    {
+        if (HasColumn("versions", name)) return;
+        using var alter = conn!.CreateCommand();
+        alter.CommandText = $"ALTER TABLE versions ADD COLUMN {name} {type}";
+        alter.ExecuteNonQuery();
+    }
+
+    public void ApplyRetention(string key, string versionId, RetentionMode mode, long retainUntilUnixSeconds)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            UPDATE versions
+               SET retention_mode = $rm, retain_until = $ru
+             WHERE key = $k AND version_id = $v
+            """;
+        cmd.Parameters.AddWithValue("$rm", mode.ToString());
+        cmd.Parameters.AddWithValue("$ru", retainUntilUnixSeconds);
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void ApplyLegalHold(string key, string versionId, bool on)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            UPDATE versions
+               SET legal_hold = $lh
+             WHERE key = $k AND version_id = $v
+            """;
+        cmd.Parameters.AddWithValue("$lh", on ? 1 : 0);
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public (Retention? Retention, bool LegalHoldOn) GetLock(string key, string versionId)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            SELECT retention_mode, retain_until, legal_hold
+              FROM versions
+             WHERE key = $k AND version_id = $v
+             LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$k", key);
+        cmd.Parameters.AddWithValue("$v", versionId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return (null, false);
+        Retention? ret = null;
+        if (!r.IsDBNull(0) && !r.IsDBNull(1)
+            && Enum.TryParse<RetentionMode>(r.GetString(0), out var mode))
+        {
+            ret = new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)));
+        }
+        var hold = !r.IsDBNull(2) && r.GetInt64(2) is 1;
+        return (ret, hold);
     }
 }

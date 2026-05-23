@@ -1,9 +1,15 @@
+#pragma warning disable CA5350 // SHA1 needed for the S3 wire protocol; not used for security
 using System.Security.Cryptography;
 using Vessel3.Server;
 
 namespace Vessel3.Server.Storage;
 
-internal sealed record StoredBlob(string Sha, string Md5, long Size);
+/// <summary>
+/// All hashes computed during the streaming write. Sha = SHA256 (lowercase hex, primary blob key);
+/// Crc32/Crc32C/Sha1 are also lowercase hex of the raw hash bytes, to be base64-encoded at the S3
+/// wire boundary. Md5 is the ETag input.
+/// </summary>
+internal sealed record StoredBlob(string Sha, string Md5, string Crc32, string Crc32C, string Sha1, long Size);
 internal sealed record BlobPoolOptions(string Root);
 
 internal interface IBlobPool
@@ -27,6 +33,9 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
         long total;
         string sha;
         string md5;
+        string crc32hex;
+        string crc32chex;
+        string sha1hex;
 
         await using (var temp = new FileStream(tempPath, new FileStreamOptions
         {
@@ -40,18 +49,29 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
         {
             using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+            using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+            var crc32 = new System.IO.Hashing.Crc32();
+            var crc32c = new Vessel3.Server.Crc32C();
             var buf = new byte[81920];
             total = 0;
             int n;
             while ((n = await source.ReadAsync(buf.AsMemory(), ct)) > 0)
             {
+                var span = buf.AsSpan(0, n);
                 sha256.AppendData(buf, 0, n);
                 md5Hash.AppendData(buf, 0, n);
+                sha1.AppendData(buf, 0, n);
+                crc32.Append(span);
+                crc32c.Append(span);
                 await temp.WriteAsync(buf.AsMemory(0, n), ct);
                 total += n;
             }
             sha = Convert.ToHexStringLower(sha256.GetHashAndReset());
             md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
+            sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
+            // S3 wire format for CRC32/CRC32C is big-endian raw bytes (then base64'd at the boundary).
+            crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
+            crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
         }
 
         var finalPath = PathFor(sha);
@@ -66,7 +86,7 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             File.Delete(tempPath);
         }
 
-        return new StoredBlob(sha, md5, total);
+        return new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
     }
 
     public Result<Stream> Open(string sha)

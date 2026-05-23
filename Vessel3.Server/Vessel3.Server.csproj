@@ -27,6 +27,19 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="Ulid" Version="*" />
+    <PackageReference Include="System.IO.Hashing" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Tests" />
   </ItemGroup>
 
 </Project>

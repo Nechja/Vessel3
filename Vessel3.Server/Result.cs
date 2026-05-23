@@ -61,6 +61,37 @@ internal sealed record InvalidPartOrderError(string Detail)
     : Error("InvalidPartOrder", Detail)
 { public override int Status => 400; }
 
+internal sealed record InvalidTagError(string Detail)
+    : Error("InvalidTag", Detail)
+{ public override int Status => 400; }
+
+internal sealed record MethodNotAllowedError(string Detail)
+    : Error("MethodNotAllowed", Detail)
+{ public override int Status => 405; }
+
+/// Bucket is not in a state that permits the requested operation
+/// (e.g. enabling Object Lock on an unversioned bucket, or suspending
+/// versioning on a bucket that already has Object Lock enabled).
+internal sealed record InvalidBucketStateError(string Detail)
+    : Error("InvalidBucketState", Detail)
+{ public override int Status => 409; }
+
+/// GET ?object-lock on a bucket that has never had a config set.
+/// AWS returns HTTP 404 with this exact error code in the XML body.
+internal sealed record ObjectLockConfigurationNotFoundErrorResult(string Bucket)
+    : Error("ObjectLockConfigurationNotFoundError", $"Object Lock configuration not found for bucket {Bucket}")
+{ public override int Status => 404; }
+
+/// GET ?retention or ?legal-hold when none has been set on the version.
+internal sealed record NoSuchObjectLockConfigurationError(string Resource)
+    : Error("NoSuchObjectLockConfiguration", $"No object lock configuration for {Resource}")
+{ public override int Status => 404; }
+
+/// Retention or Legal Hold blocks the requested action.
+internal sealed record AccessDeniedError(string Detail)
+    : Error("AccessDenied", Detail)
+{ public override int Status => 403; }
+
 internal abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);

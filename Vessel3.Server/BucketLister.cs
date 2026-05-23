@@ -10,7 +10,8 @@ internal sealed record ListRequest(
     string? StartAfter,
     int MaxKeys,
     bool IsV1 = false,
-    string? Marker = null);
+    string? Marker = null,
+    string? EncodingType = null);
 
 internal abstract record ListEntry(string Key)
 {

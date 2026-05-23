@@ -19,12 +19,21 @@ internal interface IBucketRegistry : IDisposable
     Result<PutEntry?> GetCurrentPut(string bucket, string key);
     Result<PutEntry?> GetVersion(string bucket, string key, string versionId);
     Result<PutEntry> AppendPut(string bucket, string key, PutRequest req);
-    Result<DeleteOutcome> AppendDelete(string bucket, string key);
-    Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId);
+    Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance);
+    Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance);
     Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
     Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit);
     Result<VersioningStatus> GetVersioning(string bucket);
     Result<bool> SetVersioning(string bucket, VersioningStatus status);
+    Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags);
+    int? GetCurrentKind(string bucket, string key);
+    int? GetVersionKind(string bucket, string key, string versionId);
+    Result<ObjectLockConfig?> GetObjectLock(string bucket);
+    Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg);
+    Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
+    Result<Retention?> GetRetention(string bucket, string key, string versionId);
+    Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on);
+    Result<bool> GetLegalHold(string bucket, string key, string versionId);
     IEnumerable<string> AllReferencedBlobs();
 }
 
@@ -96,11 +105,41 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
     public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) =>
         OnKey<PutEntry>(bucket, key, b => b.AppendPut(key, req));
 
-    public Result<DeleteOutcome> AppendDelete(string bucket, string key) =>
-        OnKey<DeleteOutcome>(bucket, key, b => b.AppendDelete(key));
+    public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) =>
+        OnKey<DeleteOutcome>(bucket, key, b => b.AppendDelete(key, bypassGovernance));
 
-    public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId) =>
-        OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId));
+    public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) =>
+        OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
+
+    public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b ? b.ObjectLock
+        : (Result<ObjectLockConfig?>)new NotFoundError(bucket);
+
+    public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b ? b.SetObjectLock(cfg)
+        : (Result<bool>)new NotFoundError(bucket);
+
+    public Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
+        OnKey<bool>(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));
+
+    public Result<Retention?> GetRetention(string bucket, string key, string versionId) =>
+        OnKey<Retention?>(bucket, key, b =>
+        {
+            var (r, _) = b.Index.GetLock(key, versionId);
+            return r;
+        });
+
+    public Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on) =>
+        OnKey<bool>(bucket, key, b => b.PutLegalHold(key, versionId, on));
+
+    public Result<bool> GetLegalHold(string bucket, string key, string versionId) =>
+        OnKey<bool>(bucket, key, b =>
+        {
+            var (_, h) = b.Index.GetLock(key, versionId);
+            return h;
+        });
 
     public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
         OnBucket<List<VersionListEntry>>(bucket, b => b.Index.ListCurrent(prefix, startAfter));
@@ -129,14 +168,39 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         : Open(bucket) is { } b ? b.Versioning
         : (Result<VersioningStatus>)new NotFoundError(bucket);
 
-    public Result<bool> SetVersioning(string bucket, VersioningStatus status)
-    {
-        if (!IsValidName(bucket)) return new InvalidPathError(bucket);
-        var b = Open(bucket);
-        if (b is null) return new NotFoundError(bucket);
-        b.SetVersioning(status);
-        return true;
-    }
+    public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
+        OnKey<PutTaggingOutcome>(bucket, key, b =>
+        {
+            // Resolve which version receives the tags: explicit versionId or current head.
+            var resolved = versionId;
+            if (resolved is null)
+            {
+                if (b.Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } cur })
+                    return new NotFoundError($"{bucket}/{key}");
+                resolved = cur.VersionId;
+            }
+            else
+            {
+                if (b.Index.GetVersion(key, resolved) is not Result<PutEntry?>.Success { Value: not null })
+                    return new NotFoundError($"{bucket}/{key}");
+            }
+            return b.AppendPutTagging(key, resolved, tags);
+        });
+
+    public int? GetCurrentKind(string bucket, string key) =>
+        !IsValidName(bucket) || string.IsNullOrEmpty(key)
+            ? null
+            : Open(bucket) is { } b ? b.Index.GetCurrentKind(key) : null;
+
+    public int? GetVersionKind(string bucket, string key, string versionId) =>
+        !IsValidName(bucket) || string.IsNullOrEmpty(key)
+            ? null
+            : Open(bucket) is { } b ? b.Index.GetVersionKind(key, versionId) : null;
+
+    public Result<bool> SetVersioning(string bucket, VersioningStatus status) =>
+        !IsValidName(bucket) ? new InvalidPathError(bucket)
+        : Open(bucket) is { } b ? b.SetVersioning(status)
+        : (Result<bool>)new NotFoundError(bucket);
 
     public IEnumerable<string> AllReferencedBlobs()
     {
