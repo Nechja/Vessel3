@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
@@ -51,6 +53,35 @@ else
 builder.Services.AddSingleton<SigV4Middleware>();
 
 var app = builder.Build();
+
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.Equals("/metrics", StringComparison.Ordinal))
+    {
+        var sb = new StringBuilder(4096);
+        Metrics.Render(sb);
+        ctx.Response.ContentType = Metrics.ContentType;
+        await ctx.Response.WriteAsync(sb.ToString(), ctx.RequestAborted);
+        return;
+    }
+
+    var start = Stopwatch.GetTimestamp();
+    try
+    {
+        await next(ctx);
+    }
+    finally
+    {
+        var elapsed = Stopwatch.GetTimestamp() - start;
+        var methodIdx = Metrics.MethodIndex(ctx.Request.Method);
+        var statusIdx = Metrics.StatusIndex(ctx.Response.StatusCode);
+        Metrics.RecordRequest(
+            methodIdx, statusIdx, elapsed,
+            ctx.Request.ContentLength ?? 0,
+            ctx.Response.ContentLength ?? 0);
+    }
+});
+
 app.UseMiddleware<SigV4Middleware>();
 
 app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
