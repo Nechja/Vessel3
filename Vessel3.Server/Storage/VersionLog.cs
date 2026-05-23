@@ -48,6 +48,20 @@ internal sealed class VersionLog(string path) : IDisposable
     {
         if (!File.Exists(path)) yield break;
 
+        long completeEnd;
+        using (var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            completeEnd = FindLastNewline(probe);
+        }
+
+        if (completeEnd < new FileInfo(path).Length)
+        {
+            using var trunc = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
+            trunc.SetLength(completeEnd);
+        }
+
+        if (completeEnd is 0) yield break;
+
         using var fs = new FileStream(path, new FileStreamOptions
         {
             Mode = FileMode.Open,
@@ -65,5 +79,24 @@ internal sealed class VersionLog(string path) : IDisposable
                 ?? throw new InvalidDataException("Null event in log");
             yield return ev;
         }
+    }
+
+    private static long FindLastNewline(Stream fs)
+    {
+        var len = fs.Length;
+        if (len is 0) return 0;
+        const int chunk = 4096;
+        var buf = new byte[chunk];
+        var pos = len;
+        while (pos > 0)
+        {
+            var read = (int)Math.Min(chunk, pos);
+            pos -= read;
+            fs.Seek(pos, SeekOrigin.Begin);
+            fs.ReadExactly(buf, 0, read);
+            for (var i = read - 1; i >= 0; i--)
+                if (buf[i] == (byte)'\n') return pos + i + 1;
+        }
+        return 0;
     }
 }
