@@ -13,6 +13,9 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
     private int currentLength;
     private bool eof;
     private string previousSignature = sigCtx?.Signature ?? string.Empty;
+    private readonly Dictionary<string, string> trailers = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyDictionary<string, string> Trailers => trailers;
 
     public override bool CanRead => true;
     public override bool CanSeek => false;
@@ -57,7 +60,12 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
                 previousSignature = declaredSig;
             }
 
-            if (size is 0) { eof = true; return 0; }
+            if (size is 0)
+            {
+                await ReadTrailers(ct);
+                eof = true;
+                return 0;
+            }
         }
 
         var remaining = currentLength - currentOffset;
@@ -124,5 +132,20 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
         await inner.ReadExactlyAsync(buf.AsMemory(0, 2), ct);
         if (buf[0] is not (byte)'\r' || buf[1] is not (byte)'\n')
             throw new InvalidDataException("Expected CRLF after chunk data");
+    }
+
+    private async Task ReadTrailers(CancellationToken ct)
+    {
+        while (true)
+        {
+            var line = await ReadLine(ct);
+            if (line is null || line.Length is 0) return;
+            var colon = line.IndexOf(':', StringComparison.Ordinal);
+            if (colon <= 0) continue;
+            var name = line[..colon].Trim();
+            var value = line[(colon + 1)..].Trim();
+            if (name.StartsWith("x-amz-trailer-signature", StringComparison.OrdinalIgnoreCase)) continue;
+            trailers[name] = value;
+        }
     }
 }

@@ -61,6 +61,30 @@ internal sealed record InvalidPartOrderError(string Detail)
     : Error("InvalidPartOrder", Detail)
 { public override int Status => 400; }
 
+internal sealed record InvalidTagError(string Detail)
+    : Error("InvalidTag", Detail)
+{ public override int Status => 400; }
+
+internal sealed record MethodNotAllowedError(string Detail)
+    : Error("MethodNotAllowed", Detail)
+{ public override int Status => 405; }
+
+internal sealed record InvalidBucketStateError(string Detail)
+    : Error("InvalidBucketState", Detail)
+{ public override int Status => 409; }
+
+internal sealed record ObjectLockConfigurationNotFoundErrorResult(string Bucket)
+    : Error("ObjectLockConfigurationNotFoundError", $"Object Lock configuration not found for bucket {Bucket}")
+{ public override int Status => 404; }
+
+internal sealed record NoSuchObjectLockConfigurationError(string Resource)
+    : Error("NoSuchObjectLockConfiguration", $"No object lock configuration for {Resource}")
+{ public override int Status => 404; }
+
+internal sealed record AccessDeniedError(string Detail)
+    : Error("AccessDenied", Detail)
+{ public override int Status => 403; }
+
 internal abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);

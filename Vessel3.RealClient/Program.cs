@@ -33,6 +33,7 @@ if (args.Length > 0)
         case "crash-multipart-finish": return await DurabilityTester.CrashMultipartFinish(s3, statePath);
         case "anon": return await AnonScenarios.RunAll(
             Environment.GetEnvironmentVariable("VESSEL3_ANON_ENDPOINT") ?? "http://127.0.0.1:9101");
+        case "smoke": return await Smoke.Run(s3);
         default:
             Console.Error.WriteLine($"unknown phase: {args[0]}");
             return 2;
@@ -249,7 +250,6 @@ await Run("DeleteVersionId", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
         {
-            // expected
         }
 
         using var got = await s3.GetObjectAsync(vbucket, vkey);
@@ -301,7 +301,6 @@ await Run("VersionedDelete", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
         {
-            // expected
         }
 
         using var got = await s3.GetObjectAsync(new GetObjectRequest
@@ -719,7 +718,6 @@ await Run("ConditionalPut", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
     {
-        // expected
     }
 });
 
@@ -920,7 +918,6 @@ await Run("MultipartBadEtag", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1043,7 +1040,6 @@ await Run("MultipartEmpty", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1096,7 +1092,6 @@ await Run("MultipartMissingPart", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
     {
-        // expected
     }
 
     await s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
@@ -1144,7 +1139,6 @@ await Run("MultipartDupNumber", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 400)
         {
-            // expected
         }
     }
 
@@ -1237,7 +1231,6 @@ await Run("MultipartAbort", async () =>
     }
     catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404)
     {
-        // expected
     }
 });
 
@@ -1293,8 +1286,6 @@ await Run("DeleteBucket",   () => s3.DeleteBucketAsync(bucket));
 
 await Run("ConcurrentPut", async () =>
 {
-    // Regression for the unversioned lost-update race: N concurrent PUTs to the same key
-    // must leave the bucket with exactly one entry for that key.
     const string cbucket = "vessel3-realclient-concurrent";
     const string ckey = "race.bin";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = cbucket });
@@ -1325,7 +1316,6 @@ await Run("ConcurrentPut", async () =>
 
 await Run("MultipartCopyEtag", async () =>
 {
-    // Regression for the multipart-copy bare-md5 bug: dest ETag must keep the "-N" suffix.
     const string mbucket = "vessel3-realclient-mpcopy";
     const string srcKey = "mp-src.bin";
     const string dstKey = "mp-dst.bin";
@@ -1375,7 +1365,6 @@ await Run("MultipartCopyEtag", async () =>
 
 await Run("IfMatchList", async () =>
 {
-    // Regression for comma-separated entity-tag lists: If-Match must match any tag in the list.
     const string ibucket = "vessel3-realclient-ifmatch";
     const string ikey = "im.bin";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = ibucket });
@@ -1414,7 +1403,6 @@ await Run("IfMatchList", async () =>
         }
         catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 412)
         {
-            // expected
         }
     }
     finally
@@ -1425,7 +1413,6 @@ await Run("IfMatchList", async () =>
 
 await Run("ListVersionsPaging", async () =>
 {
-    // Regression for ListAllVersions pagination: MaxKeys must truncate with NextKeyMarker / NextVersionIdMarker.
     const string vbucket = "vessel3-realclient-vpag";
     await s3.PutBucketAsync(new PutBucketRequest { BucketName = vbucket });
     try
@@ -1470,10 +1457,1039 @@ await Run("ListVersionsPaging", async () =>
     }
 });
 
+await Run("GetObjectAttributesSinglePart", async () =>
+{
+    const string abucket = "vessel3-realclient-attrs-sp";
+    const string akey = "sp.txt";
+    const string payload = "hello-attrs";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = abucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(payload));
+        var put = await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = abucket, Key = akey, InputStream = ms, ContentType = "text/plain",
+        });
+        var rawEtag = put.ETag.Trim('"');
+
+        var attrs = await s3.GetObjectAttributesAsync(new GetObjectAttributesRequest
+        {
+            BucketName = abucket,
+            Key = akey,
+            ObjectAttributes = ["ETag", "ObjectSize", "StorageClass", "Checksum"],
+        });
+        if (attrs.ETag is null || attrs.ETag.Trim('"') != rawEtag)
+            throw new InvalidOperationException($"attrs ETag '{attrs.ETag}' != '{rawEtag}'");
+        if (attrs.ObjectSize != payload.Length)
+            throw new InvalidOperationException($"attrs ObjectSize {attrs.ObjectSize} != {payload.Length}");
+        if (attrs.ObjectParts is not null && attrs.ObjectParts.TotalPartsCount > 0)
+            throw new InvalidOperationException("single-part object should not report ObjectParts");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, abucket);
+    }
+});
+
+await Run("GetObjectAttributesMultipart", async () =>
+{
+    const string abucket = "vessel3-realclient-attrs-mp";
+    const string akey = "mp.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = abucket });
+    try
+    {
+        var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        {
+            BucketName = abucket, Key = akey, ContentType = "application/octet-stream",
+        });
+        const int partSize = 5 * 1024 * 1024;
+        var etags = new List<PartETag>();
+        var rng = new Random(101);
+        for (var i = 0; i < 2; i++)
+        {
+            var buf = new byte[partSize];
+            rng.NextBytes(buf);
+            using var ms = new MemoryStream(buf);
+            var up = await s3.UploadPartAsync(new UploadPartRequest
+            {
+                BucketName = abucket, Key = akey, UploadId = initiate.UploadId,
+                PartNumber = i + 1, PartSize = partSize, InputStream = ms,
+            });
+            etags.Add(new PartETag(i + 1, up.ETag));
+        }
+        await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = abucket, Key = akey, UploadId = initiate.UploadId, PartETags = etags,
+        });
+
+        var attrs = await s3.GetObjectAttributesAsync(new GetObjectAttributesRequest
+        {
+            BucketName = abucket,
+            Key = akey,
+            ObjectAttributes = ["ObjectParts", "ObjectSize"],
+        });
+        if (attrs.ObjectParts is null || attrs.ObjectParts.TotalPartsCount != 2)
+            throw new InvalidOperationException($"multipart attrs missing ObjectParts (got count {attrs.ObjectParts?.TotalPartsCount})");
+        if (attrs.ObjectSize != partSize * 2L)
+            throw new InvalidOperationException($"multipart attrs ObjectSize {attrs.ObjectSize} != {partSize * 2L}");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, abucket);
+    }
+});
+
+await Run("RangeSuffix", async () =>
+{
+    const string rbucket = "vessel3-realclient-rsuffix";
+    const string rkey = "r.txt";
+    var body = "0123456789ABCDEF";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = rbucket });
+    try
+    {
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(body)))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = rbucket, Key = rkey, InputStream = ms, ContentType = "text/plain" });
+
+        using var http = new HttpClient();
+        var presign = new GetPreSignedUrlRequest
+        {
+            BucketName = rbucket, Key = rkey, Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddMinutes(5), Protocol = Protocol.HTTP,
+        };
+        var url = await s3.GetPreSignedURLAsync(presign);
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Range", "bytes=-4");
+        var resp = await http.SendAsync(req);
+        if ((int)resp.StatusCode != 206)
+            throw new InvalidOperationException($"suffix range expected 206, got {(int)resp.StatusCode}");
+        var got = await resp.Content.ReadAsStringAsync();
+        if (got != "CDEF") throw new InvalidOperationException($"suffix range body '{got}' != 'CDEF'");
+    }
+    finally { await DurabilityTester.CleanupBucket(s3, rbucket); }
+});
+
+await Run("RangeOpenEnd", async () =>
+{
+    const string rbucket = "vessel3-realclient-ropen";
+    const string rkey = "r.txt";
+    var body = "0123456789ABCDEF";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = rbucket });
+    try
+    {
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(body)))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = rbucket, Key = rkey, InputStream = ms, ContentType = "text/plain" });
+
+        using var http = new HttpClient();
+        var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+        {
+            BucketName = rbucket, Key = rkey, Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddMinutes(5), Protocol = Protocol.HTTP,
+        });
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Range", "bytes=10-");
+        var resp = await http.SendAsync(req);
+        if ((int)resp.StatusCode != 206)
+            throw new InvalidOperationException($"open-end range expected 206, got {(int)resp.StatusCode}");
+        var got = await resp.Content.ReadAsStringAsync();
+        if (got != "ABCDEF") throw new InvalidOperationException($"open-end body '{got}' != 'ABCDEF'");
+    }
+    finally { await DurabilityTester.CleanupBucket(s3, rbucket); }
+});
+
+await Run("RangeUnsatisfiable", async () =>
+{
+    const string rbucket = "vessel3-realclient-runsat";
+    const string rkey = "r.txt";
+    var body = "0123456789";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = rbucket });
+    try
+    {
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(body)))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = rbucket, Key = rkey, InputStream = ms, ContentType = "text/plain" });
+
+        using var http = new HttpClient();
+        var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+        {
+            BucketName = rbucket, Key = rkey, Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddMinutes(5), Protocol = Protocol.HTTP,
+        });
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Range", "bytes=100-200");
+        var resp = await http.SendAsync(req);
+        if ((int)resp.StatusCode != 416)
+            throw new InvalidOperationException($"unsatisfiable range expected 416, got {(int)resp.StatusCode}");
+        string contentRange = resp.Content.Headers.ContentRange?.ToString() ?? "";
+        if (string.IsNullOrEmpty(contentRange) && resp.Headers.TryGetValues("Content-Range", out var crv))
+            contentRange = string.Join(",", crv);
+        if (string.IsNullOrEmpty(contentRange) || !contentRange.Contains("*/", StringComparison.Ordinal))
+            throw new InvalidOperationException($"416 must include Content-Range bytes */size; got '{contentRange}'");
+    }
+    finally { await DurabilityTester.CleanupBucket(s3, rbucket); }
+});
+
+await Run("RangeMultiFullObject", async () =>
+{
+    const string rbucket = "vessel3-realclient-rmulti";
+    const string rkey = "r.txt";
+    var body = "0123456789ABCDEF";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = rbucket });
+    try
+    {
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(body)))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = rbucket, Key = rkey, InputStream = ms, ContentType = "text/plain" });
+
+        using var http = new HttpClient();
+        var url = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
+        {
+            BucketName = rbucket, Key = rkey, Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddMinutes(5), Protocol = Protocol.HTTP,
+        });
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Range", "bytes=0-3,10-13");
+        var resp = await http.SendAsync(req);
+        if ((int)resp.StatusCode != 200)
+            throw new InvalidOperationException($"multi-range expected full 200, got {(int)resp.StatusCode}");
+        var got = await resp.Content.ReadAsStringAsync();
+        if (got != body) throw new InvalidOperationException($"multi-range full body '{got}' != '{body}'");
+    }
+    finally { await DurabilityTester.CleanupBucket(s3, rbucket); }
+});
+
+await Run("SuspendedVersioning", async () =>
+{
+    const string sbucket = "vessel3-realclient-susp";
+    const string skey = "s.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = sbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = sbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        string v1Id, v2Id;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v1")))
+            v1Id = (await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" })).VersionId;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v2")))
+            v2Id = (await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" })).VersionId;
+
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = sbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Suspended },
+        });
+        string suspId;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("suspended-1")))
+            suspId = (await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" })).VersionId;
+        if (suspId != "null")
+            throw new InvalidOperationException($"Suspended PUT versionId '{suspId}' != 'null'");
+
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("suspended-2")))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" });
+
+        var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = sbucket });
+        var versions = lv.Versions ?? [];
+        var ids = versions.Select(v => v.VersionId).ToList();
+        var nullCount = ids.Count(id => id == "null");
+        if (nullCount != 1)
+            throw new InvalidOperationException($"expected exactly one 'null' version, got {nullCount} (ids: {string.Join(",", ids)})");
+        if (!ids.Contains(v1Id) || !ids.Contains(v2Id))
+            throw new InvalidOperationException($"Enabled-era versions lost; ids: {string.Join(",", ids)}");
+
+        using var got = await s3.GetObjectAsync(sbucket, skey);
+        using var sr = new StreamReader(got.ResponseStream);
+        var latestBody = await sr.ReadToEndAsync();
+        if (latestBody != "suspended-2")
+            throw new InvalidOperationException($"latest GET '{latestBody}' != 'suspended-2'");
+
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = sbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("v3")))
+            await s3.PutObjectAsync(new PutObjectRequest { BucketName = sbucket, Key = skey, InputStream = ms, ContentType = "text/plain" });
+
+        var lv2 = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = sbucket });
+        var ids2 = (lv2.Versions ?? []).Select(v => v.VersionId).ToList();
+        if (!ids2.Contains(v1Id) || !ids2.Contains(v2Id) || !ids2.Contains("null"))
+            throw new InvalidOperationException($"Re-enable lost prior versions; ids: {string.Join(",", ids2)}");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, sbucket);
+    }
+});
+
+await Run("PutTagging", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag1";
+    const string tkey = "obj.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("hi"));
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+        });
+
+        await s3.PutObjectTaggingAsync(new PutObjectTaggingRequest
+        {
+            BucketName = tbucket, Key = tkey,
+            Tagging = new Tagging
+            {
+                TagSet =
+                [
+                    new Tag { Key = "env", Value = "prod" },
+                    new Tag { Key = "team", Value = "platform" },
+                ],
+            },
+        });
+
+        var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
+        var dict = got.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (dict["env"] != "prod" || dict["team"] != "platform")
+            throw new InvalidOperationException("tag round-trip mismatch");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+await Run("GetTagging", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag2";
+    const string tkey = "obj.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("hi"));
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+        });
+
+        var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
+        if (got.Tagging.Count != 0)
+            throw new InvalidOperationException($"expected 0 tags initially, got {got.Tagging.Count}");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+await Run("DeleteTagging", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag3";
+    const string tkey = "obj.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("hi"));
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+        });
+        await s3.PutObjectTaggingAsync(new PutObjectTaggingRequest
+        {
+            BucketName = tbucket, Key = tkey,
+            Tagging = new Tagging { TagSet = [new Tag { Key = "a", Value = "1" }] },
+        });
+
+        await s3.DeleteObjectTaggingAsync(new DeleteObjectTaggingRequest { BucketName = tbucket, Key = tkey });
+        var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
+        if (got.Tagging.Count != 0)
+            throw new InvalidOperationException($"expected 0 tags after delete, got {got.Tagging.Count}");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+await Run("PutWithTaggingHeader", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag4";
+    const string tkey = "obj.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("hi"));
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+            TagSet = [new Tag { Key = "env", Value = "stg" }, new Tag { Key = "k 2", Value = "v 2" }],
+        });
+
+        var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
+        var dict = got.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (dict["env"] != "stg" || dict["k 2"] != "v 2")
+            throw new InvalidOperationException("x-amz-tagging header did not seed tags");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+await Run("CopyTaggingDirective", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag5";
+    const string srcKey = "src.txt";
+    const string dstCopy = "dst-copy.txt";
+    const string dstReplace = "dst-replace.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("hi")))
+        {
+            await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = tbucket, Key = srcKey, InputStream = ms, ContentType = "text/plain",
+                TagSet = [new Tag { Key = "origin", Value = "src" }],
+            });
+        }
+
+        await s3.CopyObjectAsync(new CopyObjectRequest
+        {
+            SourceBucket = tbucket, SourceKey = srcKey,
+            DestinationBucket = tbucket, DestinationKey = dstCopy,
+        });
+        var inherited = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = dstCopy });
+        var inhMap = inherited.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (inhMap.GetValueOrDefault("origin") != "src")
+            throw new InvalidOperationException($"default COPY did not inherit source tags (got {inherited.Tagging.Count})");
+
+        var copyReplaceReq = new CopyObjectRequest
+        {
+            SourceBucket = tbucket, SourceKey = srcKey,
+            DestinationBucket = tbucket, DestinationKey = dstReplace,
+            TagSet = [new Tag { Key = "origin", Value = "copy" }],
+        };
+        await s3.CopyObjectAsync(copyReplaceReq);
+        var replaced = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = dstReplace });
+        var repMap = replaced.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (repMap.GetValueOrDefault("origin") != "copy")
+            throw new InvalidOperationException($"REPLACE directive did not apply (got origin={repMap.GetValueOrDefault("origin")})");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+await Run("VersionedTagging", async () =>
+{
+    const string tbucket = "vessel3-realclient-tag6";
+    const string tkey = "obj.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = tbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = tbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+
+        string v1, v2;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("a")))
+        {
+            var p = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+                TagSet = [new Tag { Key = "ver", Value = "1" }],
+            });
+            v1 = p.VersionId;
+        }
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("b")))
+        {
+            var p = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = tbucket, Key = tkey, InputStream = ms, ContentType = "text/plain",
+                TagSet = [new Tag { Key = "ver", Value = "2" }],
+            });
+            v2 = p.VersionId;
+        }
+
+        await s3.PutObjectTaggingAsync(new PutObjectTaggingRequest
+        {
+            BucketName = tbucket, Key = tkey, VersionId = v1,
+            Tagging = new Tagging { TagSet = [new Tag { Key = "ver", Value = "1-edited" }] },
+        });
+
+        var gotV1 = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest
+        {
+            BucketName = tbucket, Key = tkey, VersionId = v1,
+        });
+        var v1Map = gotV1.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (v1Map["ver"] != "1-edited")
+            throw new InvalidOperationException($"v1 tags: got '{v1Map["ver"]}', expected '1-edited'");
+
+        var gotV2 = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest
+        {
+            BucketName = tbucket, Key = tkey, VersionId = v2,
+        });
+        var v2Map = gotV2.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        if (v2Map["ver"] != "2")
+            throw new InvalidOperationException($"v2 tags should be unchanged; got '{v2Map["ver"]}'");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, tbucket);
+    }
+});
+
+const string ckBucket = "vessel3-realclient-checksum";
+await s3.PutBucketAsync(new PutBucketRequest { BucketName = ckBucket });
+
+static string Crc32B64(byte[] data) =>
+    Convert.ToBase64String(BitConverter.GetBytes(System.IO.Hashing.Crc32.HashToUInt32(data)).Reverse().ToArray());
+static string Crc32CB64(byte[] data)
+{
+    uint c = 0xFFFFFFFFu;
+    foreach (var b in data)
+    {
+        c ^= b;
+        for (var i = 0; i < 8; i++)
+            c = (c & 1) != 0 ? (0x82F63B78u ^ (c >> 1)) : (c >> 1);
+    }
+    var v = c ^ 0xFFFFFFFFu;
+    var bytes = new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
+    return Convert.ToBase64String(bytes);
+}
+static string Sha1B64(byte[] data) => Convert.ToBase64String(SHA1.HashData(data));
+static string Sha256B64(byte[] data) => Convert.ToBase64String(SHA256.HashData(data));
+
+await Run("ChecksumCrc32", async () =>
+{
+    const string ckey = "checksum-crc32.txt";
+    var body = Encoding.UTF8.GetBytes("crc32 payload");
+    var put = new PutObjectRequest
+    {
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-crc32"] = Crc32B64(body);
+    await s3.PutObjectAsync(put);
+
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(head.ChecksumCRC32))
+        throw new InvalidOperationException("HEAD missing x-amz-checksum-crc32");
+
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(got.ChecksumCRC32))
+        throw new InvalidOperationException("GET missing x-amz-checksum-crc32");
+
+    await s3.DeleteObjectAsync(ckBucket, ckey);
+});
+
+await Run("ChecksumCrc32C", async () =>
+{
+    const string ckey = "checksum-crc32c.txt";
+    var body = Encoding.UTF8.GetBytes("crc32c payload");
+    var put = new PutObjectRequest
+    {
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-crc32c"] = Crc32CB64(body);
+    await s3.PutObjectAsync(put);
+
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(head.ChecksumCRC32C))
+        throw new InvalidOperationException("HEAD missing x-amz-checksum-crc32c");
+
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(got.ChecksumCRC32C))
+        throw new InvalidOperationException("GET missing x-amz-checksum-crc32c");
+
+    await s3.DeleteObjectAsync(ckBucket, ckey);
+});
+
+await Run("ChecksumSha1", async () =>
+{
+    const string ckey = "checksum-sha1.txt";
+    var body = Encoding.UTF8.GetBytes("sha1 payload");
+    var put = new PutObjectRequest
+    {
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-sha1"] = Sha1B64(body);
+    await s3.PutObjectAsync(put);
+
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(head.ChecksumSHA1))
+        throw new InvalidOperationException("HEAD missing x-amz-checksum-sha1");
+
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
+    if (string.IsNullOrEmpty(got.ChecksumSHA1))
+        throw new InvalidOperationException("GET missing x-amz-checksum-sha1");
+
+    await s3.DeleteObjectAsync(ckBucket, ckey);
+});
+
+await Run("ChecksumSha256Roundtrip", async () =>
+{
+    const string ckey = "checksum-sha256.txt";
+    var body = Encoding.UTF8.GetBytes("sha256 payload");
+    var expected = Sha256B64(body);
+    var put = new PutObjectRequest
+    {
+        BucketName = ckBucket, Key = ckey,
+        InputStream = new MemoryStream(body), ContentType = "text/plain",
+        DisableDefaultChecksumValidation = true,
+    };
+    put.Headers["x-amz-checksum-sha256"] = expected;
+    await s3.PutObjectAsync(put);
+
+    var head = await s3.GetObjectMetadataAsync(ckBucket, ckey);
+    if (head.ChecksumSHA256 != expected)
+        throw new InvalidOperationException($"HEAD sha256 '{head.ChecksumSHA256}' != expected '{expected}'");
+
+    using var got = await s3.GetObjectAsync(ckBucket, ckey);
+    if (got.ChecksumSHA256 != expected)
+        throw new InvalidOperationException($"GET sha256 '{got.ChecksumSHA256}' != expected '{expected}'");
+
+    await s3.DeleteObjectAsync(ckBucket, ckey);
+});
+
+await Run("MultipartCompositeChecksum", async () =>
+{
+    const string ckey = "checksum-multipart.bin";
+    var initiate = await s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+    {
+        BucketName = ckBucket, Key = ckey, ContentType = "application/octet-stream",
+        ChecksumAlgorithm = ChecksumAlgorithm.CRC32,
+    });
+
+    const int partSize = 5 * 1024 * 1024;
+    var rng = new Random(2024);
+    var etags = new List<PartETag>();
+    for (var i = 0; i < 2; i++)
+    {
+        var buf = new byte[partSize];
+        rng.NextBytes(buf);
+        using var ms = new MemoryStream(buf);
+        var partRes = await s3.UploadPartAsync(new UploadPartRequest
+        {
+            BucketName = ckBucket, Key = ckey, UploadId = initiate.UploadId,
+            PartNumber = i + 1, PartSize = partSize, InputStream = ms,
+            ChecksumAlgorithm = ChecksumAlgorithm.CRC32,
+        });
+        etags.Add(new PartETag(i + 1, partRes.ETag) { ChecksumCRC32 = partRes.ChecksumCRC32 });
+    }
+
+    var complete = await s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+    {
+        BucketName = ckBucket, Key = ckey, UploadId = initiate.UploadId, PartETags = etags,
+        ChecksumType = ChecksumType.COMPOSITE,
+    });
+    if (string.IsNullOrEmpty(complete.ChecksumCRC32))
+        throw new InvalidOperationException("CompleteMultipartUpload missing x-amz-checksum-crc32");
+    if (!complete.ChecksumCRC32.EndsWith("-2", StringComparison.Ordinal))
+        throw new InvalidOperationException($"composite checksum '{complete.ChecksumCRC32}' lacks '-2' suffix");
+
+    await s3.DeleteObjectAsync(ckBucket, ckey);
+});
+
+await s3.DeleteBucketAsync(ckBucket);
+
+await Run("ListEncodingTypeUrl", async () =>
+{
+    const string ebucket = "vessel3-realclient-encoding";
+    const string spaceKey = "dir one/file two.txt";
+    const string unicodeKey = "café/résumé.txt";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = ebucket });
+    try
+    {
+        foreach (var k in new[] { spaceKey, unicodeKey })
+        {
+            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("x"));
+            await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = ebucket, Key = k, InputStream = ms, ContentType = "text/plain",
+            });
+        }
+
+        var listed = await s3.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = ebucket,
+            Encoding = EncodingType.Url,
+        });
+        if (listed.Encoding != EncodingType.Url)
+            throw new InvalidOperationException("response did not echo EncodingType=url");
+
+        var keys = listed.S3Objects?.Select(o => Uri.UnescapeDataString(o.Key)).ToHashSet() ?? new HashSet<string>();
+        if (!keys.Contains(spaceKey))
+            throw new InvalidOperationException($"space key '{spaceKey}' did not round-trip; got [{string.Join(", ", keys)}]");
+        if (!keys.Contains(unicodeKey))
+            throw new InvalidOperationException($"unicode key '{unicodeKey}' did not round-trip; got [{string.Join(", ", keys)}]");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, ebucket);
+    }
+});
+
+await Run("ObjectLockRequiresVersioning", async () =>
+{
+    const string lbucket = "vessel3-realclient-lock-req";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        try
+        {
+            await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+            {
+                BucketName = lbucket,
+                ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration
+                {
+                    ObjectLockEnabled = ObjectLockEnabled.Enabled,
+                },
+            });
+            throw new InvalidOperationException("expected 409 InvalidBucketState when enabling Object Lock without versioning");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 409)
+        {
+        }
+    }
+    finally
+    {
+        try { await s3.DeleteBucketAsync(lbucket); } catch { /* ignore */ }
+    }
+});
+
+await Run("ObjectLockConfig", async () =>
+{
+    const string lbucket = "vessel3-realclient-lock-cfg";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration
+            {
+                ObjectLockEnabled = ObjectLockEnabled.Enabled,
+                Rule = new ObjectLockRule
+                {
+                    DefaultRetention = new DefaultRetention { Mode = ObjectLockRetentionMode.Governance, Days = 5 },
+                },
+            },
+        });
+        var got = await s3.GetObjectLockConfigurationAsync(new GetObjectLockConfigurationRequest { BucketName = lbucket });
+        if (got.ObjectLockConfiguration?.ObjectLockEnabled != ObjectLockEnabled.Enabled)
+            throw new InvalidOperationException("GetObjectLockConfiguration did not echo Enabled");
+        if (got.ObjectLockConfiguration.Rule?.DefaultRetention?.Days != 5)
+            throw new InvalidOperationException($"Default Days mismatch: got {got.ObjectLockConfiguration.Rule?.DefaultRetention?.Days}");
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
+await Run("RetentionGovernance", async () =>
+{
+    const string lbucket = "vessel3-realclient-ret-gov";
+    const string lkey = "g.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration { ObjectLockEnabled = ObjectLockEnabled.Enabled },
+        });
+
+        string vid;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("gov")))
+        {
+            var put = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = lbucket, Key = lkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+            vid = put.VersionId;
+        }
+
+        var until = DateTime.UtcNow.AddDays(10);
+        await s3.PutObjectRetentionAsync(new PutObjectRetentionRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+            Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Governance, RetainUntilDate = until },
+        });
+
+        var got = await s3.GetObjectRetentionAsync(new GetObjectRetentionRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+        });
+        if (got.Retention?.Mode != ObjectLockRetentionMode.Governance)
+            throw new InvalidOperationException($"retention mode mismatch: {got.Retention?.Mode}");
+
+        try
+        {
+            await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+            throw new InvalidOperationException("expected 403 AccessDenied for unretired GOVERNANCE delete");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
+        {
+        }
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
+await Run("RetentionCompliance", async () =>
+{
+    const string lbucket = "vessel3-realclient-ret-comp";
+    const string lkey = "c.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration { ObjectLockEnabled = ObjectLockEnabled.Enabled },
+        });
+
+        string vid;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("comp")))
+        {
+            var put = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = lbucket, Key = lkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+            vid = put.VersionId;
+        }
+
+        var until = DateTime.UtcNow.AddDays(10);
+        await s3.PutObjectRetentionAsync(new PutObjectRetentionRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+            Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Compliance, RetainUntilDate = until },
+        });
+
+        try
+        {
+            var lowerReq = new PutObjectRetentionRequest
+            {
+                BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true,
+                Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Compliance, RetainUntilDate = until.AddDays(-1) },
+            };
+            await s3.PutObjectRetentionAsync(lowerReq);
+            throw new InvalidOperationException("expected 403 lowering COMPLIANCE retention");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
+        {
+        }
+
+        try
+        {
+            var del = new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true };
+            await s3.DeleteObjectAsync(del);
+            throw new InvalidOperationException("expected 403 deleting COMPLIANCE-locked version");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
+        {
+        }
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
+await Run("BypassGovernanceDelete", async () =>
+{
+    const string lbucket = "vessel3-realclient-bypass";
+    const string lkey = "by.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration { ObjectLockEnabled = ObjectLockEnabled.Enabled },
+        });
+
+        string vid;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("bypass")))
+        {
+            var put = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = lbucket, Key = lkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+            vid = put.VersionId;
+        }
+
+        await s3.PutObjectRetentionAsync(new PutObjectRetentionRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+            Retention = new ObjectLockRetention { Mode = ObjectLockRetentionMode.Governance, RetainUntilDate = DateTime.UtcNow.AddDays(10) },
+        });
+
+        await s3.DeleteObjectAsync(new DeleteObjectRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true,
+        });
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
+await Run("LegalHold", async () =>
+{
+    const string lbucket = "vessel3-realclient-hold";
+    const string lkey = "h.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration { ObjectLockEnabled = ObjectLockEnabled.Enabled },
+        });
+
+        string vid;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("hold")))
+        {
+            var put = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = lbucket, Key = lkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+            vid = put.VersionId;
+        }
+
+        await s3.PutObjectLegalHoldAsync(new PutObjectLegalHoldRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+            LegalHold = new ObjectLockLegalHold { Status = ObjectLockLegalHoldStatus.On },
+        });
+
+        var got = await s3.GetObjectLegalHoldAsync(new GetObjectLegalHoldRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+        if (got.LegalHold?.Status != ObjectLockLegalHoldStatus.On)
+            throw new InvalidOperationException($"expected ON, got '{got.LegalHold?.Status}'");
+
+        try
+        {
+            await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+            throw new InvalidOperationException("expected 403 deleting legal-held version");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
+        {
+        }
+
+        await s3.PutObjectLegalHoldAsync(new PutObjectLegalHoldRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid,
+            LegalHold = new ObjectLockLegalHold { Status = ObjectLockLegalHoldStatus.Off },
+        });
+        await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
+await Run("DefaultRetentionAppliedOnPut", async () =>
+{
+    const string lbucket = "vessel3-realclient-def-ret";
+    const string lkey = "d.bin";
+    await s3.PutBucketAsync(new PutBucketRequest { BucketName = lbucket });
+    try
+    {
+        await s3.PutBucketVersioningAsync(new PutBucketVersioningRequest
+        {
+            BucketName = lbucket,
+            VersioningConfig = new S3BucketVersioningConfig { Status = Amazon.S3.VersionStatus.Enabled },
+        });
+        await s3.PutObjectLockConfigurationAsync(new PutObjectLockConfigurationRequest
+        {
+            BucketName = lbucket,
+            ObjectLockConfiguration = new Amazon.S3.Model.ObjectLockConfiguration
+            {
+                ObjectLockEnabled = ObjectLockEnabled.Enabled,
+                Rule = new ObjectLockRule
+                {
+                    DefaultRetention = new DefaultRetention { Mode = ObjectLockRetentionMode.Governance, Days = 3 },
+                },
+            },
+        });
+
+        string vid;
+        using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("default")))
+        {
+            var put = await s3.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = lbucket, Key = lkey, InputStream = ms, ContentType = "application/octet-stream",
+            });
+            vid = put.VersionId;
+        }
+
+        var got = await s3.GetObjectRetentionAsync(new GetObjectRetentionRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+        if (got.Retention?.Mode != ObjectLockRetentionMode.Governance)
+            throw new InvalidOperationException($"default retention not applied: mode {got.Retention?.Mode}");
+
+        try
+        {
+            await s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = lbucket, Key = lkey, VersionId = vid });
+            throw new InvalidOperationException("expected 403 deleting default-retention-locked version");
+        }
+        catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 403)
+        {
+        }
+
+        await s3.DeleteObjectAsync(new DeleteObjectRequest
+        {
+            BucketName = lbucket, Key = lkey, VersionId = vid, BypassGovernanceRetention = true,
+        });
+    }
+    finally
+    {
+        await DurabilityTester.CleanupBucket(s3, lbucket);
+    }
+});
+
 Console.WriteLine();
 Console.WriteLine("ALL GOOD");
 return 0;
-
 
 static async Task Run(string name, Func<Task> action)
 {

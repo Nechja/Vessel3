@@ -7,6 +7,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  unit:
+    runs-on: ubuntu-latest
+    name: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run unit tests
+        run: dotnet test Vessel3.Tests --nologo --logger "console;verbosity=normal"
+
   probe:
     runs-on: ubuntu-latest
     strategy:
