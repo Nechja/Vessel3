@@ -18,3 +18,4 @@ artifacts/
 !.editorconfig
 !.dockerignore
 !README.md
+!.gitattributes

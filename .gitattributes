@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.cs text eol=lf diff=csharp
+*.csproj text eol=lf
+*.sln text eol=crlf
+*.png binary
+*.woff2 binary
+
+Vessel3.Tests/** linguist-detectable=false
+Vessel3.RealClient/** linguist-detectable=false
+Vessel3.Bench/** linguist-detectable=false
+tests/** linguist-detectable=false
