@@ -258,9 +258,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             DateTimeOffset.UtcNow);
 
         var metaPath = Path.Combine(dir, "meta.json");
-        var tmp = metaPath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(meta, MultipartJsonContext.Default.UploadMeta));
-        File.Move(tmp, metaPath, overwrite: true);
+        DurableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, MultipartJsonContext.Default.UploadMeta));
 
         return new CreateUploadOutcome(uploadId);
     }
@@ -271,9 +269,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         Directory.CreateDirectory(partsDir);
         var name = part.Number.ToString("D5", CultureInfo.InvariantCulture) + ".json";
         var path = Path.Combine(partsDir, name);
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(part, MultipartJsonContext.Default.MultipartPart));
-        File.Move(tmp, path, overwrite: true);
+        DurableWrite.AtomicReplace(path, JsonSerializer.Serialize(part, MultipartJsonContext.Default.MultipartPart));
     }
 
     private static UploadMeta? ReadMeta(string uploadDir)

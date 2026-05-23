@@ -48,9 +48,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
             if (File.Exists(versioningPath)) File.Delete(versioningPath);
             return true;
         }
-        var tmp = versioningPath + ".tmp";
-        File.WriteAllText(tmp, status.ToString());
-        File.Move(tmp, versioningPath, overwrite: true);
+        DurableWrite.AtomicReplace(versioningPath, status.ToString());
         return true;
     }
 
@@ -62,9 +60,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
             return new InvalidBucketStateError("Object Lock cannot be disabled once enabled");
 
         ObjectLock = cfg;
-        var tmp = objectLockPath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
-        File.Move(tmp, objectLockPath, overwrite: true);
+        DurableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
         return true;
     }
 
