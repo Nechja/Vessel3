@@ -25,6 +25,10 @@ internal sealed record InvalidPathError(string Detail)
     : Error("InvalidPath", Detail)
 { public override int Status => 400; }
 
+internal sealed record InvalidBucketNameError(string Bucket)
+    : Error("InvalidBucketName", $"The specified bucket is not valid: {Bucket}")
+{ public override int Status => 400; }
+
 internal sealed record BucketNotEmptyError(string Bucket)
     : Error("BucketNotEmpty", $"Bucket {Bucket} is not empty")
 { public override int Status => 409; }
@@ -71,6 +75,10 @@ internal sealed record InvalidPartError(string Detail)
 
 internal sealed record InvalidPartOrderError(string Detail)
     : Error("InvalidPartOrder", Detail)
+{ public override int Status => 400; }
+
+internal sealed record EntityTooSmallError(int PartNumber, long Actual, long Minimum)
+    : Error("EntityTooSmall", $"part {PartNumber} is {Actual} bytes; minimum is {Minimum}")
 { public override int Status => 400; }
 
 internal sealed record InvalidTagError(string Detail)

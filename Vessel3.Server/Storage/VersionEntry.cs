@@ -23,7 +23,8 @@ internal sealed record PutRequest(
     string? Crc32C = null,
     string? Sha1 = null,
     Retention? Retention = null,
-    bool LegalHoldOn = false);
+    bool LegalHoldOn = false,
+    IReadOnlyDictionary<string, string>? SystemHeaders = null);
 
 internal sealed record PutEntry(
     string VersionId, DateTimeOffset At,
@@ -35,7 +36,8 @@ internal sealed record PutEntry(
     string? Crc32C = null,
     string? Sha1 = null,
     Retention? Retention = null,
-    bool LegalHoldOn = false)
+    bool LegalHoldOn = false,
+    IReadOnlyDictionary<string, string>? SystemHeaders = null)
     : VersionEntry(VersionId, At)
 {
     public string WireEtag => Parts is { } p ? $"{Md5}-{p.Count}" : Md5;

@@ -27,7 +27,8 @@ internal sealed record PutEvent(
     string? Sha1 = null,
     RetentionMode? RetentionMode = null,
     long? RetainUntilUnixSeconds = null,
-    bool LegalHoldOn = false)
+    bool LegalHoldOn = false,
+    IReadOnlyDictionary<string, string>? SystemHeaders = null)
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };

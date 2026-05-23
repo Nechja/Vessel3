@@ -10,37 +10,94 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     internal const int KindPut = 0;
     internal const int KindDeleteMarker = 1;
 
-    private SqliteConnection? conn;
+    private SqliteConnection? writeConn;
+    private SqliteConnection? readConn;
+    private SqliteTransaction? currentTx;
+    private readonly object readGate = new();
 
     public void Open()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
-        conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False");
-        conn.Open();
+        writeConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False");
+        writeConn.Open();
+        using (var pragma = writeConn.CreateCommand())
+        {
+            pragma.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
+            pragma.ExecuteNonQuery();
+        }
         EnsureSchema();
+
+        readConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
+        readConn.Open();
     }
 
     public void Dispose()
     {
-        conn?.Dispose();
-        conn = null;
+        readConn?.Dispose();
+        readConn = null;
+        writeConn?.Dispose();
+        writeConn = null;
+    }
+
+    public TxScope BeginTransaction()
+    {
+        var tx = writeConn!.BeginTransaction();
+        currentTx = tx;
+        return new TxScope(this, tx);
+    }
+
+    public sealed class TxScope : IDisposable
+    {
+        private readonly BucketIndex owner;
+        private readonly SqliteTransaction tx;
+        private bool committed;
+        internal TxScope(BucketIndex owner, SqliteTransaction tx) { this.owner = owner; this.tx = tx; }
+        public void Commit() { tx.Commit(); committed = true; }
+        public void Dispose()
+        {
+            if (!committed) tx.Rollback();
+            tx.Dispose();
+            if (ReferenceEquals(owner.currentTx, tx)) owner.currentTx = null;
+        }
+    }
+
+    private SqliteCommand WriteCmd()
+    {
+        var c = writeConn!.CreateCommand();
+        if (currentTx is not null) c.Transaction = currentTx;
+        return c;
+    }
+
+    private ReadHandle ReadCmd()
+    {
+        Monitor.Enter(readGate);
+        return new ReadHandle(readConn!.CreateCommand(), readGate);
+    }
+
+    internal readonly struct ReadHandle(SqliteCommand cmd, object gate) : IDisposable
+    {
+        public SqliteCommand Cmd { get; } = cmd;
+        private readonly object gate = gate;
+
+        public void Dispose() { Cmd.Dispose(); Monitor.Exit(gate); }
     }
 
     public long MaxSeq()
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = "SELECT COALESCE(MAX(seq), 0) FROM versions";
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     public void Insert(PutEvent ev)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
               (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json, tags_json,
-               crc32, crc32c, sha1, retention_mode, retain_until, legal_hold)
-            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj, $tj, $c32, $c32c, $s1, $rm, $ru, $lh)
+               crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers)
+            VALUES ($s, $k, $v, $b, $m, $kd, $sz, $ct, $at, $mj, $pj, $tj, $c32, $c32c, $s1, $rm, $ru, $lh, $sh)
             """;
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
@@ -62,12 +119,13 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$ru",
             (object?)ev.RetainUntilUnixSeconds ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lh", ev.LegalHoldOn ? 1 : 0);
+        cmd.Parameters.AddWithValue("$sh", SerializeMetadata(ev.SystemHeaders ?? new Dictionary<string, string>()));
         cmd.ExecuteNonQuery();
     }
 
     public void UpdateTags(string key, string versionId, IReadOnlyDictionary<string, string> tags)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = "UPDATE versions SET tags_json = $tj WHERE key = $k AND version_id = $v AND kind = $kp";
         cmd.Parameters.AddWithValue("$tj", SerializeMetadata(tags));
         cmd.Parameters.AddWithValue("$k", key);
@@ -78,7 +136,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public int? GetVersionKind(string key, string versionId)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = "SELECT kind FROM versions WHERE key = $k AND version_id = $v LIMIT 1";
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
@@ -88,7 +147,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public int? GetCurrentKind(string key)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = """
             SELECT kind FROM versions WHERE key = $k ORDER BY seq DESC LIMIT 1
             """;
@@ -99,7 +159,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void Insert(DeleteMarkerEvent ev)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = """
             INSERT OR IGNORE INTO versions
               (seq, key, version_id, blob_sha, md5, kind, size, content_type, at_ms, md_json, parts_json, tags_json,
@@ -116,7 +176,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void Remove(string key, string versionId)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = "DELETE FROM versions WHERE key = $k AND version_id = $v";
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
@@ -125,10 +185,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public Result<PutEntry?> GetVersion(string key, string versionId)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = """
             SELECT version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
-                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers
               FROM versions
              WHERE key = $k AND version_id = $v AND kind = $kp
              LIMIT 1
@@ -152,13 +213,15 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Crc32C: NullIfEmpty(r.GetString(10)),
                 Sha1: NullIfEmpty(r.GetString(11)),
                 Retention: ReadRetention(r, 12, 13),
-                LegalHoldOn: ReadLegalHold(r, 14))
+                LegalHoldOn: ReadLegalHold(r, 14),
+                SystemHeaders: ReadSystemHeaders(r, 15))
             : (PutEntry?)null;
     }
 
     public string? LatestVersionId(string key)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = """
             SELECT version_id FROM versions
              WHERE key = $k
@@ -172,10 +235,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public Result<PutEntry?> GetCurrentPut(string key)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = """
             SELECT kind, version_id, blob_sha, md5, size, content_type, at_ms, md_json, parts_json, tags_json,
-                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold
+                   crc32, crc32c, sha1, retention_mode, retain_until, legal_hold, system_headers
               FROM versions
              WHERE key = $k
              ORDER BY seq DESC
@@ -199,7 +263,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Crc32C: NullIfEmpty(r.GetString(11)),
                 Sha1: NullIfEmpty(r.GetString(12)),
                 Retention: ReadRetention(r, 13, 14),
-                LegalHoldOn: ReadLegalHold(r, 15));
+                LegalHoldOn: ReadLegalHold(r, 15),
+                SystemHeaders: ReadSystemHeaders(r, 16));
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
@@ -210,12 +275,20 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 ? null
                 : new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(untilCol)));
 
+    private IReadOnlyDictionary<string, string>? ReadSystemHeaders(Microsoft.Data.Sqlite.SqliteDataReader r, int col)
+    {
+        if (r.IsDBNull(col)) return null;
+        var dict = DeserializeMetadata(r.GetString(col));
+        return dict.Count is 0 ? null : dict;
+    }
+
     private static bool ReadLegalHold(Microsoft.Data.Sqlite.SqliteDataReader r, int col) =>
         !r.IsDBNull(col) && r.GetInt64(col) is 1;
 
     public (List<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         var sql = """
             SELECT key, version_id, kind, md5, size, at_ms, parts_json
               FROM versions
@@ -259,7 +332,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public List<VersionListEntry> ListCurrent(string? prefix, string? startAfter)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         var sql = """
             SELECT v1.key, v1.version_id, v1.blob_sha, v1.md5, v1.size, v1.content_type, v1.at_ms, v1.md_json, v1.parts_json
               FROM versions v1
@@ -323,7 +397,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public bool IsEmpty()
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = "SELECT 1 FROM versions LIMIT 1";
         using var r = cmd.ExecuteReader();
         return !r.Read();
@@ -331,10 +406,16 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public IEnumerable<string> ReferencedBlobs()
     {
-        using var cmd = conn!.CreateCommand();
-        cmd.CommandText = "SELECT DISTINCT blob_sha FROM versions WHERE blob_sha <> ''";
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) yield return r.GetString(0);
+        List<string> shas;
+        using (var rh = ReadCmd())
+        {
+            var cmd = rh.Cmd;
+            cmd.CommandText = "SELECT DISTINCT blob_sha FROM versions WHERE blob_sha <> ''";
+            using var r = cmd.ExecuteReader();
+            shas = [];
+            while (r.Read()) shas.Add(r.GetString(0));
+        }
+        return shas;
     }
 
     private string EscapeLike(string s) =>
@@ -344,7 +425,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     private void EnsureSchema()
     {
-        using var pragma = conn!.CreateCommand();
+        using var pragma = writeConn!.CreateCommand();
         pragma.CommandText = """
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
@@ -352,7 +433,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         pragma.ExecuteNonQuery();
 
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS versions (
                 seq           INTEGER PRIMARY KEY,
@@ -372,7 +453,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 sha1          TEXT NOT NULL DEFAULT '',
                 retention_mode TEXT,
                 retain_until  INTEGER,
-                legal_hold    INTEGER
+                legal_hold    INTEGER,
+                system_headers TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
@@ -381,25 +463,31 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
         if (!HasColumn("versions", "tags_json"))
         {
-            using var alter = conn!.CreateCommand();
+            using var alter = writeConn!.CreateCommand();
             alter.CommandText = "ALTER TABLE versions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'";
             alter.ExecuteNonQuery();
         }
         foreach (var col in new[] { "crc32", "crc32c", "sha1" })
         {
             if (HasColumn("versions", col)) continue;
-            using var add = conn!.CreateCommand();
+            using var add = writeConn!.CreateCommand();
             add.CommandText = $"ALTER TABLE versions ADD COLUMN {col} TEXT NOT NULL DEFAULT ''";
             add.ExecuteNonQuery();
         }
         AddColumnIfMissing("retention_mode", "TEXT");
         AddColumnIfMissing("retain_until", "INTEGER");
         AddColumnIfMissing("legal_hold", "INTEGER");
+        if (!HasColumn("versions", "system_headers"))
+        {
+            using var alter = writeConn!.CreateCommand();
+            alter.CommandText = "ALTER TABLE versions ADD COLUMN system_headers TEXT NOT NULL DEFAULT '{}'";
+            alter.ExecuteNonQuery();
+        }
     }
 
     private bool HasColumn(string table, string column)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = $"PRAGMA table_info({table})";
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -412,14 +500,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     private void AddColumnIfMissing(string name, string type)
     {
         if (HasColumn("versions", name)) return;
-        using var alter = conn!.CreateCommand();
+        using var alter = writeConn!.CreateCommand();
         alter.CommandText = $"ALTER TABLE versions ADD COLUMN {name} {type}";
         alter.ExecuteNonQuery();
     }
 
     public void ApplyRetention(string key, string versionId, RetentionMode mode, long retainUntilUnixSeconds)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = """
             UPDATE versions
                SET retention_mode = $rm, retain_until = $ru
@@ -434,7 +522,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void ApplyLegalHold(string key, string versionId, bool on)
     {
-        using var cmd = conn!.CreateCommand();
+        using var cmd = WriteCmd();
         cmd.CommandText = """
             UPDATE versions
                SET legal_hold = $lh
@@ -448,7 +536,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public (Retention? Retention, bool LegalHoldOn) GetLock(string key, string versionId)
     {
-        using var cmd = conn!.CreateCommand();
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
         cmd.CommandText = """
             SELECT retention_mode, retain_until, legal_hold
               FROM versions
