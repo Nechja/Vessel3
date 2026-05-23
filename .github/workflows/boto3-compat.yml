@@ -1,0 +1,62 @@
+name: boto3 compat
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  boto3:
+    runs-on: ubuntu-latest
+    name: boto3 compat
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Build server
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Start server
+        env:
+          VESSEL3_DATA: /tmp/vessel3-data
+          VESSEL3_ACCESS_KEY: AKIATEST
+          VESSEL3_SECRET_KEY: secretkey1234567890
+        run: |
+          mkdir -p /tmp/vessel3-data
+          nohup dotnet run --project Vessel3.Server -c Release --no-launch-profile -- --urls http://127.0.0.1:9000 \
+            > /tmp/vessel3-server.log 2>&1 &
+          echo $! > /tmp/vessel3.pid
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/)" != "000" ]; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not start in 30s"
+          exit 1
+
+      - name: Run boto3 compat suite
+        env:
+          VESSEL3_ENDPOINT: http://127.0.0.1:9000
+          VESSEL3_ACCESS_KEY: AKIATEST
+          VESSEL3_SECRET_KEY: secretkey1234567890
+        run: uv run --with 'boto3>=1.34' tests/compat/suite.py
+
+      - name: Server log on failure
+        if: failure()
+        run: tail -300 /tmp/vessel3-server.log || true
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/vessel3.pid ]; then kill "$(cat /tmp/vessel3.pid)" 2>/dev/null || true; fi
