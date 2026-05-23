@@ -160,9 +160,18 @@ internal sealed class Bucket(string name, string path) : IDisposable
 
                 case VersioningStatus.Suspended:
                 {
-                    if (LatestVersionId(key) is "null")
-                        log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")).ApplyTo(Index);
-                    log.Append(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null")).ApplyTo(Index);
+                    HardDeleteEvent? hd = LatestVersionId(key) is "null"
+                        ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
+                        : null;
+                    var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
+                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
+                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    using (var tx = Index.BeginTransaction())
+                    {
+                        assignedHd?.ApplyTo(Index);
+                        assignedMarker.ApplyTo(Index);
+                        tx.Commit();
+                    }
                     return new DeleteOutcome("null", IsDeleteMarker: true, Found: true);
                 }
 
