@@ -3,7 +3,23 @@ name: boto3 compat
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
   workflow_dispatch:
 
 jobs:

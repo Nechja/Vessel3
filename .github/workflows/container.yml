@@ -4,8 +4,24 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
