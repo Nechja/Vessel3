@@ -52,12 +52,21 @@ else
 }
 builder.Services.AddSingleton<SigV4Middleware>();
 
+var metricsToken = Environment.GetEnvironmentVariable("VESSEL3_METRICS_TOKEN");
+var metricsAllowAnonymous = (Environment.GetEnvironmentVariable("VESSEL3_METRICS_ALLOW_ANONYMOUS") ?? "")
+    .Equals("true", StringComparison.OrdinalIgnoreCase);
+
 var app = builder.Build();
 
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.Equals("/metrics", StringComparison.Ordinal))
     {
+        if (!MetricsRequestAuthorized(ctx, metricsToken, metricsAllowAnonymous))
+        {
+            ctx.Response.StatusCode = 404;
+            return;
+        }
         var sb = new StringBuilder(4096);
         Metrics.Render(sb);
         ctx.Response.ContentType = Metrics.ContentType;
@@ -765,6 +774,24 @@ app.MapDelete("/{bucket}/{**key}", (
 });
 
 app.Run();
+
+static bool MetricsRequestAuthorized(HttpContext ctx, string? token, bool allowAnonymous)
+{
+    if (allowAnonymous) return true;
+
+    var remote = ctx.Connection.RemoteIpAddress;
+    var fromLoopback = remote is not null && System.Net.IPAddress.IsLoopback(remote);
+    if (fromLoopback && string.IsNullOrEmpty(token)) return true;
+    if (string.IsNullOrEmpty(token)) return false;
+
+    var auth = ctx.Request.Headers.Authorization.ToString();
+    const string prefix = "Bearer ";
+    if (!auth.StartsWith(prefix, StringComparison.Ordinal)) return fromLoopback;
+    var presented = auth[prefix.Length..];
+    var a = System.Text.Encoding.UTF8.GetBytes(presented);
+    var b = System.Text.Encoding.UTF8.GetBytes(token);
+    return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(a, b);
+}
 
 static ChecksumSet? ParseDeclaredChecksums(IHeaderDictionary headers)
 {

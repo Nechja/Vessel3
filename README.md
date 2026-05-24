@@ -68,6 +68,8 @@ All via environment variables. No config file.
 | `VESSEL3_ACCESS_KEY` | unset → auth disabled | SigV4 access key id. |
 | `VESSEL3_SECRET_KEY` | unset → auth disabled | SigV4 secret. |
 | `VESSEL3_REGION` | `us-east-1` | Region string used for SigV4 verification. |
+| `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
+| `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
 
 The listen address comes from Kestrel's `--urls` flag in the usual ASP.NET way.
 
