@@ -105,6 +105,14 @@ internal sealed record NoSuchObjectLockConfigurationError(string Resource)
     : Error("NoSuchObjectLockConfiguration", $"No object lock configuration for {Resource}")
 { public override int Status => 404; }
 
+internal sealed record NoSuchLifecycleConfigurationError(string Bucket)
+    : Error("NoSuchLifecycleConfiguration", $"The lifecycle configuration does not exist for {Bucket}")
+{ public override int Status => 404; }
+
+internal sealed record InvalidArgumentError(string Detail)
+    : Error("InvalidArgument", Detail)
+{ public override int Status => 400; }
+
 internal sealed record AccessDeniedError(string Detail)
     : Error("AccessDenied", Detail)
 { public override int Status => 403; }

@@ -37,6 +37,10 @@ public class BucketListerTests
         public Result<bool> SetVersioning(string bucket, VersioningStatus status) => true;
         public Result<ObjectLockConfig?> GetObjectLock(string bucket) => (ObjectLockConfig?)null;
         public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) => true;
+        public Result<LifecycleConfig?> GetLifecycle(string bucket) => (LifecycleConfig?)null;
+        public Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg) => true;
+        public Result<bool> RemoveLifecycle(string bucket) => true;
+        public IEnumerable<Bucket> OpenBuckets() => [];
         public Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => throw new NotImplementedException();
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => (Retention?)null;
         public Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on) => throw new NotImplementedException();

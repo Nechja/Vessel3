@@ -30,6 +30,10 @@ internal interface IBucketRegistry : IDisposable
     int? GetVersionKind(string bucket, string key, string versionId);
     Result<ObjectLockConfig?> GetObjectLock(string bucket);
     Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg);
+    Result<LifecycleConfig?> GetLifecycle(string bucket);
+    Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg);
+    Result<bool> RemoveLifecycle(string bucket);
+    IEnumerable<Bucket> OpenBuckets();
     Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
     Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on);
@@ -120,6 +124,27 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? b.SetObjectLock(cfg)
         : (Result<bool>)new NoSuchBucketError(bucket);
+
+    public Result<LifecycleConfig?> GetLifecycle(string bucket) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? b.Lifecycle
+        : (Result<LifecycleConfig?>)new NoSuchBucketError(bucket);
+
+    public Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? b.SetLifecycle(cfg)
+        : (Result<bool>)new NoSuchBucketError(bucket);
+
+    public Result<bool> RemoveLifecycle(string bucket) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? b.RemoveLifecycle()
+        : (Result<bool>)new NoSuchBucketError(bucket);
+
+    public IEnumerable<Bucket> OpenBuckets()
+    {
+        foreach (var info in List())
+            if (Open(info.Name) is { } b) yield return b;
+    }
 
     public Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
         OnKey<bool>(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));

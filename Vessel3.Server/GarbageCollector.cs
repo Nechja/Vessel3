@@ -7,6 +7,7 @@ internal sealed record GcReport(int BlobsDeleted, int UploadsReaped);
 
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(GcReport))]
+[JsonSerializable(typeof(LifecycleReport))]
 internal sealed partial class AdminJsonContext : JsonSerializerContext;
 
 internal interface IGarbageCollector

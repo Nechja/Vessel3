@@ -37,6 +37,14 @@ builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IMultipartStore, MultipartStore>();
 builder.Services.AddSingleton<IGarbageCollector, GarbageCollector>();
+builder.Services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
+
+var lifecycleIntervalSec = long.TryParse(
+    Environment.GetEnvironmentVariable("VESSEL3_LIFECYCLE_INTERVAL_SECONDS"),
+    NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLcSec)
+    ? parsedLcSec : 3600;
+builder.Services.AddSingleton(new LifecycleServiceOptions(TimeSpan.FromSeconds(lifecycleIntervalSec)));
+builder.Services.AddHostedService<LifecycleService>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
@@ -111,6 +119,20 @@ app.MapPut("/_admin/gc", async (
     await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.GcReport, ct);
 });
 
+app.MapPut("/_admin/lifecycle", async (
+    HttpRequest req, HttpResponse res,
+    ILifecycleSweeper sweeper,
+    CancellationToken ct) =>
+{
+    var now = DateTimeOffset.UtcNow;
+    if (req.Query.TryGetValue("now", out var nowRaw)
+        && DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        now = parsed;
+    var report = sweeper.Run(now);
+    res.ContentType = "application/json";
+    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.LifecycleReport, ct);
+});
+
 app.MapGet("/{bucket}", async (
     string bucket,
     [FromQuery(Name = "prefix")] string? prefix,
@@ -182,6 +204,19 @@ app.MapGet("/{bucket}", async (
             err => Task.FromResult(http.Map(err)));
     }
 
+    if (req.Query.ContainsKey("lifecycle"))
+    {
+        return await registry.GetLifecycle(bucket).Match<Task<IResult>>(
+            async cfg =>
+            {
+                if (cfg is null) return http.Map(new NoSuchLifecycleConfigurationError(bucket));
+                res.ContentType = "application/xml";
+                await xml.WriteLifecycleConfiguration(res.Body, cfg, ct);
+                return Results.Empty;
+            },
+            err => Task.FromResult(http.Map(err)));
+    }
+
     if (req.Query.ContainsKey("versions"))
     {
         var keyMarker = Nullify(req.Query["key-marker"].ToString());
@@ -237,15 +272,25 @@ app.MapPut("/{bucket}", async (
             http.Map);
     }
 
+    if (req.Query.ContainsKey("lifecycle"))
+    {
+        var parsed = await reader.ReadLifecycleConfiguration(req.Body, ct);
+        if (parsed is Result<LifecycleConfig>.Failure pf) return http.Map(pf.Error);
+        var cfg = ((Result<LifecycleConfig>.Success)parsed).Value;
+        return registry.SetLifecycle(bucket, cfg).Match<IResult>(
+            _ => Results.Ok(),
+            http.Map);
+    }
+
     return registry.Create(bucket).Match<IResult>(
         _ => Results.Ok(),
         http.Map);
 });
 
-app.MapDelete("/{bucket}", (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
-    registry.Delete(bucket).Match<IResult>(
-        _ => Results.NoContent(),
-        http.Map));
+app.MapDelete("/{bucket}", (string bucket, HttpRequest req, IBucketRegistry registry, IHttpResultMapper http) =>
+    req.Query.ContainsKey("lifecycle")
+        ? registry.RemoveLifecycle(bucket).Match<IResult>(_ => Results.NoContent(), http.Map)
+        : registry.Delete(bucket).Match<IResult>(_ => Results.NoContent(), http.Map));
 
 app.MapPost("/{bucket}", async (
     string bucket,

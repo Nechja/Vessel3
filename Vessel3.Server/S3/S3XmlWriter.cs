@@ -24,6 +24,7 @@ internal interface IS3XmlWriter
     Task WriteObjectAttributes(Stream output, ObjectAttributesRequest req, CancellationToken ct);
     Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct);
     Task WriteObjectLockConfiguration(Stream output, ObjectLockConfig cfg, CancellationToken ct);
+    Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct);
     Task WriteRetention(Stream output, Retention retention, CancellationToken ct);
     Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
 }
@@ -460,6 +461,34 @@ internal sealed class S3XmlWriter : IS3XmlWriter
                 await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
             if (def.Years is { } y)
                 await w.WriteElementStringAsync(null, "Years", null, y.ToString(CultureInfo.InvariantCulture));
+            await w.WriteEndElementAsync();
+            await w.WriteEndElementAsync();
+        }
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "LifecycleConfiguration", S3Namespace);
+        foreach (var rule in cfg.Rules)
+        {
+            await w.WriteStartElementAsync(null, "Rule", null);
+            if (!string.IsNullOrEmpty(rule.Id))
+                await w.WriteElementStringAsync(null, "ID", null, rule.Id);
+            await w.WriteStartElementAsync(null, "Filter", null);
+            await w.WriteElementStringAsync(null, "Prefix", null, rule.Prefix);
+            await w.WriteEndElementAsync();
+            await w.WriteElementStringAsync(null, "Status", null, rule.Enabled ? "Enabled" : "Disabled");
+            await w.WriteStartElementAsync(null, "Expiration", null);
+            if (rule.ExpirationDays is { } d)
+                await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
+            if (rule.ExpiredObjectDeleteMarker)
+                await w.WriteElementStringAsync(null, "ExpiredObjectDeleteMarker", null, "true");
             await w.WriteEndElementAsync();
             await w.WriteEndElementAsync();
         }

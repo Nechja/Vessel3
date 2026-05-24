@@ -10,6 +10,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
     private readonly VersionLog log = new(Path.Combine(path, "log"));
     private readonly string versioningPath = Path.Combine(path, "versioning.txt");
     private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
+    private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
     private readonly Lock writeGate = new();
 
     public string Name { get; } = name;
@@ -17,6 +18,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
     public DateTimeOffset CreatedAt { get; private set; }
     public VersioningStatus Versioning { get; private set; }
     public ObjectLockConfig? ObjectLock { get; private set; }
+    public LifecycleConfig? Lifecycle { get; private set; }
 
     public void Open()
     {
@@ -24,6 +26,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
         CreatedAt = Directory.GetCreationTimeUtc(path);
         Versioning = ReadVersioning();
         ObjectLock = ReadObjectLock();
+        Lifecycle = ReadLifecycle();
 
         var maxSeq = Index.MaxSeq();
         foreach (var ev in log.Replay())
@@ -73,6 +76,82 @@ internal sealed class Bucket(string name, string path) : IDisposable
         File.Exists(objectLockPath)
             ? JsonSerializer.Deserialize(File.ReadAllText(objectLockPath), ObjectLockJsonContext.Default.ObjectLockConfig)
             : null;
+
+    public Result<bool> SetLifecycle(LifecycleConfig cfg)
+    {
+        Lifecycle = cfg;
+        DurableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
+        return true;
+    }
+
+    public Result<bool> RemoveLifecycle()
+    {
+        Lifecycle = null;
+        if (File.Exists(lifecyclePath)) File.Delete(lifecyclePath);
+        return true;
+    }
+
+    private LifecycleConfig? ReadLifecycle() =>
+        File.Exists(lifecyclePath)
+            ? JsonSerializer.Deserialize(File.ReadAllText(lifecyclePath), LifecycleJsonContext.Default.LifecycleConfig)
+            : null;
+
+    public bool ExpireCurrentVersion(string key, string expectedCurrentVersionId, DateTimeOffset expectedAt)
+    {
+        lock (writeGate)
+        {
+            if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } cur }) return false;
+            if (cur.VersionId != expectedCurrentVersionId) return false;
+            if (cur.At != expectedAt) return false;
+
+            var (ret, hold) = Index.GetLock(key, cur.VersionId);
+            if (hold) return false;
+            if (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow) return false;
+
+            switch (Versioning)
+            {
+                case VersioningStatus.Enabled:
+                {
+                    var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, Ulid.NewUlid().ToString());
+                    log.Append(marker).ApplyTo(Index);
+                    return true;
+                }
+                case VersioningStatus.Suspended:
+                {
+                    HardDeleteEvent? hd = LatestVersionId(key) is "null"
+                        ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
+                        : null;
+                    var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
+                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
+                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    using var tx = Index.BeginTransaction();
+                    assignedHd?.ApplyTo(Index);
+                    assignedMarker.ApplyTo(Index);
+                    tx.Commit();
+                    return true;
+                }
+                default:
+                {
+                    log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, cur.VersionId)).ApplyTo(Index);
+                    return true;
+                }
+            }
+        }
+    }
+
+    public bool ReapExpiredDeleteMarker(string key, string markerVersionId)
+    {
+        lock (writeGate)
+        {
+            var latest = Index.LatestVersionId(key);
+            if (latest != markerVersionId) return false;
+            if (Index.GetCurrentKind(key) is not BucketIndex.KindDeleteMarker) return false;
+            if (Index.CountVersions(key) != 1) return false;
+
+            log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, markerVersionId)).ApplyTo(Index);
+            return true;
+        }
+    }
 
     public PutEntry AppendPut(string key, PutRequest req)
     {
