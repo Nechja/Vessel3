@@ -11,8 +11,14 @@ import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
+import json
+import urllib.parse
+
 import boto3
+from botocore.auth import S3SigV4Auth
+from botocore.awsrequest import AWSRequest
 from botocore.client import Config
+from botocore.credentials import Credentials
 from botocore.exceptions import ClientError
 
 ENDPOINT = os.environ.get("VESSEL3_ENDPOINT", "http://127.0.0.1:9000")
@@ -884,6 +890,298 @@ def _():
     c.put_object(Bucket=BSV, Key="o", Body=b"v2")
     r = c.list_object_versions(Bucket=BSV, Prefix="o")
     assert len(r.get("Versions", [])) >= 1, r
+
+
+section("Lifecycle")
+
+
+def _admin_request(method, path, query=None, body=b""):
+    qs = "?" + urllib.parse.urlencode(query) if query else ""
+    url = f"{ENDPOINT}{path}{qs}"
+    req = AWSRequest(method=method, url=url, data=body)
+    S3SigV4Auth(Credentials(AK, SK), "s3", REGION).add_auth(req)
+    headers = dict(req.headers.items())
+    return urllib.request.Request(url, data=body or None, method=method, headers=headers)
+
+
+def run_lifecycle_sweep(now_dt):
+    req = _admin_request("PUT", "/_admin/lifecycle", {"now": now_dt.isoformat().replace("+00:00", "Z")})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read().decode())
+
+
+BLC = f"v3lc-{uuid.uuid4().hex[:8]}"
+c.create_bucket(Bucket=BLC)
+c.put_bucket_versioning(Bucket=BLC, VersioningConfiguration={"Status": "Enabled"})
+
+
+@test("put_then_get_lifecycle_round_trips")
+def _():
+    cfg = {
+        "Rules": [
+            {
+                "ID": "logs-30d",
+                "Filter": {"Prefix": "logs/"},
+                "Status": "Enabled",
+                "Expiration": {"Days": 30},
+            },
+            {
+                "ID": "marker-reap",
+                "Filter": {"Prefix": ""},
+                "Status": "Enabled",
+                "Expiration": {"ExpiredObjectDeleteMarker": True},
+            },
+        ]
+    }
+    c.put_bucket_lifecycle_configuration(Bucket=BLC, LifecycleConfiguration=cfg)
+    r = c.get_bucket_lifecycle_configuration(Bucket=BLC)
+    rules = r["Rules"]
+    assert len(rules) == 2, rules
+    by_id = {x["ID"]: x for x in rules}
+    assert by_id["logs-30d"]["Expiration"]["Days"] == 30
+    assert by_id["logs-30d"]["Filter"]["Prefix"] == "logs/"
+    assert by_id["marker-reap"]["Expiration"]["ExpiredObjectDeleteMarker"] is True
+
+
+@test("delete_lifecycle_then_get_returns_404")
+def _():
+    BX = f"v3lc-del-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": ""}, "Status": "Enabled", "Expiration": {"Days": 1}}]
+        },
+    )
+    c.delete_bucket_lifecycle(Bucket=BX)
+    try:
+        c.get_bucket_lifecycle_configuration(Bucket=BX)
+        raise AssertionError("expected NoSuchLifecycleConfiguration")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] == "NoSuchLifecycleConfiguration", e.response
+
+
+@test("transition_rule_rejected_as_invalid_argument")
+def _():
+    try:
+        c.put_bucket_lifecycle_configuration(
+            Bucket=BLC,
+            LifecycleConfiguration={
+                "Rules": [{
+                    "ID": "tier",
+                    "Filter": {"Prefix": ""},
+                    "Status": "Enabled",
+                    "Transitions": [{"Days": 30, "StorageClass": "GLACIER"}],
+                    "Expiration": {"Days": 365},
+                }],
+            },
+        )
+        raise AssertionError("expected InvalidArgument")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] == "InvalidArgument", e.response
+
+
+@test("tag_filter_rejected_as_invalid_argument")
+def _():
+    try:
+        c.put_bucket_lifecycle_configuration(
+            Bucket=BLC,
+            LifecycleConfiguration={
+                "Rules": [{
+                    "ID": "tag",
+                    "Filter": {"Tag": {"Key": "x", "Value": "y"}},
+                    "Status": "Enabled",
+                    "Expiration": {"Days": 1},
+                }],
+            },
+        )
+        raise AssertionError("expected InvalidArgument")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] == "InvalidArgument", e.response
+
+
+@test("abort_multipart_rule_rejected_as_invalid_argument")
+def _():
+    try:
+        c.put_bucket_lifecycle_configuration(
+            Bucket=BLC,
+            LifecycleConfiguration={
+                "Rules": [{
+                    "ID": "abort",
+                    "Filter": {"Prefix": ""},
+                    "Status": "Enabled",
+                    "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7},
+                    "Expiration": {"Days": 1},
+                }],
+            },
+        )
+        raise AssertionError("expected InvalidArgument")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] == "InvalidArgument", e.response
+
+
+@test("expire_current_on_versioned_bucket_yields_delete_marker")
+def _():
+    BX = f"v3lc-exp-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_versioning(Bucket=BX, VersioningConfiguration={"Status": "Enabled"})
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": "logs/"}, "Status": "Enabled", "Expiration": {"Days": 7}}]
+        },
+    )
+    put_v = c.put_object(Bucket=BX, Key="logs/a.txt", Body=b"x")["VersionId"]
+    c.put_object(Bucket=BX, Key="keep/a.txt", Body=b"x")
+
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=14)
+    report = run_lifecycle_sweep(future)
+    assert report["Expired"] >= 1, report
+
+    try:
+        c.head_object(Bucket=BX, Key="logs/a.txt")
+        raise AssertionError("expected 404 (delete marker)")
+    except ClientError as e:
+        assert e.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+    vrs = c.list_object_versions(Bucket=BX, Prefix="logs/a.txt")
+    assert vrs.get("DeleteMarkers"), vrs
+    assert any(v["VersionId"] == put_v for v in vrs.get("Versions", [])), vrs
+
+    c.head_object(Bucket=BX, Key="keep/a.txt")
+
+
+@test("expire_current_on_unversioned_bucket_hard_deletes")
+def _():
+    BX = f"v3lc-unv-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": ""}, "Status": "Enabled", "Expiration": {"Days": 1}}]
+        },
+    )
+    c.put_object(Bucket=BX, Key="k", Body=b"x")
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3)
+    report = run_lifecycle_sweep(future)
+    assert report["Expired"] >= 1, report
+    try:
+        c.head_object(Bucket=BX, Key="k")
+        raise AssertionError("expected 404")
+    except ClientError as e:
+        assert e.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+
+@test("object_lock_retention_blocks_expiration")
+def _():
+    BX = f"v3lc-lock-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX, ObjectLockEnabledForBucket=True)
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": ""}, "Status": "Enabled", "Expiration": {"Days": 1}}]
+        },
+    )
+    until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=30)
+    c.put_object(
+        Bucket=BX, Key="locked", Body=b"x",
+        ObjectLockMode="COMPLIANCE",
+        ObjectLockRetainUntilDate=until,
+    )
+
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=10)
+    run_lifecycle_sweep(future)
+    c.head_object(Bucket=BX, Key="locked")
+
+
+@test("expired_object_delete_marker_reaps_lone_marker")
+def _():
+    BX = f"v3lc-eodm-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_versioning(Bucket=BX, VersioningConfiguration={"Status": "Enabled"})
+
+    v = c.put_object(Bucket=BX, Key="k", Body=b"x")["VersionId"]
+    c.delete_object(Bucket=BX, Key="k", VersionId=v)
+    c.delete_object(Bucket=BX, Key="k")
+
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{
+                "ID": "reap",
+                "Filter": {"Prefix": ""},
+                "Status": "Enabled",
+                "Expiration": {"ExpiredObjectDeleteMarker": True},
+            }],
+        },
+    )
+    report = run_lifecycle_sweep(datetime.datetime.now(datetime.timezone.utc))
+    assert report["MarkersReaped"] >= 1, report
+    vrs = c.list_object_versions(Bucket=BX, Prefix="k")
+    assert not vrs.get("DeleteMarkers"), vrs
+    assert not vrs.get("Versions"), vrs
+
+
+@test("expired_object_delete_marker_skips_when_other_versions_exist")
+def _():
+    BX = f"v3lc-eodm-skip-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_versioning(Bucket=BX, VersioningConfiguration={"Status": "Enabled"})
+
+    c.put_object(Bucket=BX, Key="k", Body=b"x")
+    c.delete_object(Bucket=BX, Key="k")
+
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{
+                "ID": "reap",
+                "Filter": {"Prefix": ""},
+                "Status": "Enabled",
+                "Expiration": {"ExpiredObjectDeleteMarker": True},
+            }],
+        },
+    )
+    run_lifecycle_sweep(datetime.datetime.now(datetime.timezone.utc))
+    vrs = c.list_object_versions(Bucket=BX, Prefix="k")
+    assert vrs.get("DeleteMarkers"), vrs
+
+
+@test("disabled_rule_is_noop")
+def _():
+    BX = f"v3lc-disabled-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": ""}, "Status": "Disabled", "Expiration": {"Days": 1}}]
+        },
+    )
+    c.put_object(Bucket=BX, Key="k", Body=b"x")
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=10)
+    run_lifecycle_sweep(future)
+    c.head_object(Bucket=BX, Key="k")
+
+
+@test("sweep_is_idempotent")
+def _():
+    BX = f"v3lc-idem-{uuid.uuid4().hex[:8]}"
+    c.create_bucket(Bucket=BX)
+    c.put_bucket_versioning(Bucket=BX, VersioningConfiguration={"Status": "Enabled"})
+    c.put_bucket_lifecycle_configuration(
+        Bucket=BX,
+        LifecycleConfiguration={
+            "Rules": [{"ID": "r", "Filter": {"Prefix": ""}, "Status": "Enabled", "Expiration": {"Days": 1}}]
+        },
+    )
+    c.put_object(Bucket=BX, Key="k", Body=b"x")
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3)
+    run_lifecycle_sweep(future)
+    vrs1 = c.list_object_versions(Bucket=BX, Prefix="k")
+    second = run_lifecycle_sweep(future)
+    vrs2 = c.list_object_versions(Bucket=BX, Prefix="k")
+    assert vrs1 == vrs2, (vrs1, vrs2)
+    assert second["Expired"] == 0, second
 
 
 section("Bulk delete")

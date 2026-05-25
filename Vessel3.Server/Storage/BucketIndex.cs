@@ -157,6 +157,15 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return r.Read() ? r.GetInt32(0) : (int?)null;
     }
 
+    public int CountVersions(string key)
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT COUNT(*) FROM versions WHERE key = $k";
+        cmd.Parameters.AddWithValue("$k", key);
+        return Convert.ToInt32(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public void Insert(DeleteMarkerEvent ev)
     {
         using var cmd = WriteCmd();
