@@ -49,6 +49,23 @@ builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
 
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.GetBucketLocation>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.ListMultipartUploads>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.GetBucketVersioning>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.PutBucketVersioning>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.GetObjectLockConfiguration>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.PutObjectLockConfiguration>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.GetBucketLifecycleConfiguration>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.PutBucketLifecycleConfiguration>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.DeleteBucketLifecycle>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.ListObjectVersions>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.ListObjects>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.CreateBucket>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.DeleteBucket>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.HeadBucket>();
+builder.Services.AddSingleton<IS3Action, Vessel3.Server.S3.Bucket.DeleteObjects>();
+builder.Services.AddSingleton<IS3ActionDispatcher, S3ActionDispatcher>();
+
 if (accessKey is not null && secretKey is not null)
 {
     builder.Services.AddSingleton(new SigV4Options(accessKey, secretKey, region));
@@ -133,201 +150,20 @@ app.MapPut("/_admin/lifecycle", async (
     await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.LifecycleReport, ct);
 });
 
-app.MapGet("/{bucket}", async (
-    string bucket,
-    [FromQuery(Name = "prefix")] string? prefix,
-    [FromQuery(Name = "delimiter")] string? delimiter,
-    [FromQuery(Name = "max-keys")] int? maxKeys,
-    [FromQuery(Name = "continuation-token")] string? continuationToken,
-    [FromQuery(Name = "start-after")] string? startAfter,
-    [FromQuery(Name = "marker")] string? marker,
-    [FromQuery(Name = "list-type")] string? listType,
-    [FromQuery(Name = "encoding-type")] string? encodingType,
-    HttpRequest req,
-    HttpResponse res,
-    IBucketLister lister,
-    IBucketRegistry registry,
-    IS3XmlWriter xml,
-    IHttpResultMapper http,
-    ServerRegion serverRegion,
-    CancellationToken ct) =>
-{
-    if (req.Query.ContainsKey("location"))
-    {
-        return await registry.Exists(bucket).Match<Task<IResult>>(
-            async exists =>
-            {
-                if (!exists) return http.Map(new NoSuchBucketError(bucket));
-                res.ContentType = "application/xml";
-                await xml.WriteLocationConstraint(res.Body, serverRegion.Value, ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
+app.MapGet("/{bucket}", (string bucket, HttpContext ctx, IS3ActionDispatcher dispatch) =>
+    dispatch.Dispatch(HttpMethods.Get, bucket, ctx));
 
-    if (req.Query.ContainsKey("uploads"))
-    {
-        var multipart = req.HttpContext.RequestServices.GetRequiredService<IMultipartStore>();
-        return await registry.Exists(bucket).Match<Task<IResult>>(
-            async exists =>
-            {
-                if (!exists) return http.Map(new NoSuchBucketError(bucket));
-                res.ContentType = "application/xml";
-                await xml.WriteListMultipartUploads(res.Body, bucket, multipart.ListUploads(bucket), ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
+app.MapPut("/{bucket}", (string bucket, HttpContext ctx, IS3ActionDispatcher dispatch) =>
+    dispatch.Dispatch(HttpMethods.Put, bucket, ctx));
 
-    if (req.Query.ContainsKey("versioning"))
-    {
-        return await registry.GetVersioning(bucket).Match<Task<IResult>>(
-            async status =>
-            {
-                res.ContentType = "application/xml";
-                await xml.WriteVersioningConfiguration(res.Body, status, ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
+app.MapDelete("/{bucket}", (string bucket, HttpContext ctx, IS3ActionDispatcher dispatch) =>
+    dispatch.Dispatch(HttpMethods.Delete, bucket, ctx));
 
-    if (req.Query.ContainsKey("object-lock"))
-    {
-        return await registry.GetObjectLock(bucket).Match<Task<IResult>>(
-            async cfg =>
-            {
-                if (cfg is null) return http.Map(new ObjectLockConfigurationNotFoundErrorResult(bucket));
-                res.ContentType = "application/xml";
-                await xml.WriteObjectLockConfiguration(res.Body, cfg, ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
+app.MapPost("/{bucket}", (string bucket, HttpContext ctx, IS3ActionDispatcher dispatch) =>
+    dispatch.Dispatch(HttpMethods.Post, bucket, ctx));
 
-    if (req.Query.ContainsKey("lifecycle"))
-    {
-        return await registry.GetLifecycle(bucket).Match<Task<IResult>>(
-            async cfg =>
-            {
-                if (cfg is null) return http.Map(new NoSuchLifecycleConfigurationError(bucket));
-                res.ContentType = "application/xml";
-                await xml.WriteLifecycleConfiguration(res.Body, cfg, ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
-
-    if (req.Query.ContainsKey("versions"))
-    {
-        var keyMarker = Nullify(req.Query["key-marker"].ToString());
-        var versionMax = Math.Clamp(maxKeys ?? 1000, 1, 1000);
-        return await registry.ListAllVersions(bucket, prefix, keyMarker, versionMax).Match<Task<IResult>>(
-            async page =>
-            {
-                res.ContentType = "application/xml";
-                await xml.WriteListVersions(res.Body, bucket, prefix, page.Entries, page.IsTruncated, versionMax, Nullify(encodingType), ct);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
-    }
-
-    var isV1 = listType is not "2";
-    var effectiveStart = isV1 ? marker : startAfter;
-    var listReq = new ListRequest(
-        bucket, prefix, delimiter, effectiveStart,
-        Math.Clamp(maxKeys ?? 1000, 1, 1000),
-        IsV1: isV1, Marker: marker, EncodingType: Nullify(encodingType));
-    return await lister.List(listReq, isV1 ? null : continuationToken).Match<Task<IResult>>(
-        async page =>
-        {
-            res.ContentType = "application/xml";
-            await xml.WriteListObjects(res.Body, listReq, page, ct);
-            return Results.Empty;
-        },
-        err => Task.FromResult(http.Map(err)));
-});
-
-app.MapPut("/{bucket}", async (
-    string bucket, HttpRequest req,
-    IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http,
-    CancellationToken ct) =>
-{
-    if (req.Query.ContainsKey("versioning"))
-    {
-        var parsed = await reader.ReadVersioningConfiguration(req.Body, ct);
-        if (parsed is Result<VersioningStatus>.Failure pf) return http.Map(pf.Error);
-        var status = ((Result<VersioningStatus>.Success)parsed).Value;
-        return registry.SetVersioning(bucket, status).Match<IResult>(
-            _ => Results.Ok(),
-            http.Map);
-    }
-
-    if (req.Query.ContainsKey("object-lock"))
-    {
-        var parsed = await reader.ReadObjectLockConfiguration(req.Body, ct);
-        if (parsed is Result<ObjectLockConfig>.Failure pf) return http.Map(pf.Error);
-        var cfg = ((Result<ObjectLockConfig>.Success)parsed).Value;
-        return registry.SetObjectLock(bucket, cfg).Match<IResult>(
-            _ => Results.Ok(),
-            http.Map);
-    }
-
-    if (req.Query.ContainsKey("lifecycle"))
-    {
-        var parsed = await reader.ReadLifecycleConfiguration(req.Body, ct);
-        if (parsed is Result<LifecycleConfig>.Failure pf) return http.Map(pf.Error);
-        var cfg = ((Result<LifecycleConfig>.Success)parsed).Value;
-        return registry.SetLifecycle(bucket, cfg).Match<IResult>(
-            _ => Results.Ok(),
-            http.Map);
-    }
-
-    return registry.Create(bucket).Match<IResult>(
-        _ => Results.Ok(),
-        http.Map);
-});
-
-app.MapDelete("/{bucket}", (string bucket, HttpRequest req, IBucketRegistry registry, IHttpResultMapper http) =>
-    req.Query.ContainsKey("lifecycle")
-        ? registry.RemoveLifecycle(bucket).Match<IResult>(_ => Results.NoContent(), http.Map)
-        : registry.Delete(bucket).Match<IResult>(_ => Results.NoContent(), http.Map));
-
-app.MapPost("/{bucket}", async (
-    string bucket,
-    HttpRequest req, HttpResponse res,
-    IObjectStore objects, IS3XmlReader reader, IS3XmlWriter xml, IHttpResultMapper http,
-    CancellationToken ct) =>
-{
-    if (!req.Query.ContainsKey("delete"))
-        return http.Map(new InvalidPathError("POST requires ?delete"));
-
-    var parsed = await reader.ReadBatchDeleteRequest(req.Body, ct);
-    if (parsed is Result<BatchDeleteRequest>.Failure f) return http.Map(f.Error);
-
-    var request = ((Result<BatchDeleteRequest>.Success)parsed).Value;
-    var batchBypass = req.Headers["x-amz-bypass-governance-retention"].ToString()
-        .Equals("true", StringComparison.OrdinalIgnoreCase);
-    var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
-    foreach (var k in request.Keys)
-    {
-        var result = string.IsNullOrEmpty(k.VersionId)
-            ? objects.Delete(bucket, k.Key, batchBypass)
-            : objects.DeleteVersion(bucket, k.Key, k.VersionId, batchBypass);
-        outcomes.Add(result is Result<DeleteOutcome>.Failure df
-            ? new BatchDeleteOutcome(k.Key, k.VersionId, df.Error)
-            : new BatchDeleteOutcome(k.Key, k.VersionId, null));
-    }
-
-    res.ContentType = "application/xml";
-    return Results.Stream(
-        async stream => await xml.WriteBatchDeleteResult(stream, outcomes, request.Quiet, ct),
-        "application/xml");
-});
-
-app.MapMethods("/{bucket}", ["HEAD"], (string bucket, IBucketRegistry registry, IHttpResultMapper http) =>
-    registry.Exists(bucket).Match<IResult>(
-        exists => exists ? Results.Ok() : Results.NotFound(),
-        http.Map));
+app.MapMethods("/{bucket}", ["HEAD"], (string bucket, HttpContext ctx, IS3ActionDispatcher dispatch) =>
+    dispatch.Dispatch(HttpMethods.Head, bucket, ctx));
 
 app.MapPost("/{bucket}/{**key}", async (
     string bucket, string key,
