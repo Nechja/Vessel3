@@ -14,9 +14,12 @@ internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, I
     public Task<IResult> Dispatch(string method, string bucket, string key, HttpContext ctx)
     {
         var sub = S3KeySubresourceParser.From(ctx.Request.Query);
+        var headerFlag = !string.IsNullOrEmpty(ctx.Request.Headers["x-amz-copy-source"].ToString())
+            ? S3KeyHeaderFlag.CopySource
+            : S3KeyHeaderFlag.None;
 
-        return table.TryGetValue(new S3KeyRoute(method, sub), out var action) ? action.Invoke(bucket, key, ctx)
-            : sub is not S3KeySubresource.None && table.TryGetValue(new S3KeyRoute(method, S3KeySubresource.None), out var fallback) ? fallback.Invoke(bucket, key, ctx)
-            : Task.FromResult(http.Map(new MethodNotAllowedError($"{method} on key with subresource {sub}")));
+        return table.TryGetValue(new S3KeyRoute(method, sub, headerFlag), out var action) ? action.Invoke(bucket, key, ctx)
+            : sub is not S3KeySubresource.None && table.TryGetValue(new S3KeyRoute(method, S3KeySubresource.None, headerFlag), out var fallback) ? fallback.Invoke(bucket, key, ctx)
+            : Task.FromResult(http.Map(new MethodNotAllowedError($"{method} on key with subresource {sub} headerFlag {headerFlag}")));
     }
 }

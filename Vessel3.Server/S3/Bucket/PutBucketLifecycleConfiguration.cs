@@ -6,9 +6,8 @@ internal sealed class PutBucketLifecycleConfiguration(IBucketRegistry registry, 
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
-        var parsed = await reader.ReadLifecycleConfiguration(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<LifecycleConfig>.Failure pf) return http.Map(pf.Error);
-        var cfg = ((Result<LifecycleConfig>.Success)parsed).Value;
-        return registry.SetLifecycle(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
+        return !(await reader.ReadLifecycleConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var cfg, out var err)
+            ? http.Map(err)
+            : registry.SetLifecycle(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
     }
 }

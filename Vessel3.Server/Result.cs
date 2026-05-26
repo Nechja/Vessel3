@@ -121,6 +121,12 @@ internal abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);
 
+    public bool TryGetValue([System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T value, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(true)] out Error error)
+    {
+        if (this is Success s) { value = s.Value; error = null; return true; }
+        value = default; error = ((Failure)this).Error; return false;
+    }
+
     internal sealed record Success(T Value) : Result<T>
     {
         public override TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure) => onSuccess(Value);

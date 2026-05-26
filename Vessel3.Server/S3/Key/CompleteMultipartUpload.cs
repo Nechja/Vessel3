@@ -7,9 +7,8 @@ internal sealed class CompleteMultipartUpload(IMultipartStore multipart, IS3XmlR
     public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
         var uploadId = ctx.Request.Query["uploadId"].ToString();
-        var parsed = await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<IReadOnlyList<CompletedPart>>.Failure pf) return http.Map(pf.Error);
-        var parsedParts = ((Result<IReadOnlyList<CompletedPart>>.Success)parsed).Value;
+        if (!(await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var parsedParts, out var err))
+            return http.Map(err);
         var clientParts = parsedParts.Select(p => (p.Number, p.Etag, p.Sums)).ToList();
 
         var compositeAlgo = ResolveCompositeAlgo(ctx.Request.Headers["x-amz-sdk-checksum-algorithm"].ToString(), parsedParts);

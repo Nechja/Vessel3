@@ -4,7 +4,7 @@ using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Key;
 
-internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, IS3XmlWriter xml, IHttpResultMapper http, IPreconditionEvaluator pre) : IS3KeyAction
+internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, IHttpResultMapper http, IPreconditionEvaluator pre) : IS3KeyAction
 {
     public S3KeyRoute Route => new(HttpMethods.Put, S3KeySubresource.None);
 
@@ -13,10 +13,6 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         var req = ctx.Request;
         var res = ctx.Response;
         var ct = ctx.RequestAborted;
-
-        var copySource = req.Headers["x-amz-copy-source"].ToString();
-        if (!string.IsNullOrEmpty(copySource))
-            return CopyFromSource(req, res, bucket, key, copySource, ct);
 
         if (pre.HasWriteConditions(req.Headers))
         {
@@ -41,13 +37,11 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         if (declaredChecksums is null)
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
 
-        var parsedTagHdr = TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString());
-        if (parsedTagHdr is Result<IReadOnlyDictionary<string, string>>.Failure tagFail) return http.Map(tagFail.Error);
-        var initialTags = ((Result<IReadOnlyDictionary<string, string>>.Success)parsedTagHdr).Value;
+        if (!TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagErr))
+            return http.Map(tagErr);
 
-        var retention = ResolveInitialRetention(req.Headers, bucket);
-        if (retention is Result<Retention?>.Failure rf) return http.Map(rf.Error);
-        var initialRetention = ((Result<Retention?>.Success)retention).Value;
+        if (!ResolveInitialRetention(req.Headers, bucket).TryGetValue(out var initialRetention, out var retErr))
+            return http.Map(retErr);
 
         var initialHold = req.Headers["x-amz-object-lock-legal-hold"].ToString()
             .Equals("ON", StringComparison.OrdinalIgnoreCase);
@@ -72,34 +66,6 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
                 return Results.Ok();
             },
             http.Map);
-    }
-
-    private IResult CopyFromSource(HttpRequest req, HttpResponse res, string bucket, string key, string copySource, CancellationToken ct)
-    {
-        var directive = req.Headers["x-amz-metadata-directive"].ToString();
-        var metadataOverride = directive.Equals("REPLACE", StringComparison.OrdinalIgnoreCase)
-            ? ExtractUserMetadata(req.Headers)
-            : null;
-
-        IReadOnlyDictionary<string, string>? tagsOverride = null;
-        var tagDirective = req.Headers["x-amz-tagging-directive"].ToString();
-        if (tagDirective.Equals("REPLACE", StringComparison.OrdinalIgnoreCase))
-        {
-            var parsedHdr = TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString());
-            if (parsedHdr is Result<IReadOnlyDictionary<string, string>>.Failure tf) return http.Map(tf.Error);
-            tagsOverride = ((Result<IReadOnlyDictionary<string, string>>.Success)parsedHdr).Value;
-        }
-
-        return TryParseCopySource(copySource, out var srcBucket, out var srcKey)
-            ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride).Match<IResult>(
-                outcome =>
-                {
-                    res.Headers["x-amz-copy-source-version-id"] = outcome.VersionId;
-                    res.ContentType = "application/xml";
-                    return Results.Stream(async stream => await xml.WriteCopyObjectResult(stream, outcome, ct), "application/xml");
-                },
-                http.Map)
-            : http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
     }
 
     private Result<Retention?> ResolveInitialRetention(IHeaderDictionary headers, string bucket)

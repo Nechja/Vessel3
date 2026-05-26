@@ -8,7 +8,7 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.None);
 
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx) =>
-        Task.FromResult(objects.Get(bucket, key, Nullify(ctx.Request.Query["versionId"].ToString())).Match<IResult>(
+        Task.FromResult(objects.Get(bucket, key, ctx.VersionId()).Match<IResult>(
             ok =>
             {
                 var req = ctx.Request;

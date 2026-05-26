@@ -1,5 +1,3 @@
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3.Key;
 
 internal sealed class GetObjectTagging(IObjectStore objects, IS3XmlWriter xml, IHttpResultMapper http) : IS3KeyAction
@@ -7,7 +5,7 @@ internal sealed class GetObjectTagging(IObjectStore objects, IS3XmlWriter xml, I
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.Tagging);
 
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx) =>
-        Task.FromResult(objects.GetTagging(bucket, key, Nullify(ctx.Request.Query["versionId"].ToString())).Match<IResult>(
+        Task.FromResult(objects.GetTagging(bucket, key, ctx.VersionId()).Match<IResult>(
             tags =>
             {
                 ctx.Response.ContentType = "application/xml";

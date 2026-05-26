@@ -6,9 +6,8 @@ internal sealed class PutObjectLockConfiguration(IBucketRegistry registry, IS3Xm
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
-        var parsed = await reader.ReadObjectLockConfiguration(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<ObjectLockConfig>.Failure pf) return http.Map(pf.Error);
-        var cfg = ((Result<ObjectLockConfig>.Success)parsed).Value;
-        return registry.SetObjectLock(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
+        return !(await reader.ReadObjectLockConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var cfg, out var err)
+            ? http.Map(err)
+            : registry.SetObjectLock(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
     }
 }

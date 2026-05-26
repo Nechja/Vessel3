@@ -8,9 +8,8 @@ internal sealed class PutBucketVersioning(IBucketRegistry registry, IS3XmlReader
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
-        var parsed = await reader.ReadVersioningConfiguration(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<VersioningStatus>.Failure pf) return http.Map(pf.Error);
-        var status = ((Result<VersioningStatus>.Success)parsed).Value;
-        return registry.SetVersioning(bucket, status).Match<IResult>(_ => Results.Ok(), http.Map);
+        return !(await reader.ReadVersioningConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var status, out var err)
+            ? http.Map(err)
+            : registry.SetVersioning(bucket, status).Match<IResult>(_ => Results.Ok(), http.Map);
     }
 }

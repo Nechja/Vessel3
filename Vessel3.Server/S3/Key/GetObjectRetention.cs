@@ -1,6 +1,3 @@
-using Vessel3.Server.Storage;
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3.Key;
 
 internal sealed class GetObjectRetention(IBucketRegistry registry, IS3XmlWriter xml, IHttpResultMapper http) : IS3KeyAction
@@ -9,8 +6,7 @@ internal sealed class GetObjectRetention(IBucketRegistry registry, IS3XmlWriter 
 
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
-        var versionId = Nullify(ctx.Request.Query["versionId"].ToString())
-            ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur } ? cur.VersionId : null);
+        var versionId = ctx.VersionId() ?? registry.CurrentVersionOf(bucket, key);
         return versionId is null
             ? Task.FromResult(http.Map(new NoSuchKeyError(key)))
             : registry.GetRetention(bucket, key, versionId).Match<Task<IResult>>(

@@ -1,5 +1,3 @@
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3.Key;
 
 internal sealed class GetObjectAttributes(IObjectStore objects, IS3XmlWriter xml, IHttpResultMapper http) : IS3KeyAction
@@ -8,12 +6,11 @@ internal sealed class GetObjectAttributes(IObjectStore objects, IS3XmlWriter xml
 
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
-        var attrVersionId = Nullify(ctx.Request.Query["versionId"].ToString());
         var fields = ctx.Request.Headers["x-amz-object-attributes"].ToString()
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return objects.GetAttributes(bucket, key, attrVersionId).Match<Task<IResult>>(
+        return objects.GetAttributes(bucket, key, ctx.VersionId()).Match<Task<IResult>>(
             async data =>
             {
                 var sha = string.IsNullOrEmpty(data.Sha256)

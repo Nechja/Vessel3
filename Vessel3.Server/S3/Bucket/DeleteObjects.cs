@@ -6,18 +6,16 @@ internal sealed class DeleteObjects(IObjectStore objects, IS3XmlReader reader, I
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
-        var parsed = await reader.ReadBatchDeleteRequest(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<BatchDeleteRequest>.Failure f) return http.Map(f.Error);
+        if (!(await reader.ReadBatchDeleteRequest(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var request, out var err))
+            return http.Map(err);
 
-        var request = ((Result<BatchDeleteRequest>.Success)parsed).Value;
-        var batchBypass = ctx.Request.Headers["x-amz-bypass-governance-retention"].ToString()
-            .Equals("true", StringComparison.OrdinalIgnoreCase);
+        var bypass = ctx.BypassGovernanceRetention();
         var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
         foreach (var k in request.Keys)
         {
             var result = string.IsNullOrEmpty(k.VersionId)
-                ? objects.Delete(bucket, k.Key, batchBypass)
-                : objects.DeleteVersion(bucket, k.Key, k.VersionId, batchBypass);
+                ? objects.Delete(bucket, k.Key, bypass)
+                : objects.DeleteVersion(bucket, k.Key, k.VersionId, bypass);
             outcomes.Add(result is Result<Storage.DeleteOutcome>.Failure df
                 ? new BatchDeleteOutcome(k.Key, k.VersionId, df.Error)
                 : new BatchDeleteOutcome(k.Key, k.VersionId, null));

@@ -116,29 +116,19 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
 
     public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.ObjectLock
-        : (Result<ObjectLockConfig?>)new NoSuchBucketError(bucket);
+        OnBucketRaw<ObjectLockConfig?>(bucket, b => b.ObjectLock);
 
     public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.SetObjectLock(cfg)
-        : (Result<bool>)new NoSuchBucketError(bucket);
+        OnBucket<bool>(bucket, b => b.SetObjectLock(cfg));
 
     public Result<LifecycleConfig?> GetLifecycle(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.Lifecycle
-        : (Result<LifecycleConfig?>)new NoSuchBucketError(bucket);
+        OnBucketRaw<LifecycleConfig?>(bucket, b => b.Lifecycle);
 
     public Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.SetLifecycle(cfg)
-        : (Result<bool>)new NoSuchBucketError(bucket);
+        OnBucket<bool>(bucket, b => b.SetLifecycle(cfg));
 
     public Result<bool> RemoveLifecycle(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.RemoveLifecycle()
-        : (Result<bool>)new NoSuchBucketError(bucket);
+        OnBucket<bool>(bucket, b => b.RemoveLifecycle());
 
     public IEnumerable<Bucket> OpenBuckets()
     {
@@ -168,6 +158,11 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
 
     public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
         OnBucket<List<VersionListEntry>>(bucket, b => b.Index.ListCurrent(prefix, startAfter));
+
+    private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? body(b)
+        : (Result<T>)new NoSuchBucketError(bucket);
 
     private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body) =>
         !IsValidName(bucket) ? new InvalidBucketNameError(bucket)

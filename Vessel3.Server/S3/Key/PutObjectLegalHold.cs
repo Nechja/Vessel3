@@ -1,6 +1,3 @@
-using Vessel3.Server.Storage;
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3.Key;
 
 internal sealed class PutObjectLegalHold(IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http) : IS3KeyAction
@@ -9,12 +6,9 @@ internal sealed class PutObjectLegalHold(IBucketRegistry registry, IS3XmlReader 
 
     public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
-        var versionId = Nullify(ctx.Request.Query["versionId"].ToString());
-        var parsed = await reader.ReadLegalHold(ctx.Request.Body, ctx.RequestAborted);
-        if (parsed is Result<bool>.Failure pf) return http.Map(pf.Error);
-        var on = ((Result<bool>.Success)parsed).Value;
-        var resolvedVersion = versionId
-            ?? (registry.GetCurrentPut(bucket, key) is Result<PutEntry?>.Success { Value: { } cur } ? cur.VersionId : null);
+        if (!(await reader.ReadLegalHold(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var on, out var err))
+            return http.Map(err);
+        var resolvedVersion = ctx.VersionId() ?? registry.CurrentVersionOf(bucket, key);
         return resolvedVersion is null
             ? http.Map(new NoSuchKeyError(key))
             : registry.PutLegalHold(bucket, key, resolvedVersion, on).Match<IResult>(

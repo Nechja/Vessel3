@@ -34,7 +34,9 @@ internal static class S3ServiceCollectionExtensions
         services.AddSingleton<IS3KeyAction, PutObjectRetention>();
         services.AddSingleton<IS3KeyAction, PutObjectLegalHold>();
         services.AddSingleton<IS3KeyAction, UploadPart>();
+        services.AddSingleton<IS3KeyAction, UploadPartCopy>();
         services.AddSingleton<IS3KeyAction, PutObject>();
+        services.AddSingleton<IS3KeyAction, CopyObject>();
         services.AddSingleton<IS3KeyAction, GetObjectAttributes>();
         services.AddSingleton<IS3KeyAction, GetObjectTagging>();
         services.AddSingleton<IS3KeyAction, GetObjectRetention>();

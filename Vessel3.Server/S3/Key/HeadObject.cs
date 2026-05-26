@@ -8,7 +8,7 @@ internal sealed class HeadObject(IObjectStore objects, IHttpResultMapper http, I
     public S3KeyRoute Route => new(HttpMethods.Head, S3KeySubresource.None);
 
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx) =>
-        Task.FromResult(objects.Stat(bucket, key, Nullify(ctx.Request.Query["versionId"].ToString())).Match<IResult>(
+        Task.FromResult(objects.Stat(bucket, key, ctx.VersionId()).Match<IResult>(
             stat =>
             {
                 var res = ctx.Response;
