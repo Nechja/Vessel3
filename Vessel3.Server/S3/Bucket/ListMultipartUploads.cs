@@ -1,8 +1,8 @@
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class ListMultipartUploads(IBucketRegistry registry, IMultipartStore multipart, IS3XmlWriter xml, IHttpResultMapper http) : IS3Action
+internal sealed class ListMultipartUploads(IBucketRegistry registry, IMultipartStore multipart, IS3XmlWriter xml, IHttpResultMapper http) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Get, S3Subresource.Uploads);
+    public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.Uploads);
 
     public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
         registry.Exists(bucket).Match<Task<IResult>>(

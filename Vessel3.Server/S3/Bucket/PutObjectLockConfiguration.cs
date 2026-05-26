@@ -1,8 +1,8 @@
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class PutObjectLockConfiguration(IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http) : IS3Action
+internal sealed class PutObjectLockConfiguration(IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Put, S3Subresource.ObjectLock);
+    public S3BucketRoute Route => new(HttpMethods.Put, S3BucketSubresource.ObjectLock);
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {

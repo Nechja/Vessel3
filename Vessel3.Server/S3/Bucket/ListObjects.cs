@@ -2,9 +2,9 @@ using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class ListObjects(IBucketLister lister, IS3XmlWriter xml, IHttpResultMapper http) : IS3Action
+internal sealed class ListObjects(IBucketLister lister, IS3XmlWriter xml, IHttpResultMapper http) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Get, S3Subresource.None);
+    public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.None);
 
     public Task<IResult> Invoke(string bucket, HttpContext ctx)
     {

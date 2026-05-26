@@ -1,8 +1,8 @@
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class PutBucketLifecycleConfiguration(IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http) : IS3Action
+internal sealed class PutBucketLifecycleConfiguration(IBucketRegistry registry, IS3XmlReader reader, IHttpResultMapper http) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Put, S3Subresource.Lifecycle);
+    public S3BucketRoute Route => new(HttpMethods.Put, S3BucketSubresource.Lifecycle);
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {

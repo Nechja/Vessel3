@@ -1,8 +1,8 @@
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class GetBucketLocation(IBucketRegistry registry, IS3XmlWriter xml, IHttpResultMapper http, ServerRegion region) : IS3Action
+internal sealed class GetBucketLocation(IBucketRegistry registry, IS3XmlWriter xml, IHttpResultMapper http, ServerRegion region) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Get, S3Subresource.Location);
+    public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.Location);
 
     public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
         registry.Exists(bucket).Match<Task<IResult>>(

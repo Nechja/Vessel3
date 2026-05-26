@@ -1,8 +1,8 @@
 namespace Vessel3.Server.S3.Bucket;
 
-internal sealed class DeleteObjects(IObjectStore objects, IS3XmlReader reader, IS3XmlWriter xml, IHttpResultMapper http) : IS3Action
+internal sealed class DeleteObjects(IObjectStore objects, IS3XmlReader reader, IS3XmlWriter xml, IHttpResultMapper http) : IS3BucketAction
 {
-    public S3Route Route => new(HttpMethods.Post, S3Subresource.Delete);
+    public S3BucketRoute Route => new(HttpMethods.Post, S3BucketSubresource.Delete);
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
