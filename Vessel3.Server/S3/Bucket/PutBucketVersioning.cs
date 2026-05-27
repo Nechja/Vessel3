@@ -10,6 +10,6 @@ internal sealed class PutBucketVersioning(IBucketRegistry registry, IS3XmlReader
     {
         return !(await reader.ReadVersioningConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var status, out var err)
             ? http.Map(err)
-            : registry.SetVersioning(bucket, status).Match<IResult>(_ => Results.Ok(), http.Map);
+            : registry.SetVersioning(bucket, status).Match<IResult>(() => Results.Ok(), http.Map);
     }
 }

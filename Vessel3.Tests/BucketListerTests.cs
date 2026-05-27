@@ -21,7 +21,7 @@ public class BucketListerTests
 
         public bool IsValidName(string bucket) => true;
         public Result<bool> Create(string bucket) => true;
-        public Result<bool> Delete(string bucket) => true;
+        public Result Delete(string bucket) => Result.Ok;
         public Result<bool> Exists(string bucket) => true;
         public IEnumerable<BucketInfo> List() => [];
         public Result<PutEntry?> GetCurrentPut(string bucket, string key) => (PutEntry?)null;
@@ -34,16 +34,16 @@ public class BucketListerTests
         public int? GetCurrentKind(string bucket, string key) => null;
         public int? GetVersionKind(string bucket, string key, string versionId) => null;
         public Result<VersioningStatus> GetVersioning(string bucket) => VersioningStatus.Unversioned;
-        public Result<bool> SetVersioning(string bucket, VersioningStatus status) => true;
+        public Result SetVersioning(string bucket, VersioningStatus status) => Result.Ok;
         public Result<ObjectLockConfig?> GetObjectLock(string bucket) => (ObjectLockConfig?)null;
-        public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) => true;
+        public Result SetObjectLock(string bucket, ObjectLockConfig cfg) => Result.Ok;
         public Result<LifecycleConfig?> GetLifecycle(string bucket) => (LifecycleConfig?)null;
-        public Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg) => true;
-        public Result<bool> RemoveLifecycle(string bucket) => true;
+        public Result SetLifecycle(string bucket, LifecycleConfig cfg) => Result.Ok;
+        public Result RemoveLifecycle(string bucket) => Result.Ok;
         public IEnumerable<Bucket> OpenBuckets() => [];
-        public Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => throw new NotImplementedException();
+        public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => throw new NotImplementedException();
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => (Retention?)null;
-        public Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on) => throw new NotImplementedException();
+        public Result PutLegalHold(string bucket, string key, string versionId, bool on) => throw new NotImplementedException();
         public Result<bool> GetLegalHold(string bucket, string key, string versionId) => false;
         public IEnumerable<string> AllReferencedBlobs() => [];
         public void Dispose() { }

@@ -5,5 +5,5 @@ internal sealed class DeleteBucketLifecycle(IBucketRegistry registry, IHttpResul
     public S3BucketRoute Route => new(HttpMethods.Delete, S3BucketSubresource.Lifecycle);
 
     public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
-        Task.FromResult(registry.RemoveLifecycle(bucket).Match<IResult>(_ => Results.NoContent(), http.Map));
+        Task.FromResult(registry.RemoveLifecycle(bucket).Match<IResult>(() => Results.NoContent(), http.Map));
 }

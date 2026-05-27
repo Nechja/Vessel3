@@ -117,6 +117,30 @@ internal sealed record AccessDeniedError(string Detail)
     : Error("AccessDenied", Detail)
 { public override int Status => 403; }
 
+internal abstract record Result
+{
+    public abstract TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure);
+
+    public bool TryGetError([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Error? error)
+    {
+        if (this is Failure f) { error = f.Error; return true; }
+        error = null; return false;
+    }
+
+    internal sealed record OkResult : Result
+    {
+        public override TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure) => onSuccess();
+    }
+
+    internal sealed record Failure(Error Error) : Result
+    {
+        public override TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure) => onFailure(Error);
+    }
+
+    public static readonly Result Ok = new OkResult();
+    public static implicit operator Result(Error error) => new Failure(error);
+}
+
 internal abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);

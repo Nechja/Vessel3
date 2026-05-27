@@ -12,7 +12,7 @@ internal sealed class PutObjectRetention(IBucketRegistry registry, IS3XmlReader 
         return resolvedVersion is null
             ? http.Map(new NoSuchKeyError(key))
             : registry.PutRetention(bucket, key, resolvedVersion, retention, ctx.BypassGovernanceRetention()).Match<IResult>(
-                _ => Results.Ok(),
+                () => Results.Ok(),
                 http.Map);
     }
 }

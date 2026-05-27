@@ -8,6 +8,6 @@ internal sealed class PutObjectLockConfiguration(IBucketRegistry registry, IS3Xm
     {
         return !(await reader.ReadObjectLockConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var cfg, out var err)
             ? http.Map(err)
-            : registry.SetObjectLock(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
+            : registry.SetObjectLock(bucket, cfg).Match<IResult>(() => Results.Ok(), http.Map);
     }
 }

@@ -12,7 +12,7 @@ internal sealed class PutObjectLegalHold(IBucketRegistry registry, IS3XmlReader 
         return resolvedVersion is null
             ? http.Map(new NoSuchKeyError(key))
             : registry.PutLegalHold(bucket, key, resolvedVersion, on).Match<IResult>(
-                _ => Results.Ok(),
+                () => Results.Ok(),
                 http.Map);
     }
 }

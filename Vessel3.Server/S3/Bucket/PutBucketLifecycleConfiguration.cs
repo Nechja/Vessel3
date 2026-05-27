@@ -8,6 +8,6 @@ internal sealed class PutBucketLifecycleConfiguration(IBucketRegistry registry, 
     {
         return !(await reader.ReadLifecycleConfiguration(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var cfg, out var err)
             ? http.Map(err)
-            : registry.SetLifecycle(bucket, cfg).Match<IResult>(_ => Results.Ok(), http.Map);
+            : registry.SetLifecycle(bucket, cfg).Match<IResult>(() => Results.Ok(), http.Map);
     }
 }
