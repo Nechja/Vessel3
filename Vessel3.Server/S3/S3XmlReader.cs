@@ -280,9 +280,8 @@ internal sealed class S3XmlReader : IS3XmlReader
             {
                 ct.ThrowIfCancellationRequested();
                 if (r.NodeType is not XmlNodeType.Element || r.LocalName is not "Rule") continue;
-                var parsed = await ReadLifecycleRule(r);
-                if (parsed is Result<LifecycleRule>.Failure f) return f.Error;
-                rules.Add(((Result<LifecycleRule>.Success)parsed).Value);
+                if (!(await ReadLifecycleRule(r)).TryGetValue(out var rule, out var ruleErr)) return ruleErr;
+                rules.Add(rule);
             }
         }
         catch (XmlException ex)

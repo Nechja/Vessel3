@@ -12,7 +12,7 @@ internal interface IBucketRegistry : IDisposable
     bool IsValidName(string bucket);
 
     Result<bool> Create(string bucket);
-    Result<bool> Delete(string bucket);
+    Result Delete(string bucket);
     Result<bool> Exists(string bucket);
     IEnumerable<BucketInfo> List();
 
@@ -24,19 +24,19 @@ internal interface IBucketRegistry : IDisposable
     Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
     Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit);
     Result<VersioningStatus> GetVersioning(string bucket);
-    Result<bool> SetVersioning(string bucket, VersioningStatus status);
+    Result SetVersioning(string bucket, VersioningStatus status);
     Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags);
     int? GetCurrentKind(string bucket, string key);
     int? GetVersionKind(string bucket, string key, string versionId);
     Result<ObjectLockConfig?> GetObjectLock(string bucket);
-    Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg);
+    Result SetObjectLock(string bucket, ObjectLockConfig cfg);
     Result<LifecycleConfig?> GetLifecycle(string bucket);
-    Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg);
-    Result<bool> RemoveLifecycle(string bucket);
+    Result SetLifecycle(string bucket, LifecycleConfig cfg);
+    Result RemoveLifecycle(string bucket);
     IEnumerable<Bucket> OpenBuckets();
-    Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
+    Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
-    Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on);
+    Result PutLegalHold(string bucket, string key, string versionId, bool on);
     Result<bool> GetLegalHold(string bucket, string key, string versionId);
     IEnumerable<string> AllReferencedBlobs();
 }
@@ -71,7 +71,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         return true;
     }
 
-    public Result<bool> Delete(string bucket)
+    public Result Delete(string bucket)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
@@ -85,7 +85,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             lazy.Value.Dispose();
 
         Directory.Delete(path, recursive: true);
-        return true;
+        return Result.Ok;
     }
 
     public Result<bool> Exists(string bucket) =>
@@ -116,29 +116,19 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
         OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
 
     public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.ObjectLock
-        : (Result<ObjectLockConfig?>)new NoSuchBucketError(bucket);
+        OnBucketRaw<ObjectLockConfig?>(bucket, b => b.ObjectLock);
 
-    public Result<bool> SetObjectLock(string bucket, ObjectLockConfig cfg) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.SetObjectLock(cfg)
-        : (Result<bool>)new NoSuchBucketError(bucket);
+    public Result SetObjectLock(string bucket, ObjectLockConfig cfg) =>
+        OnBucket(bucket, b => b.SetObjectLock(cfg));
 
     public Result<LifecycleConfig?> GetLifecycle(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.Lifecycle
-        : (Result<LifecycleConfig?>)new NoSuchBucketError(bucket);
+        OnBucketRaw<LifecycleConfig?>(bucket, b => b.Lifecycle);
 
-    public Result<bool> SetLifecycle(string bucket, LifecycleConfig cfg) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.SetLifecycle(cfg)
-        : (Result<bool>)new NoSuchBucketError(bucket);
+    public Result SetLifecycle(string bucket, LifecycleConfig cfg) =>
+        OnBucket(bucket, b => b.SetLifecycle(cfg));
 
-    public Result<bool> RemoveLifecycle(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.RemoveLifecycle()
-        : (Result<bool>)new NoSuchBucketError(bucket);
+    public Result RemoveLifecycle(string bucket) =>
+        OnBucket(bucket, b => b.RemoveLifecycle());
 
     public IEnumerable<Bucket> OpenBuckets()
     {
@@ -146,8 +136,8 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             if (Open(info.Name) is { } b) yield return b;
     }
 
-    public Result<bool> PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
-        OnKey<bool>(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));
+    public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
+        OnKey(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));
 
     public Result<Retention?> GetRetention(string bucket, string key, string versionId) =>
         OnKey<Retention?>(bucket, key, b =>
@@ -156,8 +146,8 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             return r;
         });
 
-    public Result<bool> PutLegalHold(string bucket, string key, string versionId, bool on) =>
-        OnKey<bool>(bucket, key, b => b.PutLegalHold(key, versionId, on));
+    public Result PutLegalHold(string bucket, string key, string versionId, bool on) =>
+        OnKey(bucket, key, b => b.PutLegalHold(key, versionId, on));
 
     public Result<bool> GetLegalHold(string bucket, string key, string versionId) =>
         OnKey<bool>(bucket, key, b =>
@@ -169,12 +159,28 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
     public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
         OnBucket<List<VersionListEntry>>(bucket, b => b.Index.ListCurrent(prefix, startAfter));
 
+    private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? body(b)
+        : (Result<T>)new NoSuchBucketError(bucket);
+
     private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body) =>
         !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : Open(bucket) is { } b ? body(b)
         : new NoSuchBucketError(bucket);
 
+    private Result OnBucket(string bucket, Func<Bucket, Result> body) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : Open(bucket) is { } b ? body(b)
+        : new NoSuchBucketError(bucket);
+
     private Result<T> OnKey<T>(string bucket, string key, Func<Bucket, Result<T>> body) =>
+        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
+        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
+        : Open(bucket) is { } b ? body(b)
+        : new NoSuchBucketError(bucket);
+
+    private Result OnKey(string bucket, string key, Func<Bucket, Result> body) =>
         !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
         : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
         : Open(bucket) is { } b ? body(b)
@@ -221,10 +227,8 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             ? null
             : Open(bucket) is { } b ? b.Index.GetVersionKind(key, versionId) : null;
 
-    public Result<bool> SetVersioning(string bucket, VersioningStatus status) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.SetVersioning(status)
-        : (Result<bool>)new NoSuchBucketError(bucket);
+    public Result SetVersioning(string bucket, VersioningStatus status) =>
+        OnBucket(bucket, b => b.SetVersioning(status));
 
     public IEnumerable<string> AllReferencedBlobs()
     {

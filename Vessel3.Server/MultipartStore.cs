@@ -33,7 +33,7 @@ internal interface IMultipartStore
     Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata);
     Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct);
     Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag, CompletedPartChecksums? Sums)> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct);
-    Result<bool> Abort(string uploadId);
+    Result Abort(string uploadId);
     IEnumerable<InProgressUpload> ListUploads(string bucket);
     Result<IReadOnlyList<ListedPart>> ListParts(string uploadId);
     IEnumerable<string> EnumerateInFlightPartShas();
@@ -177,12 +177,12 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             err => err);
     }
 
-    public Result<bool> Abort(string uploadId)
+    public Result Abort(string uploadId)
     {
         var dir = UploadDir(uploadId);
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
         Directory.Delete(dir, recursive: true);
-        return true;
+        return Result.Ok;
     }
 
     public IEnumerable<InProgressUpload> ListUploads(string bucket)

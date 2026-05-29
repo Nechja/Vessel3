@@ -39,7 +39,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
         log.Open(maxSeq + 1);
     }
 
-    public Result<bool> SetVersioning(VersioningStatus status)
+    public Result SetVersioning(VersioningStatus status)
     {
         if (ObjectLock is { Enabled: true }
             && status is VersioningStatus.Suspended or VersioningStatus.Unversioned)
@@ -49,13 +49,13 @@ internal sealed class Bucket(string name, string path) : IDisposable
         if (status is VersioningStatus.Unversioned)
         {
             if (File.Exists(versioningPath)) File.Delete(versioningPath);
-            return true;
+            return Result.Ok;
         }
         DurableWrite.AtomicReplace(versioningPath, status.ToString());
-        return true;
+        return Result.Ok;
     }
 
-    public Result<bool> SetObjectLock(ObjectLockConfig cfg)
+    public Result SetObjectLock(ObjectLockConfig cfg)
     {
         if (cfg.Enabled && Versioning is not VersioningStatus.Enabled)
             return new InvalidBucketStateError("Object Lock requires versioning to be Enabled");
@@ -64,7 +64,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
 
         ObjectLock = cfg;
         DurableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
-        return true;
+        return Result.Ok;
     }
 
     private VersioningStatus ReadVersioning() =>
@@ -77,18 +77,18 @@ internal sealed class Bucket(string name, string path) : IDisposable
             ? JsonSerializer.Deserialize(File.ReadAllText(objectLockPath), ObjectLockJsonContext.Default.ObjectLockConfig)
             : null;
 
-    public Result<bool> SetLifecycle(LifecycleConfig cfg)
+    public Result SetLifecycle(LifecycleConfig cfg)
     {
         Lifecycle = cfg;
         DurableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
-        return true;
+        return Result.Ok;
     }
 
-    public Result<bool> RemoveLifecycle()
+    public Result RemoveLifecycle()
     {
         Lifecycle = null;
         if (File.Exists(lifecyclePath)) File.Delete(lifecyclePath);
-        return true;
+        return Result.Ok;
     }
 
     private LifecycleConfig? ReadLifecycle() =>
@@ -275,7 +275,7 @@ internal sealed class Bucket(string name, string path) : IDisposable
 
     private string? LatestVersionId(string key) => Index.LatestVersionId(key);
 
-    public Result<bool> PutRetention(string key, string versionId, Retention next, bool bypassGovernance)
+    public Result PutRetention(string key, string versionId, Retention next, bool bypassGovernance)
     {
         lock (writeGate)
         {
@@ -294,18 +294,18 @@ internal sealed class Bucket(string name, string path) : IDisposable
             }
             log.Append(new PutRetentionEvent(
                 0, DateTimeOffset.UtcNow, key, versionId, next.Mode, next.RetainUntilDate.ToUnixTimeSeconds())).ApplyTo(Index);
-            return true;
+            return Result.Ok;
         }
     }
 
-    public Result<bool> PutLegalHold(string key, string versionId, bool on)
+    public Result PutLegalHold(string key, string versionId, bool on)
     {
         lock (writeGate)
         {
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
                 return new NoSuchVersionError(key, versionId);
             log.Append(new PutLegalHoldEvent(0, DateTimeOffset.UtcNow, key, versionId, on)).ApplyTo(Index);
-            return true;
+            return Result.Ok;
         }
     }
 

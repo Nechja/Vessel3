@@ -6,14 +6,13 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
-        var result = verifier.Verify(ctx.Request);
-        if (result is Result<SignatureContext>.Failure f)
+        if (!verifier.Verify(ctx.Request).TryGetValue(out var sigCtx, out var err))
         {
-            await http.Map(f.Error).ExecuteAsync(ctx);
+            await http.Map(err).ExecuteAsync(ctx);
             return;
         }
 
-        ctx.Items["sigctx"] = ((Result<SignatureContext>.Success)result).Value;
+        ctx.Items["sigctx"] = sigCtx;
         await next(ctx);
     }
 }
