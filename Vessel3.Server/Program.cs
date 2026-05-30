@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
@@ -18,6 +17,21 @@ builder.WebHost.ConfigureKestrel(o =>
 var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);
+
+try
+{
+    var probe = Path.Combine(dataRoot, ".vessel3-write-test");
+    File.WriteAllText(probe, "");
+    File.Delete(probe);
+}
+catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+{
+    Console.Error.WriteLine(
+        $"VESSEL3_DATA ({dataRoot}) is not writable by the running user. " +
+        "On Kubernetes, set the pod securityContext.fsGroup to the runtime uid (1654) " +
+        "so the kubelet chowns the volume on mount.");
+    return 1;
+}
 
 var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
@@ -167,6 +181,7 @@ app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpCo
     dispatch.Dispatch(HttpMethods.Head, bucket, key, ctx));
 
 app.Run();
+return 0;
 
 static bool MetricsRequestAuthorized(HttpContext ctx, string? token, bool allowAnonymous)
 {

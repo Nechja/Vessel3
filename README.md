@@ -50,6 +50,27 @@ docker run -p 9000:9000 \
   ghcr.io/nechja/vessel3:latest
 ```
 
+### Kubernetes
+
+The image runs as a non-root user (uid 1654). When a `PersistentVolumeClaim` is mounted
+over `/data`, the kubelet creates the mount root as `root:root`, so the process can't write
+to it. Set `fsGroup` so the kubelet chowns the volume to the runtime uid on mount:
+
+```yaml
+spec:
+  securityContext:
+    fsGroup: 1654
+  containers:
+    - name: vessel3
+      image: ghcr.io/nechja/vessel3:latest
+      env:
+        - { name: VESSEL3_DATA, value: /data }
+      volumeMounts:
+        - { name: data, mountPath: /data }
+```
+
+Without it, Vessel3 logs that `VESSEL3_DATA` is not writable and exits at startup.
+
 ### From source
 
 ```sh
