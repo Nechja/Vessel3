@@ -18,9 +18,6 @@ var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")
     ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataRoot);
 
-// CreateDirectory above is a no-op when the data root already exists (e.g. a K8s PVC
-// mounted over /data, owned root:root). Probe for write access so an unwritable root
-// fails here with a clear message instead of an opaque stack trace on first bucket create.
 try
 {
     var probe = Path.Combine(dataRoot, ".vessel3-write-test");
