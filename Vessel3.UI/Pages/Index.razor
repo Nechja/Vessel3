@@ -1,0 +1,61 @@
+@page "/"
+@using Amazon.S3
+@using Amazon.S3.Model
+@inject IAmazonS3 S3
+
+<MudText Typo="Typo.h1" Class="mb-1">buckets</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">@_summary</MudText>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4" Dense="true" Variant="Variant.Outlined">@_error</MudAlert>
+}
+
+<MudPaper Elevation="0" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
+    <MudTable Items="_buckets" Loading="_loading" Hover="true" Dense="true" Striped="false" Bordered="false" Elevation="0" Class="v3-table">
+        <HeaderContent>
+            <MudTh>name</MudTh>
+            <MudTh>created</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudLink Href="@($"buckets/{context.BucketName}")" Class="v3-mono">@context.BucketName</MudLink>
+            </MudTd>
+            <MudTd>
+                <span class="v3-mono mud-text-secondary">@context.CreationDate?.ToString("yyyy-MM-dd HH:mm:ss")</span>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary pa-4">no buckets yet</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary pa-4">loading…</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    List<S3Bucket> _buckets = [];
+    bool _loading = true;
+    string? _error;
+    string _summary = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var resp = await S3.ListBucketsAsync();
+            _buckets = resp.Buckets ?? [];
+            _summary = $"{_buckets.Count} bucket{(_buckets.Count == 1 ? "" : "s")}";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _summary = "error";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

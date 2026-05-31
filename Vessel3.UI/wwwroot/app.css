@@ -1,0 +1,121 @@
+:root {
+    color-scheme: dark;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html, body {
+    background: #000 !important;
+    -webkit-font-smoothing: antialiased;
+}
+
+.boot {
+    padding: 24px;
+    color: #6e7681;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+/* OLED-pure backgrounds — override MudBlazor defaults that lean grey */
+.mud-appbar.v3-appbar,
+.mud-drawer.v3-drawer,
+.mud-main-content.v3-main {
+    background-color: #000 !important;
+}
+
+.v3-appbar {
+    border-bottom: 1px solid #1a1a1a !important;
+}
+
+.v3-drawer {
+    border-right: 1px solid #1a1a1a !important;
+}
+
+.v3-brand {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.02em;
+    margin-right: 8px;
+}
+
+.v3-brand-sub {
+    color: #6e7681 !important;
+    font-family: var(--font-mono);
+    font-size: 12px !important;
+}
+
+.v3-nav .mud-nav-link {
+    border-radius: 6px;
+    margin: 2px 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.v3-nav .mud-nav-link.active-item,
+.v3-nav .mud-nav-link.mud-nav-link.active {
+    background-color: #161b22 !important;
+    color: #c9d1d9 !important;
+}
+
+.v3-nav .mud-nav-link-icon {
+    color: #6e7681 !important;
+}
+
+/* Headings / table aesthetic */
+.mud-table,
+.mud-card {
+    background-color: #0a0a0a !important;
+    border: 1px solid #1a1a1a !important;
+}
+
+.mud-table-cell {
+    border-bottom-color: #1a1a1a !important;
+}
+
+a, .mud-link {
+    color: #58a6ff !important;
+}
+
+.v3-mono {
+    font-family: var(--font-mono) !important;
+    font-size: 13px !important;
+}
+
+.v3-table .mud-table-head .mud-table-cell {
+    color: #6e7681 !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #2a2a2a !important;
+}
+
+.v3-table .mud-table-row {
+    transition: background-color 80ms linear;
+}
+
+.v3-table .mud-table-row:hover .mud-table-cell {
+    background-color: #0d1117 !important;
+}
+
+.v3-table .mud-table-cell {
+    border-bottom-color: #1a1a1a !important;
+    padding: 8px 16px !important;
+}
+
+#blazor-error-ui {
+    background: #f85149;
+    color: #000;
+    padding: 10px 14px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: none;
+    font-size: 13px;
+    z-index: 1000;
+}
+
+#blazor-error-ui.show { display: flex; gap: 12px; align-items: center; }
+#blazor-error-ui a { color: #000; font-weight: 600; cursor: pointer; }
+#blazor-error-ui .dismiss { margin-left: auto; }

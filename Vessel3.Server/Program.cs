@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.FileProviders;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
@@ -115,6 +117,64 @@ app.Use(async (ctx, next) =>
             ctx.Response.ContentLength ?? 0);
     }
 });
+
+var uiAssets = new ManifestEmbeddedFileProvider(Assembly.GetExecutingAssembly(), "wwwroot");
+var uiContentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+var uiConfig = new UiConfig(accessKey ?? "", secretKey ?? "", region);
+
+app.Use(async (ctx, next) =>
+{
+    if (!ctx.Request.Path.StartsWithSegments("/_ui", out var remaining))
+    {
+        await next(ctx);
+        return;
+    }
+
+    if (accessKey is not null && secretKey is not null && !UiBasicAuthOk(ctx.Request, accessKey, secretKey))
+    {
+        ctx.Response.StatusCode = 401;
+        ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
+        return;
+    }
+
+    var rel = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
+
+    if (rel == "config.json")
+    {
+        ctx.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(ctx.Response.Body, uiConfig, AdminJsonContext.Default.UiConfig, ctx.RequestAborted);
+        return;
+    }
+
+    if (string.IsNullOrEmpty(rel)) rel = "index.html";
+    var info = uiAssets.GetFileInfo(rel);
+    if (!info.Exists || info.IsDirectory)
+        info = uiAssets.GetFileInfo("index.html");
+
+    ctx.Response.ContentType = uiContentTypes.TryGetContentType(info.Name, out var ct) ? ct : "application/octet-stream";
+    ctx.Response.ContentLength = info.Length;
+    await using var stream = info.CreateReadStream();
+    await stream.CopyToAsync(ctx.Response.Body);
+});
+
+static bool UiBasicAuthOk(HttpRequest req, string accessKey, string secretKey)
+{
+    var auth = req.Headers.Authorization.ToString();
+    if (!auth.StartsWith("Basic ", StringComparison.Ordinal)) return false;
+    try
+    {
+        var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(auth["Basic ".Length..]));
+        var colon = decoded.IndexOf(':', StringComparison.Ordinal);
+        if (colon < 0) return false;
+        var aUser = Encoding.UTF8.GetBytes(decoded[..colon]);
+        var aPass = Encoding.UTF8.GetBytes(decoded[(colon + 1)..]);
+        var bUser = Encoding.UTF8.GetBytes(accessKey);
+        var bPass = Encoding.UTF8.GetBytes(secretKey);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(aUser, bUser)
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(aPass, bPass);
+    }
+    catch (FormatException) { return false; }
+}
 
 app.UseMiddleware<SigV4Middleware>();
 

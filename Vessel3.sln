@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vessel3.Bench", "Vessel3.Be
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vessel3.Tests", "Vessel3.Tests\Vessel3.Tests.csproj", "{5ECB38EF-9786-480D-9017-FE67EEC10634}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vessel3.UI", "Vessel3.UI\Vessel3.UI.csproj", "{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{5ECB38EF-9786-480D-9017-FE67EEC10634}.Release|x64.Build.0 = Release|Any CPU
 		{5ECB38EF-9786-480D-9017-FE67EEC10634}.Release|x86.ActiveCfg = Release|Any CPU
 		{5ECB38EF-9786-480D-9017-FE67EEC10634}.Release|x86.Build.0 = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|x64.Build.0 = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Debug|x86.Build.0 = Debug|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|x64.ActiveCfg = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|x64.Build.0 = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|x86.ActiveCfg = Release|Any CPU
+		{13F21B43-8A62-4EF0-9DE9-B0CA8C099EDE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -5,9 +5,12 @@ namespace Vessel3.Server;
 
 internal sealed record GcReport(int BlobsDeleted, int UploadsReaped);
 
-[JsonSourceGenerationOptions(WriteIndented = false)]
+internal sealed record UiConfig(string AccessKey, string SecretKey, string Region);
+
+[JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GcReport))]
 [JsonSerializable(typeof(LifecycleReport))]
+[JsonSerializable(typeof(UiConfig))]
 internal sealed partial class AdminJsonContext : JsonSerializerContext;
 
 internal interface IGarbageCollector
