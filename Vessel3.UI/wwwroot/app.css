@@ -103,6 +103,21 @@ a, .mud-link {
     padding: 8px 16px !important;
 }
 
+.v3-job {
+    padding: 10px 12px;
+    border-bottom: 1px solid #1a1a1a;
+}
+.v3-job:last-child { border-bottom: none; }
+.v3-job-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+.v3-job-bar { height: 4px !important; }
+
 #blazor-error-ui {
     background: #f85149;
     color: #000;

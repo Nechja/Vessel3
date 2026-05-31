@@ -1,0 +1,162 @@
+@page "/uploads"
+@using Amazon.S3
+@using Amazon.S3.Model
+@using Amazon.S3.Transfer
+@using Microsoft.AspNetCore.Components.Forms
+@inject IAmazonS3 S3
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h1" Class="mb-1">uploads</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-6">drop files into a bucket. multipart kicks in automatically above 5 MB.</MudText>
+
+<MudPaper Elevation="0" Class="pa-4 mb-4" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
+    <MudGrid Spacing="3" AlignItems="Center.Center">
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="string" @bind-Value="_bucket" Label="bucket" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="_loadingBuckets" AnchorOrigin="Origin.BottomCenter">
+                @foreach (var b in _buckets)
+                {
+                    <MudSelectItem Value="@b">@b</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="8">
+            <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="OnFilesPicked" Disabled="@(string.IsNullOrEmpty(_bucket))" MaximumFileCount="20">
+                <ActivatorContent>
+                    <MudButton HtmlTag="label"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Outlined.CloudUpload"
+                               Disabled="@(string.IsNullOrEmpty(_bucket))">
+                        select files
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_jobs.Count > 0)
+{
+    <MudText Typo="Typo.h2" Class="mb-2">queue</MudText>
+    <MudPaper Elevation="0" Class="pa-2" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
+        @foreach (var job in _jobs)
+        {
+            <div class="v3-job">
+                <div class="v3-job-head">
+                    <span class="v3-mono">@job.Bucket / @job.Key</span>
+                    <span class="v3-mono mud-text-secondary">@FormatStatus(job)</span>
+                </div>
+                <MudProgressLinear Color="@StatusColor(job)" Value="@job.Percent" Class="v3-job-bar" />
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    string? _bucket;
+    List<string> _buckets = [];
+    bool _loadingBuckets = true;
+    readonly List<UploadJob> _jobs = [];
+
+    sealed class UploadJob
+    {
+        public string Bucket { get; init; } = "";
+        public string Key { get; init; } = "";
+        public long Size { get; init; }
+        public double Percent { get; set; }
+        public UploadState State { get; set; } = UploadState.Running;
+        public string? Error { get; set; }
+    }
+
+    enum UploadState { Running, Done, Failed }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var resp = await S3.ListBucketsAsync();
+            _buckets = (resp.Buckets ?? []).Select(b => b.BucketName).Order(StringComparer.Ordinal).ToList();
+            if (_buckets.Count > 0) _bucket = _buckets[0];
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"could not list buckets: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loadingBuckets = false;
+        }
+    }
+
+    async Task OnFilesPicked(IReadOnlyList<IBrowserFile> files)
+    {
+        if (string.IsNullOrEmpty(_bucket) || files.Count == 0) return;
+        var dest = _bucket;
+        foreach (var file in files)
+        {
+            _ = StartUpload(dest, file);
+        }
+        await Task.CompletedTask;
+    }
+
+    async Task StartUpload(string bucket, IBrowserFile file)
+    {
+        var job = new UploadJob { Bucket = bucket, Key = file.Name, Size = file.Size };
+        _jobs.Insert(0, job);
+        StateHasChanged();
+
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 5L * 1024 * 1024 * 1024);
+            var transfer = new TransferUtility(S3);
+            var req = new TransferUtilityUploadRequest
+            {
+                BucketName = bucket,
+                Key = file.Name,
+                InputStream = stream,
+                ContentType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                AutoCloseStream = false,
+                PartSize = 8L * 1024 * 1024,
+            };
+            req.UploadProgressEvent += (_, e) =>
+            {
+                job.Percent = e.PercentDone;
+                InvokeAsync(StateHasChanged);
+            };
+            await transfer.UploadAsync(req);
+            job.Percent = 100;
+            job.State = UploadState.Done;
+            Snackbar.Add($"uploaded {file.Name}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            job.State = UploadState.Failed;
+            job.Error = ex.Message;
+            Snackbar.Add($"upload failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    static string FormatBytes(long n) =>
+        n < 1024 ? $"{n} B"
+        : n < 1024 * 1024 ? $"{n / 1024.0:F1} KB"
+        : n < 1024L * 1024 * 1024 ? $"{n / (1024.0 * 1024):F1} MB"
+        : $"{n / (1024.0 * 1024 * 1024):F2} GB";
+
+    static string FormatStatus(UploadJob j) => j.State switch
+    {
+        UploadState.Done => $"done · {FormatBytes(j.Size)}",
+        UploadState.Failed => $"failed · {j.Error}",
+        _ => $"{j.Percent:F0}% · {FormatBytes(j.Size)}",
+    };
+
+    static Color StatusColor(UploadJob j) => j.State switch
+    {
+        UploadState.Done => Color.Success,
+        UploadState.Failed => Color.Error,
+        _ => Color.Primary,
+    };
+}

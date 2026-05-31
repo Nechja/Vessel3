@@ -146,6 +146,30 @@ app.Use(async (ctx, next) =>
         return;
     }
 
+    if (rel == "admin/gc" && HttpMethods.IsPost(ctx.Request.Method))
+    {
+        var gc = ctx.RequestServices.GetRequiredService<IGarbageCollector>();
+        var blobAge = ParseAgeQuery(ctx.Request.Query, "blob-age", (long)TimeSpan.FromHours(1).TotalSeconds);
+        var uploadAge = ParseAgeQuery(ctx.Request.Query, "upload-age", (long)TimeSpan.FromDays(7).TotalSeconds);
+        var report = gc.Run(TimeSpan.FromSeconds(blobAge), TimeSpan.FromSeconds(uploadAge));
+        ctx.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.GcReport, ctx.RequestAborted);
+        return;
+    }
+
+    if (rel == "admin/lifecycle" && HttpMethods.IsPost(ctx.Request.Method))
+    {
+        var sweeper = ctx.RequestServices.GetRequiredService<ILifecycleSweeper>();
+        var now = DateTimeOffset.UtcNow;
+        if (ctx.Request.Query.TryGetValue("now", out var nowRaw)
+            && DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            now = parsed;
+        var report = sweeper.Run(now);
+        ctx.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.LifecycleReport, ctx.RequestAborted);
+        return;
+    }
+
     if (string.IsNullOrEmpty(rel)) rel = "index.html";
     var info = uiAssets.GetFileInfo(rel);
     if (!info.Exists || info.IsDirectory)
