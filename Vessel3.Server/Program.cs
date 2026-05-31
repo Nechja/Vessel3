@@ -170,6 +170,39 @@ app.Use(async (ctx, next) =>
         return;
     }
 
+    if (rel.StartsWith("upload/", StringComparison.Ordinal) && HttpMethods.IsPut(ctx.Request.Method))
+    {
+        var path = rel["upload/".Length..];
+        var slash = path.IndexOf('/', StringComparison.Ordinal);
+        if (slash <= 0 || slash == path.Length - 1)
+        {
+            ctx.Response.StatusCode = 400;
+            await ctx.Response.WriteAsync("upload path: /_ui/upload/{bucket}/{key}", ctx.RequestAborted);
+            return;
+        }
+        var bucketName = path[..slash];
+        var objectKey = path[(slash + 1)..];
+        var objects = ctx.RequestServices.GetRequiredService<IObjectStore>();
+        var contentType = ctx.Request.ContentType ?? "application/octet-stream";
+        var declaredLength = ctx.Request.ContentLength;
+        var put = await objects.Put(bucketName, objectKey, ctx.Request.Body, declaredLength, contentType,
+            declaredSha256: null, declaredMd5Base64: null,
+            metadata: new Dictionary<string, string>(),
+            tags: new Dictionary<string, string>(),
+            declaredChecksums: ChecksumSet.Empty,
+            ct: ctx.RequestAborted);
+        if (!put.TryGetValue(out var outcome, out var err))
+        {
+            ctx.Response.StatusCode = err.Status;
+            await ctx.Response.WriteAsync(err.Message, ctx.RequestAborted);
+            return;
+        }
+        ctx.Response.Headers.ETag = $"\"{outcome.Etag}\"";
+        if (!string.IsNullOrEmpty(outcome.VersionId)) ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
+        ctx.Response.StatusCode = 200;
+        return;
+    }
+
     if (string.IsNullOrEmpty(rel)) rel = "index.html";
     var info = uiAssets.GetFileInfo(rel);
     if (!info.Exists || info.IsDirectory)

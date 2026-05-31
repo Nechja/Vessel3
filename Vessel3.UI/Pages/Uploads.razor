@@ -1,16 +1,15 @@
 @page "/uploads"
 @using Amazon.S3
-@using Amazon.S3.Model
-@using Amazon.S3.Transfer
 @using Microsoft.AspNetCore.Components.Forms
 @inject IAmazonS3 S3
+@inject HttpClient Http
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h1" Class="mb-1">uploads</MudText>
-<MudText Typo="Typo.body2" Class="mud-text-secondary mb-6">drop files into a bucket. multipart kicks in automatically above 5 MB.</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-6">pick a destination bucket, then select files. multipart kicks in automatically above 8 MB.</MudText>
 
 <MudPaper Elevation="0" Class="pa-4 mb-4" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
-    <MudGrid Spacing="3" AlignItems="Center.Center">
+    <MudGrid Spacing="3">
         <MudItem xs="12" sm="6" md="4">
             <MudSelect T="string" @bind-Value="_bucket" Label="bucket" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="_loadingBuckets" AnchorOrigin="Origin.BottomCenter">
                 @foreach (var b in _buckets)
@@ -19,18 +18,11 @@
                 }
             </MudSelect>
         </MudItem>
-        <MudItem xs="12" sm="6" md="8">
-            <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="OnFilesPicked" Disabled="@(string.IsNullOrEmpty(_bucket))" MaximumFileCount="20">
-                <ActivatorContent>
-                    <MudButton HtmlTag="label"
-                               Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Outlined.CloudUpload"
-                               Disabled="@(string.IsNullOrEmpty(_bucket))">
-                        select files
-                    </MudButton>
-                </ActivatorContent>
-            </MudFileUpload>
+        <MudItem xs="12" sm="6" md="8" Class="d-flex align-center">
+            <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                           FilesChanged="OnFilesPicked"
+                           Disabled="@(string.IsNullOrEmpty(_bucket))"
+                           MaximumFileCount="50" />
         </MudItem>
     </MudGrid>
 </MudPaper>
@@ -88,42 +80,35 @@
         }
     }
 
-    async Task OnFilesPicked(IReadOnlyList<IBrowserFile> files)
+    void OnFilesPicked(IReadOnlyList<IBrowserFile> files)
     {
         if (string.IsNullOrEmpty(_bucket) || files.Count == 0) return;
         var dest = _bucket;
         foreach (var file in files)
-        {
             _ = StartUpload(dest, file);
-        }
-        await Task.CompletedTask;
     }
 
     async Task StartUpload(string bucket, IBrowserFile file)
     {
         var job = new UploadJob { Bucket = bucket, Key = file.Name, Size = file.Size };
         _jobs.Insert(0, job);
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
 
         try
         {
-            await using var stream = file.OpenReadStream(maxAllowedSize: 5L * 1024 * 1024 * 1024);
-            var transfer = new TransferUtility(S3);
-            var req = new TransferUtilityUploadRequest
+            await using var src = file.OpenReadStream(maxAllowedSize: 5L * 1024 * 1024 * 1024);
+            using var content = new StreamContent(src);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+            content.Headers.ContentLength = file.Size;
+
+            var url = $"upload/{Uri.EscapeDataString(bucket)}/{string.Join('/', file.Name.Split('/').Select(Uri.EscapeDataString))}";
+            using var resp = await Http.PutAsync(url, content);
+            if (!resp.IsSuccessStatusCode)
             {
-                BucketName = bucket,
-                Key = file.Name,
-                InputStream = stream,
-                ContentType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType,
-                AutoCloseStream = false,
-                PartSize = 8L * 1024 * 1024,
-            };
-            req.UploadProgressEvent += (_, e) =>
-            {
-                job.Percent = e.PercentDone;
-                InvokeAsync(StateHasChanged);
-            };
-            await transfer.UploadAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"{(int)resp.StatusCode}: {body}");
+            }
             job.Percent = 100;
             job.State = UploadState.Done;
             Snackbar.Add($"uploaded {file.Name}", Severity.Success);

@@ -33,6 +33,8 @@ builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
         HttpClientFactory = new BlazorHttpClientFactory(),
         RetryMode = RequestRetryMode.Standard,
         MaxErrorRetry = 1,
+        RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+        ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
     }));
 
 await builder.Build().RunAsync();
