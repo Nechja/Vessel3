@@ -1,0 +1,193 @@
+@using Amazon.S3
+@using Amazon.S3.Model
+@inject IAmazonS3 S3
+@inject ObjectUrls Urls
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<div class="v3-inspect">
+    @if (_info is null)
+    {
+        @if (_error is not null)
+        {
+            <div class="v3-empty">@_error</div>
+        }
+        else
+        {
+            <div class="v3-empty">loading</div>
+        }
+    }
+    else
+    {
+        <div class="v3-inspect-facts">
+            <div class="v3-fact"><span class="k">content-type</span><span class="v">@_info.ContentType</span></div>
+            <div class="v3-fact"><span class="k">size</span><span class="v">@Fmt.Bytes(_info.Length) (@_info.Length.ToString("N0") bytes)</span></div>
+            <div class="v3-fact"><span class="k">modified</span><span class="v">@(_info.Modified?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</span></div>
+            <div class="v3-fact"><span class="k">etag</span><span class="v">@_info.Etag</span></div>
+            @if (_info.VersionId is not null)
+            {
+                <div class="v3-fact"><span class="k">version</span><span class="v">@_info.VersionId</span></div>
+            }
+        </div>
+        @if (_info.Metadata.Count > 0)
+        {
+            <div class="v3-inspect-facts">
+                @foreach (var (k, v) in _info.Metadata)
+                {
+                    <div class="v3-fact"><span class="k">meta · @k</span><span class="v">@v</span></div>
+                }
+            </div>
+        }
+        @if (_info.Kind == PreviewKind.Text)
+        {
+            <pre class="v3-inspect-pre">@_info.Text</pre>
+            @if (_info.TextTruncated)
+            {
+                <div class="v3-faint" style="font-size:11px">first @Fmt.Bytes(PreviewCap) of @Fmt.Bytes(_info.Length)</div>
+            }
+        }
+        else if (_info.Kind == PreviewKind.Image)
+        {
+            <img class="v3-inspect-img" src="@_info.ImageUrl" alt="@ObjectKey" />
+        }
+        else
+        {
+            <div class="v3-empty">no preview</div>
+        }
+        <div class="v3-inspect-actions">
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="Download">get</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="CopyUrl">copy url</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="CopyKey">copy key</MudButton>
+        </div>
+    }
+</div>
+
+@code {
+    const int PreviewCap = 16 * 1024;
+
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter, EditorRequired] public string ObjectKey { get; set; } = "";
+
+    enum PreviewKind { None, Text, Image }
+
+    sealed class Info
+    {
+        public string ContentType = "";
+        public long Length;
+        public DateTime? Modified;
+        public string Etag = "";
+        public string? VersionId;
+        public Dictionary<string, string> Metadata = [];
+        public PreviewKind Kind;
+        public string? Text;
+        public bool TextTruncated;
+        public string? ImageUrl;
+    }
+
+    Info? _info;
+    string? _error;
+    (string Bucket, string Key)? _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == (Bucket, ObjectKey)) return;
+        _loaded = (Bucket, ObjectKey);
+        _info = null;
+        _error = null;
+
+        try
+        {
+            var head = await S3.GetObjectMetadataAsync(Bucket, ObjectKey);
+            var info = new Info
+            {
+                ContentType = string.IsNullOrEmpty(head.Headers.ContentType) ? "application/octet-stream" : head.Headers.ContentType,
+                Length = head.Headers.ContentLength,
+                Modified = head.LastModified,
+                Etag = head.ETag?.Trim('"') ?? "",
+                VersionId = string.IsNullOrEmpty(head.VersionId) || head.VersionId == "null" ? null : head.VersionId,
+            };
+            foreach (string k in head.Metadata.Keys)
+            {
+                var name = k.StartsWith("x-amz-meta-", StringComparison.OrdinalIgnoreCase) ? k["x-amz-meta-".Length..] : k;
+                info.Metadata[name] = head.Metadata[k];
+            }
+
+            if (IsImage(info.ContentType, ObjectKey))
+            {
+                info.Kind = PreviewKind.Image;
+                info.ImageUrl = Urls.For(Bucket, ObjectKey);
+            }
+            else if (IsText(info.ContentType, ObjectKey))
+            {
+                using var obj = await S3.GetObjectAsync(new GetObjectRequest
+                {
+                    BucketName = Bucket,
+                    Key = ObjectKey,
+                    ByteRange = new ByteRange(0, PreviewCap - 1),
+                });
+                using var reader = new StreamReader(obj.ResponseStream);
+                info.Text = await reader.ReadToEndAsync();
+                info.TextTruncated = info.Length > PreviewCap;
+                info.Kind = PreviewKind.Text;
+            }
+
+            _info = info;
+        }
+        catch (Exception ex)
+        {
+            _error = $"inspect failed: {ex.Message}";
+        }
+    }
+
+    static bool IsImage(string contentType, string key) =>
+        contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+        || HasExtension(key, ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif");
+
+    static bool IsText(string contentType, string key) =>
+        contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+        || contentType is "application/json" or "application/xml" or "application/javascript"
+            or "application/x-yaml" or "application/yaml" or "application/toml" or "application/x-sh"
+        || HasExtension(key, ".txt", ".md", ".log", ".json", ".yaml", ".yml", ".xml", ".csv", ".toml",
+            ".ini", ".sh", ".cs", ".js", ".ts", ".html", ".css", ".razor", ".csproj", ".sql", ".py", ".rs", ".go");
+
+    static bool HasExtension(string key, params string[] exts) =>
+        exts.Any(e => key.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+
+    void Download()
+    {
+        try
+        {
+            _ = JS.InvokeVoidAsync("window.open", Urls.For(Bucket, ObjectKey), "_blank");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"presign failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    async Task CopyUrl()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Urls.For(Bucket, ObjectKey));
+            Snackbar.Add("url copied", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"copy failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    async Task CopyKey()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", ObjectKey);
+            Snackbar.Add("key copied", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"copy failed: {ex.Message}", Severity.Error);
+        }
+    }
+}

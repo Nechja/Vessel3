@@ -14,6 +14,8 @@
     <MudAlert Severity="Severity.Error" Class="mb-4" Dense="true" Variant="Variant.Outlined">@_error</MudAlert>
 }
 
+<NewBucketForm OnCreated="Refresh" />
+
 <MudPaper Elevation="0" Class="v3-card">
     <MudTable Items="_buckets" Loading="_loading" Hover="true" Dense="true" Striped="false" Bordered="false" Elevation="0" Class="v3-table">
         <HeaderContent>
@@ -47,13 +49,16 @@
     string? _error;
     string _summary = "";
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => Refresh();
+
+    async Task Refresh()
     {
         try
         {
             var resp = await S3.ListBucketsAsync();
             _buckets = resp.Buckets ?? [];
             _summary = $"{_buckets.Count} bucket{(_buckets.Count == 1 ? "" : "s")}";
+            _error = null;
         }
         catch (Exception ex)
         {

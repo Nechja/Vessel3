@@ -2,10 +2,9 @@
 @using Amazon.S3
 @using Amazon.S3.Model
 @inject IAmazonS3 S3
-@inject NavigationManager Nav
+@inject ObjectUrls Urls
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
-@inject UiConfig Config
 
 <div class="v3-page-head">
     <div class="v3-kicker">bucket</div>
@@ -13,30 +12,7 @@
     <div class="v3-sub">@_summary</div>
 </div>
 
-<div class="v3-path">
-    <MudLink Href="">buckets</MudLink>
-    <span class="sep">/</span>
-    @if (string.IsNullOrEmpty(CurrentPrefix))
-    {
-        <span class="here">@Bucket</span>
-    }
-    else
-    {
-        <MudLink Href="@($"buckets/{Bucket}")">@Bucket</MudLink>
-        @foreach (var (label, prefix, isLast) in Crumbs())
-        {
-            <span class="sep">/</span>
-            @if (isLast)
-            {
-                <span class="here">@label</span>
-            }
-            else
-            {
-                <MudLink Href="@PrefixHref(prefix)">@label</MudLink>
-            }
-        }
-    }
-</div>
+<BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
 
 @if (_error is not null)
 {
@@ -63,7 +39,10 @@
             }
             else
             {
-                <MudTd><span class="v3-mono">@context.Name</span></MudTd>
+                <MudTd>
+                    <span class="v3-mono v3-keylink @(_openKey == context.Key ? "open" : "")"
+                          @onclick="@(() => ToggleInspect(context.Key))">@context.Name</span>
+                </MudTd>
                 <MudTd><span class="v3-mono v3-muted">@Fmt.Bytes(context.Size)</span></MudTd>
                 <MudTd><span class="v3-mono v3-muted">@context.Modified?.ToString("yyyy-MM-dd HH:mm:ss")</span></MudTd>
                 <MudTd Style="text-align:right; white-space:nowrap">
@@ -79,6 +58,16 @@
                 </MudTd>
             }
         </RowTemplate>
+        <ChildRowContent>
+            @if (!context.IsFolder && _openKey == context.Key)
+            {
+                <tr class="mud-table-row">
+                    <td class="mud-table-cell v3-inspect-cell" colspan="4">
+                        <ObjectInspector Bucket="@Bucket" ObjectKey="@context.Key" />
+                    </td>
+                </tr>
+            }
+        </ChildRowContent>
         <NoRecordsContent>
             <div class="v3-empty">empty</div>
         </NoRecordsContent>
@@ -107,6 +96,7 @@
     string _summary = "";
     string? _nextToken;
     string? _armedDelete;
+    string? _openKey;
     (string Bucket, string Prefix)? _loaded;
 
     protected override async Task OnParametersSetAsync()
@@ -116,6 +106,7 @@
         _rows = [];
         _nextToken = null;
         _armedDelete = null;
+        _openKey = null;
         _error = null;
         await Load(continuation: null);
     }
@@ -159,28 +150,14 @@
 
     Task LoadMore() => Load(_nextToken);
 
+    void ToggleInspect(string key) =>
+        _openKey = _openKey == key ? null : key;
+
     void Download(string key)
     {
         try
         {
-            string url;
-            if (string.IsNullOrEmpty(Config.AccessKey))
-            {
-                var origin = new Uri(Nav.BaseUri).GetLeftPart(UriPartial.Authority);
-                url = $"{origin}/{Uri.EscapeDataString(Bucket)}/{string.Join('/', key.Split('/').Select(Uri.EscapeDataString))}";
-            }
-            else
-            {
-                url = S3.GetPreSignedURL(new GetPreSignedUrlRequest
-                {
-                    BucketName = Bucket,
-                    Key = key,
-                    Verb = HttpVerb.GET,
-                    Expires = DateTime.UtcNow.AddHours(1),
-                    Protocol = Nav.BaseUri.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? Protocol.HTTPS : Protocol.HTTP,
-                });
-            }
-            _ = JS.InvokeVoidAsync("window.open", url, "_blank");
+            _ = JS.InvokeVoidAsync("window.open", Urls.For(Bucket, key), "_blank");
         }
         catch (Exception ex)
         {
@@ -194,6 +171,7 @@
         {
             await S3.DeleteObjectAsync(Bucket, key);
             _rows.RemoveAll(r => r.Key == key);
+            if (_openKey == key) _openKey = null;
             UpdateSummary();
             Snackbar.Add($"deleted {TrimPrefix(key)}", Severity.Success);
         }
@@ -221,15 +199,4 @@
 
     string PrefixHref(string prefix) =>
         $"buckets/{Bucket}?prefix={Uri.EscapeDataString(prefix)}";
-
-    IEnumerable<(string Label, string Prefix, bool IsLast)> Crumbs()
-    {
-        var parts = CurrentPrefix.TrimEnd('/').Split('/');
-        var acc = "";
-        for (var i = 0; i < parts.Length; i++)
-        {
-            acc += parts[i] + "/";
-            yield return (parts[i], acc, i == parts.Length - 1);
-        }
-    }
 }
