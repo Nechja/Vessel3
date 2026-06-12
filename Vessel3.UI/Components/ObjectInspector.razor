@@ -95,9 +95,12 @@
         _info = null;
         _error = null;
 
+        var targetKey = (Bucket, ObjectKey);
+
         try
         {
             var head = await S3.GetObjectMetadataAsync(Bucket, ObjectKey);
+            if (_loaded != targetKey) return;
             var info = new Info
             {
                 ContentType = string.IsNullOrEmpty(head.Headers.ContentType) ? "application/octet-stream" : head.Headers.ContentType,
@@ -127,6 +130,7 @@
                 });
                 using var reader = new StreamReader(obj.ResponseStream);
                 info.Text = await reader.ReadToEndAsync();
+                if (_loaded != targetKey) return;
                 info.TextTruncated = info.Length > PreviewCap;
                 info.Kind = PreviewKind.Text;
             }
