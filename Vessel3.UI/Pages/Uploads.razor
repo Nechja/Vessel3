@@ -8,7 +8,6 @@
 <div class="v3-page-head">
     <div class="v3-kicker">ingest</div>
     <MudText Typo="Typo.h1">uploads</MudText>
-    <div class="v3-sub">each file streams to the server as a single put · 5 GB max</div>
 </div>
 
 <MudPaper Elevation="0" Class="pa-4 mb-4 v3-card">
@@ -66,6 +65,8 @@
 }
 
 @code {
+    const long MaxUploadBytes = 5L * 1024 * 1024 * 1024;
+
     string? _bucket;
     List<string> _buckets = [];
     bool _loadingBuckets = true;
@@ -113,6 +114,15 @@
     {
         var job = new UploadJob { Bucket = bucket, Key = file.Name, Size = file.Size };
         _jobs.Insert(0, job);
+
+        if (file.Size > MaxUploadBytes)
+        {
+            job.State = UploadState.Failed;
+            job.Error = $"{Fmt.Bytes(file.Size)} exceeds the {Fmt.Bytes(MaxUploadBytes)} limit";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
         await InvokeAsync(StateHasChanged);
 
         await _gate.WaitAsync();
@@ -121,7 +131,7 @@
 
         try
         {
-            await using var src = file.OpenReadStream(maxAllowedSize: 5L * 1024 * 1024 * 1024);
+            await using var src = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
             using var content = new StreamContent(src);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
                 string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
