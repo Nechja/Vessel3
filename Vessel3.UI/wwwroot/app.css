@@ -36,6 +36,19 @@ body::before {
     font-family: var(--font-mono);
     font-size: 12px;
 }
+.boot::after {
+    content: "...";
+    color: var(--amber);
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: bottom;
+    width: 0ch;
+    animation: v3-boot-dots 1.2s steps(4, jump-none) infinite;
+}
+@keyframes v3-boot-dots {
+    from { width: 0ch; }
+    to { width: 3ch; }
+}
 @keyframes v3-rise {
     from { opacity: 0; transform: translateY(6px); }
     to   { opacity: 1; transform: none; }
