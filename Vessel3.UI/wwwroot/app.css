@@ -223,7 +223,6 @@ a, .mud-link { color: var(--amber) !important; }
 
 .v3-inspect-cell { padding: 0 !important; background: #050503 !important; }
 .v3-inspect {
-    border-left: 2px solid var(--amber);
     padding: 14px 18px 16px;
     display: grid;
     gap: 14px;
@@ -269,7 +268,7 @@ a, .mud-link { color: var(--amber) !important; }
     background:
         repeating-conic-gradient(#0d0d0b 0% 25%, #050503 0% 50%) 0 0 / 16px 16px;
 }
-.v3-inspect-actions { display: flex; gap: 4px; }
+.v3-inspect-actions { justify-self: start; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }

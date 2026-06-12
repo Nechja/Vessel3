@@ -54,11 +54,11 @@
         {
             <div class="v3-empty">no preview</div>
         }
-        <div class="v3-inspect-actions">
-            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="Download">get</MudButton>
-            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="CopyUrl">copy url</MudButton>
-            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="CopyKey">copy key</MudButton>
-        </div>
+        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" Class="v3-inspect-actions">
+            <MudButton OnClick="Download">get</MudButton>
+            <MudButton OnClick="CopyUrl">copy url</MudButton>
+            <MudButton OnClick="CopyKey">copy key</MudButton>
+        </MudButtonGroup>
     }
 </div>
 
