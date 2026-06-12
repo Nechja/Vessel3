@@ -10,11 +10,13 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.rid }}
+    name: ${{ matrix.rid }}${{ matrix.embed_ui == 'true' && '-ui' || '' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        rid: [linux-x64, linux-arm64, osx-arm64, win-x64]
+        embed_ui: ['false', 'true']
         include:
           - rid: linux-x64
             runner: ubuntu-latest
@@ -27,6 +29,9 @@ jobs:
           - rid: win-x64
             runner: windows-latest
             windows: true
+
+    env:
+      VARIANT: ${{ matrix.embed_ui == 'true' && '-ui' || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -46,6 +51,7 @@ jobs:
             -c Release \
             -r ${{ matrix.rid }} \
             --self-contained \
+            -p:EmbedUi=${{ matrix.embed_ui }} \
             -o publish/${{ matrix.rid }} \
             --nologo
 
@@ -54,18 +60,18 @@ jobs:
         shell: bash
         run: |
           cd publish/${{ matrix.rid }}
-          tar -czf "$GITHUB_WORKSPACE/vessel3-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" vessel3
+          tar -czf "$GITHUB_WORKSPACE/vessel3-${{ github.ref_name }}-${{ matrix.rid }}$VARIANT.tar.gz" vessel3
 
       - name: Package (windows)
         if: matrix.windows
         shell: pwsh
         run: |
-          $name = "vessel3-${{ github.ref_name }}-${{ matrix.rid }}.zip"
+          $name = "vessel3-${{ github.ref_name }}-${{ matrix.rid }}$env:VARIANT.zip"
           Compress-Archive -Path "publish/${{ matrix.rid }}/vessel3.exe" -DestinationPath "$env:GITHUB_WORKSPACE/$name"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: vessel3-${{ matrix.rid }}
+          name: vessel3-${{ matrix.rid }}${{ env.VARIANT }}
           path: |
             vessel3-*.tar.gz
             vessel3-*.zip

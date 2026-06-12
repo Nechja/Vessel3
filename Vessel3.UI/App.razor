@@ -4,7 +4,12 @@
     </Found>
     <NotFound>
         <LayoutView Layout="@typeof(MainLayout)">
-            <p>not found</p>
+            <div class="v3-page-head">
+                <div class="v3-kicker">404</div>
+                <MudText Typo="Typo.h1">not found</MudText>
+                <div class="v3-sub">no page at this address</div>
+            </div>
+            <MudLink Href="">← back to buckets</MudLink>
         </LayoutView>
     </NotFound>
 </Router>

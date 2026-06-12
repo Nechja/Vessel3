@@ -1,13 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Text;
-using System.Text.Json;
-using Microsoft.Extensions.FileProviders;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
-using static Vessel3.Server.RequestHelpers;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -118,120 +114,9 @@ app.Use(async (ctx, next) =>
     }
 });
 
-var uiAssets = new ManifestEmbeddedFileProvider(Assembly.GetExecutingAssembly(), "wwwroot");
-var uiContentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
-var uiConfig = new UiConfig(accessKey ?? "", secretKey ?? "", region);
-
-app.Use(async (ctx, next) =>
-{
-    if (!ctx.Request.Path.StartsWithSegments("/_ui", out var remaining))
-    {
-        await next(ctx);
-        return;
-    }
-
-    if (accessKey is not null && secretKey is not null && !UiBasicAuthOk(ctx.Request, accessKey, secretKey))
-    {
-        ctx.Response.StatusCode = 401;
-        ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
-        return;
-    }
-
-    var rel = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
-
-    if (rel == "config.json")
-    {
-        ctx.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(ctx.Response.Body, uiConfig, AdminJsonContext.Default.UiConfig, ctx.RequestAborted);
-        return;
-    }
-
-    if (rel == "admin/gc" && HttpMethods.IsPost(ctx.Request.Method))
-    {
-        var gc = ctx.RequestServices.GetRequiredService<IGarbageCollector>();
-        var blobAge = ParseAgeQuery(ctx.Request.Query, "blob-age", (long)TimeSpan.FromHours(1).TotalSeconds);
-        var uploadAge = ParseAgeQuery(ctx.Request.Query, "upload-age", (long)TimeSpan.FromDays(7).TotalSeconds);
-        var report = gc.Run(TimeSpan.FromSeconds(blobAge), TimeSpan.FromSeconds(uploadAge));
-        ctx.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.GcReport, ctx.RequestAborted);
-        return;
-    }
-
-    if (rel == "admin/lifecycle" && HttpMethods.IsPost(ctx.Request.Method))
-    {
-        var sweeper = ctx.RequestServices.GetRequiredService<ILifecycleSweeper>();
-        var now = DateTimeOffset.UtcNow;
-        if (ctx.Request.Query.TryGetValue("now", out var nowRaw)
-            && DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
-            now = parsed;
-        var report = sweeper.Run(now);
-        ctx.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.LifecycleReport, ctx.RequestAborted);
-        return;
-    }
-
-    if (rel.StartsWith("upload/", StringComparison.Ordinal) && HttpMethods.IsPut(ctx.Request.Method))
-    {
-        var path = rel["upload/".Length..];
-        var slash = path.IndexOf('/', StringComparison.Ordinal);
-        if (slash <= 0 || slash == path.Length - 1)
-        {
-            ctx.Response.StatusCode = 400;
-            await ctx.Response.WriteAsync("upload path: /_ui/upload/{bucket}/{key}", ctx.RequestAborted);
-            return;
-        }
-        var bucketName = path[..slash];
-        var objectKey = path[(slash + 1)..];
-        var objects = ctx.RequestServices.GetRequiredService<IObjectStore>();
-        var contentType = ctx.Request.ContentType ?? "application/octet-stream";
-        var declaredLength = ctx.Request.ContentLength;
-        var put = await objects.Put(bucketName, objectKey, ctx.Request.Body, declaredLength, contentType,
-            declaredSha256: null, declaredMd5Base64: null,
-            metadata: new Dictionary<string, string>(),
-            tags: new Dictionary<string, string>(),
-            declaredChecksums: ChecksumSet.Empty,
-            ct: ctx.RequestAborted);
-        if (!put.TryGetValue(out var outcome, out var err))
-        {
-            ctx.Response.StatusCode = err.Status;
-            await ctx.Response.WriteAsync(err.Message, ctx.RequestAborted);
-            return;
-        }
-        ctx.Response.Headers.ETag = $"\"{outcome.Etag}\"";
-        if (!string.IsNullOrEmpty(outcome.VersionId)) ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
-        ctx.Response.StatusCode = 200;
-        return;
-    }
-
-    if (string.IsNullOrEmpty(rel)) rel = "index.html";
-    var info = uiAssets.GetFileInfo(rel);
-    if (!info.Exists || info.IsDirectory)
-        info = uiAssets.GetFileInfo("index.html");
-
-    ctx.Response.ContentType = uiContentTypes.TryGetContentType(info.Name, out var ct) ? ct : "application/octet-stream";
-    ctx.Response.ContentLength = info.Length;
-    await using var stream = info.CreateReadStream();
-    await stream.CopyToAsync(ctx.Response.Body);
-});
-
-static bool UiBasicAuthOk(HttpRequest req, string accessKey, string secretKey)
-{
-    var auth = req.Headers.Authorization.ToString();
-    if (!auth.StartsWith("Basic ", StringComparison.Ordinal)) return false;
-    try
-    {
-        var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(auth["Basic ".Length..]));
-        var colon = decoded.IndexOf(':', StringComparison.Ordinal);
-        if (colon < 0) return false;
-        var aUser = Encoding.UTF8.GetBytes(decoded[..colon]);
-        var aPass = Encoding.UTF8.GetBytes(decoded[(colon + 1)..]);
-        var bUser = Encoding.UTF8.GetBytes(accessKey);
-        var bPass = Encoding.UTF8.GetBytes(secretKey);
-        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(aUser, bUser)
-            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(aPass, bPass);
-    }
-    catch (FormatException) { return false; }
-}
+#if VESSEL3_UI
+app.UseVessel3Ui(accessKey, secretKey, region);
+#endif
 
 app.UseMiddleware<SigV4Middleware>();
 
@@ -241,31 +126,9 @@ app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry regis
     await xml.WriteListBuckets(res.Body, registry.List(), ct);
 });
 
-app.MapPut("/_admin/gc", async (
-    HttpRequest req, HttpResponse res,
-    IGarbageCollector gc,
-    CancellationToken ct) =>
-{
-    var blobAgeSec = ParseAgeQuery(req.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
-    var uploadAgeSec = ParseAgeQuery(req.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
-    var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
-    res.ContentType = "application/json";
-    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.GcReport, ct);
-});
+app.MapPut("/_admin/gc", AdminEndpoints.RunGc);
 
-app.MapPut("/_admin/lifecycle", async (
-    HttpRequest req, HttpResponse res,
-    ILifecycleSweeper sweeper,
-    CancellationToken ct) =>
-{
-    var now = DateTimeOffset.UtcNow;
-    if (req.Query.TryGetValue("now", out var nowRaw)
-        && DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
-        now = parsed;
-    var report = sweeper.Run(now);
-    res.ContentType = "application/json";
-    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.LifecycleReport, ct);
-});
+app.MapPut("/_admin/lifecycle", AdminEndpoints.RunLifecycle);
 
 app.MapGet("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
     dispatch.Dispatch(HttpMethods.Get, bucket, ctx));

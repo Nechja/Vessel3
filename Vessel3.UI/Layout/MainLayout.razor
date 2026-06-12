@@ -1,4 +1,5 @@
 @inherits LayoutComponentBase
+@inject UiConfig Config
 
 <MudThemeProvider Theme="Vessel3Theme.Dark" IsDarkMode="true" />
 <MudPopoverProvider />
@@ -7,11 +8,13 @@
 
 <MudLayout>
     <MudAppBar Elevation="0" Dense="true" Class="v3-appbar">
-        <MudLink Href="" Color="Color.Inherit" Underline="Underline.None" Class="v3-brand">vessel3</MudLink>
-        <MudText Typo="Typo.caption" Class="v3-brand-sub">ui</MudText>
         <MudSpacer />
+        <span class="v3-region">@Config.Region</span>
     </MudAppBar>
     <MudDrawer Open="true" Variant="DrawerVariant.Persistent" Elevation="0" Class="v3-drawer">
+        <MudDrawerHeader Class="v3-drawer-head">
+            <MudLink Href="" Color="Color.Inherit" Underline="Underline.None" Class="v3-brand">ves<span class="v3-rose">s</span>el<span class="v3-rose">3</span></MudLink>
+        </MudDrawerHeader>
         <MudNavMenu Class="v3-nav">
             <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Storage">buckets</MudNavLink>
             <MudNavLink Href="uploads" Icon="@Icons.Material.Outlined.Upload">uploads</MudNavLink>

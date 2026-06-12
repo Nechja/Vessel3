@@ -1,6 +1,5 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using Microsoft.AspNetCore.Components.Web;
@@ -23,8 +22,11 @@ var config = await bootHttp.GetFromJsonAsync<UiConfig>("config.json", jsonOpts)
 builder.Services.AddSingleton(config);
 
 var origin = new Uri(builder.HostEnvironment.BaseAddress).GetLeftPart(UriPartial.Authority);
+AWSCredentials credentials = string.IsNullOrEmpty(config.AccessKey)
+    ? new AnonymousAWSCredentials()
+    : new BasicAWSCredentials(config.AccessKey, config.SecretKey);
 builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
-    new BasicAWSCredentials(config.AccessKey, config.SecretKey),
+    credentials,
     new AmazonS3Config
     {
         ServiceURL = origin,

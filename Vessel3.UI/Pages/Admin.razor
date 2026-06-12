@@ -1,17 +1,19 @@
 @page "/admin"
 @using System.Net.Http.Json
-@using System.Text.Json
 @inject HttpClient Http
 @inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h1" Class="mb-1">admin</MudText>
-<MudText Typo="Typo.body2" Class="mud-text-secondary mb-6">on-demand maintenance. background timers also run on their own.</MudText>
+<div class="v3-page-head">
+    <div class="v3-kicker">maintenance</div>
+    <MudText Typo="Typo.h1">admin</MudText>
+    <div class="v3-sub">on-demand maintenance · background timers also run on their own</div>
+</div>
 
 <MudGrid Spacing="3">
     <MudItem xs="12" md="6">
-        <MudPaper Elevation="0" Class="pa-4 v3-card" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
+        <MudPaper Elevation="0" Class="pa-4 v3-card">
             <MudText Typo="Typo.h3" Class="mb-1">garbage collector</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3">delete unreferenced blobs and reap abandoned multipart uploads</MudText>
+            <MudText Typo="Typo.caption" Class="v3-muted mb-3 d-block">delete unreferenced blobs and reap abandoned multipart uploads</MudText>
             <MudGrid Spacing="2" Class="mb-3">
                 <MudItem xs="6">
                     <MudNumericField T="long" @bind-Value="_gcBlobAgeSec" Label="min blob age (sec)" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -20,31 +22,31 @@
                     <MudNumericField T="long" @bind-Value="_gcUploadAgeSec" Label="min upload age (sec)" Variant="Variant.Outlined" Margin="Margin.Dense" />
                 </MudItem>
             </MudGrid>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Delete" OnClick="RunGc" Disabled="_gcBusy">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Delete" OnClick="RunGc" Disabled="_gcBusy">
                 @(_gcBusy ? "running…" : "run")
             </MudButton>
             @if (_gcReport is not null)
             {
                 <MudDivider Class="my-3" />
-                <div class="v3-mono">blobs deleted: @_gcReport.BlobsDeleted</div>
-                <div class="v3-mono">uploads reaped: @_gcReport.UploadsReaped</div>
+                <div class="v3-readout"><span class="k">blobs deleted</span><span class="v">@_gcReport.BlobsDeleted</span></div>
+                <div class="v3-readout"><span class="k">uploads reaped</span><span class="v">@_gcReport.UploadsReaped</span></div>
             }
         </MudPaper>
     </MudItem>
 
     <MudItem xs="12" md="6">
-        <MudPaper Elevation="0" Class="pa-4 v3-card" Style="background:#0a0a0a; border:1px solid #1a1a1a;">
+        <MudPaper Elevation="0" Class="pa-4 v3-card">
             <MudText Typo="Typo.h3" Class="mb-1">lifecycle sweep</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3">expire current versions per bucket lifecycle config; reap lone delete markers</MudText>
+            <MudText Typo="Typo.caption" Class="v3-muted mb-3 d-block">expire current versions per bucket lifecycle config; reap lone delete markers</MudText>
             <MudTextField T="string" @bind-Value="_sweepNow" Label="now override (ISO 8601, optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" Placeholder="@DateTimeOffset.UtcNow.ToString("u")" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Schedule" OnClick="RunSweep" Disabled="_sweepBusy">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Schedule" OnClick="RunSweep" Disabled="_sweepBusy">
                 @(_sweepBusy ? "running…" : "run")
             </MudButton>
             @if (_sweepReport is not null)
             {
                 <MudDivider Class="my-3" />
-                <div class="v3-mono">expired: @_sweepReport.Expired</div>
-                <div class="v3-mono">markers reaped: @_sweepReport.MarkersReaped</div>
+                <div class="v3-readout"><span class="k">expired</span><span class="v">@_sweepReport.Expired</span></div>
+                <div class="v3-readout"><span class="k">markers reaped</span><span class="v">@_sweepReport.MarkersReaped</span></div>
             }
         </MudPaper>
     </MudItem>
@@ -59,8 +61,6 @@
     GcReport? _gcReport;
     LifecycleReport? _sweepReport;
 
-    static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     sealed record GcReport(int BlobsDeleted, int UploadsReaped);
     sealed record LifecycleReport(int Expired, int MarkersReaped);
 
@@ -72,7 +72,7 @@
             var url = $"admin/gc?blob-age={_gcBlobAgeSec}&upload-age={_gcUploadAgeSec}";
             using var resp = await Http.PostAsync(url, null);
             resp.EnsureSuccessStatusCode();
-            _gcReport = await resp.Content.ReadFromJsonAsync<GcReport>(JsonOpts);
+            _gcReport = await resp.Content.ReadFromJsonAsync<GcReport>();
             Snackbar.Add($"gc: {_gcReport?.BlobsDeleted} blobs, {_gcReport?.UploadsReaped} uploads", Severity.Success);
         }
         catch (Exception ex)
@@ -93,7 +93,7 @@
             var url = string.IsNullOrWhiteSpace(_sweepNow) ? "admin/lifecycle" : $"admin/lifecycle?now={Uri.EscapeDataString(_sweepNow)}";
             using var resp = await Http.PostAsync(url, null);
             resp.EnsureSuccessStatusCode();
-            _sweepReport = await resp.Content.ReadFromJsonAsync<LifecycleReport>(JsonOpts);
+            _sweepReport = await resp.Content.ReadFromJsonAsync<LifecycleReport>();
             Snackbar.Add($"sweep: {_sweepReport?.Expired} expired, {_sweepReport?.MarkersReaped} markers reaped", Severity.Success);
         }
         catch (Exception ex)
