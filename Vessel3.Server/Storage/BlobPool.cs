@@ -75,16 +75,19 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
                 if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
                 if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
                 if (crc32c is not null) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
-                temp.Flush(flushToDisk: true);
+                if (PosixFsync.IsLinux) { temp.Flush(); PosixFsync.DataSync(temp.SafeFileHandle); }
+                else temp.Flush(flushToDisk: true);
             }
 
             var finalPath = PathFor(sha);
-            Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
+            var finalDir = Path.GetDirectoryName(finalPath)!;
+            Directory.CreateDirectory(finalDir);
 
             try
             {
                 File.Move(tempPath, finalPath, overwrite: false);
                 moved = true;
+                PosixFsync.SyncDirectory(finalDir);
             }
             catch (IOException) when (File.Exists(finalPath))
             {
