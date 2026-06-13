@@ -13,7 +13,7 @@ public class DiskFullTests : IDisposable
     {
         root = Path.Combine(Path.GetTempPath(), $"vessel3-diskfull-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
-        pool = new BlobPool(new BlobPoolOptions(root), new InlineDurabilityWriter());
+        pool = new BlobPool(new BlobPoolOptions(root));
     }
 
     public void Dispose()

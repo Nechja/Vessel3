@@ -4,10 +4,6 @@ using Xunit;
 
 namespace Vessel3.Tests;
 
-// Complements PowerLossTests/DurabilityReplayTests (which exercise the version-log/index
-// recovery with synthetic shas) by driving real blobs through BlobPool and asserting the
-// blob<->metadata join: acked bytes survive a restart, and recovery never leaves an index
-// entry pointing at a missing blob.
 public class BlobRecoveryTests : IDisposable
 {
     private readonly string root;
@@ -25,7 +21,7 @@ public class BlobRecoveryTests : IDisposable
         try { Directory.Delete(root, recursive: true); } catch { }
     }
 
-    private BlobPool NewBlobPool() => new(new BlobPoolOptions(blobsDir), new InlineDurabilityWriter());
+    private BlobPool NewBlobPool() => new(new BlobPoolOptions(blobsDir));
 
     private static async Task<StoredBlob> Store(IBlobPool pool, byte[] body) =>
         ((Result<StoredBlob>.Success)await pool.Write(
@@ -86,7 +82,7 @@ public class BlobRecoveryTests : IDisposable
             b.AppendPut("k", Req(blob));
         }
 
-        WipeIndex(root); // index lost; only the version log + blob files survive
+        WipeIndex(root);
 
         using var restored = new Bucket("b", root);
         restored.Open();
@@ -99,7 +95,7 @@ public class BlobRecoveryTests : IDisposable
     public async Task Blob_without_log_record_is_unreferenced_orphan()
     {
         var pool = NewBlobPool();
-        var orphan = await Store(pool, "never-acked"u8.ToArray()); // written, no AppendPut
+        var orphan = await Store(pool, "never-acked"u8.ToArray());
         using (var b = new Bucket("b", root))
         {
             b.Open();
@@ -108,8 +104,8 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root);
         restored.Open();
-        Assert.True(pool.Exists(orphan.Sha));                                  // bytes on disk
-        Assert.DoesNotContain(orphan.Sha, restored.Index.ReferencedBlobs());   // but GC-collectable, never referenced
+        Assert.True(pool.Exists(orphan.Sha));
+        Assert.DoesNotContain(orphan.Sha, restored.Index.ReferencedBlobs());
     }
 
     [Fact]
@@ -128,10 +124,9 @@ public class BlobRecoveryTests : IDisposable
             b.AppendPut("bk", Req(blobB));
         }
 
-        // simulate a crash mid-write of B's log record: truncate back to the end of A's record
         using (var fs = new FileStream(Path.Combine(root, "log"), FileMode.Open, FileAccess.Write))
             fs.SetLength(sizeAfterA);
-        WipeIndex(root); // force a full replay over the truncated log
+        WipeIndex(root);
 
         using var restored = new Bucket("b", root);
         restored.Open();
@@ -139,6 +134,6 @@ public class BlobRecoveryTests : IDisposable
         Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry?>.Success { Value: not null });
         Assert.Equal("AAAAAAAA"u8.ToArray(),
             ReadBlob(pool, ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value!.BlobSha));
-        AssertNoDanglingReferences(restored, pool); // B's blob is now an orphan, not a dangling ref
+        AssertNoDanglingReferences(restored, pool);
     }
 }

@@ -23,7 +23,7 @@ internal interface IBlobPool
     DateTime? GetLastWriteUtc(string sha);
 }
 
-internal sealed class BlobPool(BlobPoolOptions options, IDurabilityWriter durability) : IBlobPool
+internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
 {
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
@@ -75,7 +75,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IDurabilityWriter durabi
                 if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
                 if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
                 if (crc32c is not null) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
-                if (PosixFsync.IsLinux) { temp.Flush(); await durability.SyncData(temp.SafeFileHandle); }
+                if (PosixFsync.IsLinux) { temp.Flush(); PosixFsync.DataSync(temp.SafeFileHandle); }
                 else temp.Flush(flushToDisk: true);
             }
 
@@ -87,7 +87,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IDurabilityWriter durabi
             {
                 File.Move(tempPath, finalPath, overwrite: false);
                 moved = true;
-                await durability.SyncDirectory(finalDir);
+                PosixFsync.SyncDirectory(finalDir);
             }
             catch (IOException) when (File.Exists(finalPath))
             {
