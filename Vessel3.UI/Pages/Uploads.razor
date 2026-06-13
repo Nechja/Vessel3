@@ -1,0 +1,177 @@
+@page "/uploads"
+@using Amazon.S3
+@using Microsoft.AspNetCore.Components.Forms
+@inject IAmazonS3 S3
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<div class="v3-page-head">
+    <div class="v3-kicker">ingest</div>
+    <MudText Typo="Typo.h1">uploads</MudText>
+</div>
+
+<MudPaper Elevation="0" Class="pa-4 mb-4 v3-card">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="string" @bind-Value="_bucket" Label="bucket" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="_loadingBuckets" AnchorOrigin="Origin.BottomCenter">
+                @foreach (var b in _buckets)
+                {
+                    <MudSelectItem Value="@b">@b</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="8" Class="d-flex align-center">
+            <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                           FilesChanged="OnFilesPicked"
+                           Disabled="@(string.IsNullOrEmpty(_bucket))"
+                           MaximumFileCount="50"
+                           DragAndDrop="true"
+                           Class="flex-grow-1 ma-0 pa-0">
+                <CustomContent>
+                    <div class="v3-dropzone" @onclick="@(() => context.OpenFilePickerAsync())">
+                        <MudIcon Icon="@Icons.Material.Outlined.UploadFile" Color="Color.Primary" />
+                        <div>
+                            <div>select files or drop them here</div>
+                            <div class="v3-faint" style="font-size:11px">
+                                @(string.IsNullOrEmpty(_bucket) ? "pick a bucket first" : $"destination: {_bucket}")
+                            </div>
+                        </div>
+                    </div>
+                </CustomContent>
+                <SelectedTemplate></SelectedTemplate>
+            </MudFileUpload>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_jobs.Count > 0)
+{
+    <MudText Typo="Typo.h2" Class="mb-2">queue</MudText>
+    <MudPaper Elevation="0" Class="v3-card">
+        @foreach (var job in _jobs)
+        {
+            <div class="v3-job">
+                <div class="v3-job-head">
+                    <span class="v3-mono">@job.Bucket / @job.Key</span>
+                    <span class="v3-mono v3-muted">@FormatStatus(job)</span>
+                </div>
+                <MudProgressLinear Color="@StatusColor(job)"
+                                   Indeterminate="@(job.State == UploadState.Running)"
+                                   Value="@(job.State == UploadState.Done ? 100 : 0)"
+                                   Class="v3-job-bar" />
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    const long MaxUploadBytes = 5L * 1024 * 1024 * 1024;
+
+    string? _bucket;
+    List<string> _buckets = [];
+    bool _loadingBuckets = true;
+    readonly List<UploadJob> _jobs = [];
+    readonly SemaphoreSlim _gate = new(4);
+
+    sealed class UploadJob
+    {
+        public string Bucket { get; init; } = "";
+        public string Key { get; init; } = "";
+        public long Size { get; init; }
+        public UploadState State { get; set; } = UploadState.Queued;
+        public string? Error { get; set; }
+    }
+
+    enum UploadState { Queued, Running, Done, Failed }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var resp = await S3.ListBucketsAsync();
+            _buckets = (resp.Buckets ?? []).Select(b => b.BucketName).Order(StringComparer.Ordinal).ToList();
+            if (_buckets.Count > 0) _bucket = _buckets[0];
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"could not list buckets: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loadingBuckets = false;
+        }
+    }
+
+    void OnFilesPicked(IReadOnlyList<IBrowserFile>? files)
+    {
+        if (string.IsNullOrEmpty(_bucket) || files is null || files.Count == 0) return;
+        var dest = _bucket;
+        foreach (var file in files)
+            _ = StartUpload(dest, file);
+    }
+
+    async Task StartUpload(string bucket, IBrowserFile file)
+    {
+        var job = new UploadJob { Bucket = bucket, Key = file.Name, Size = file.Size };
+        _jobs.Insert(0, job);
+
+        if (file.Size > MaxUploadBytes)
+        {
+            job.State = UploadState.Failed;
+            job.Error = $"{Fmt.Bytes(file.Size)} exceeds the {Fmt.Bytes(MaxUploadBytes)} limit";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+
+        await _gate.WaitAsync();
+        job.State = UploadState.Running;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await using var src = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
+            using var content = new StreamContent(src);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+            content.Headers.ContentLength = file.Size;
+
+            var url = $"upload/{Uri.EscapeDataString(bucket)}/{string.Join('/', file.Name.Split('/').Select(Uri.EscapeDataString))}";
+            using var resp = await Http.PutAsync(url, content);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"{(int)resp.StatusCode}: {body}");
+            }
+            job.State = UploadState.Done;
+            Snackbar.Add($"uploaded {file.Name}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            job.State = UploadState.Failed;
+            job.Error = ex.Message;
+            Snackbar.Add($"upload failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _gate.Release();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    static string FormatStatus(UploadJob j) => j.State switch
+    {
+        UploadState.Queued => $"queued · {Fmt.Bytes(j.Size)}",
+        UploadState.Done => $"done · {Fmt.Bytes(j.Size)}",
+        UploadState.Failed => $"failed · {j.Error}",
+        _ => $"sending · {Fmt.Bytes(j.Size)}",
+    };
+
+    static Color StatusColor(UploadJob j) => j.State switch
+    {
+        UploadState.Done => Color.Success,
+        UploadState.Failed => Color.Error,
+        _ => Color.Primary,
+    };
+}

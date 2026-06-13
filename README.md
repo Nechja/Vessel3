@@ -32,7 +32,9 @@ Built for (my) homelab and single app use. This isn't built for multi-tenant set
 
 ### Binary
 
-Grab a release binary.
+Grab a release binary. Each release ships two variants per platform: the default
+is the S3 API alone, and `-ui` embeds the web UI (served at `/_ui`, gated by the
+access keys).
 
 ```sh
 curl -L https://github.com/Nechja/Vessel3/releases/latest/download/vessel3-v0.1.0-linux-x64.tar.gz | tar -xz
@@ -40,6 +42,9 @@ curl -L https://github.com/Nechja/Vessel3/releases/latest/download/vessel3-v0.1.
 ```
 
 ### Container
+
+Images follow the same split: `latest` is the bare S3 server, `latest-ui` adds
+the web UI (every tag has a `-ui` twin).
 
 ```sh
 docker run -p 9000:9000 \

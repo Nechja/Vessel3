@@ -1,0 +1,40 @@
+<div class="v3-path">
+    <MudLink Href="">buckets</MudLink>
+    <span class="sep">/</span>
+    @if (string.IsNullOrEmpty(Prefix))
+    {
+        <span class="here">@Bucket</span>
+    }
+    else
+    {
+        <MudLink Href="@($"buckets/{Bucket}")">@Bucket</MudLink>
+        @foreach (var (label, prefix, isLast) in Crumbs())
+        {
+            <span class="sep">/</span>
+            @if (isLast)
+            {
+                <span class="here">@label</span>
+            }
+            else
+            {
+                <MudLink Href="@($"buckets/{Bucket}?prefix={Uri.EscapeDataString(prefix)}")">@label</MudLink>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Bucket { get; set; } = "";
+    [Parameter] public string Prefix { get; set; } = "";
+
+    IEnumerable<(string Label, string Prefix, bool IsLast)> Crumbs()
+    {
+        var parts = Prefix.TrimEnd('/').Split('/');
+        var acc = "";
+        for (var i = 0; i < parts.Length; i++)
+        {
+            acc += parts[i] + "/";
+            yield return (parts[i], acc, i == parts.Length - 1);
+        }
+    }
+}

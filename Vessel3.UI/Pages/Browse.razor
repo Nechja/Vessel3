@@ -1,0 +1,202 @@
+@page "/buckets/{Bucket}"
+@using Amazon.S3
+@using Amazon.S3.Model
+@inject IAmazonS3 S3
+@inject ObjectUrls Urls
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<div class="v3-page-head">
+    <div class="v3-kicker">bucket</div>
+    <MudText Typo="Typo.h1">@Bucket</MudText>
+    <div class="v3-sub">@_summary</div>
+</div>
+
+<BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4" Dense="true" Variant="Variant.Outlined">@_error</MudAlert>
+}
+
+<MudPaper Elevation="0" Class="v3-card">
+    <MudTable Items="_rows" Loading="_loading" Hover="true" Dense="true" Bordered="false" Elevation="0" Class="v3-table">
+        <HeaderContent>
+            <MudTh>key</MudTh>
+            <MudTh>size</MudTh>
+            <MudTh>modified</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            @if (context.IsFolder)
+            {
+                <MudTd>
+                    <MudLink Href="@PrefixHref(context.Key)" Class="v3-mono">@context.Name/</MudLink>
+                </MudTd>
+                <MudTd><span class="v3-mono v3-faint">—</span></MudTd>
+                <MudTd><span class="v3-mono v3-faint">—</span></MudTd>
+                <MudTd></MudTd>
+            }
+            else
+            {
+                <MudTd>
+                    <span class="v3-mono v3-keylink @(_openKey == context.Key ? "open" : "")"
+                          @onclick="@(() => ToggleInspect(context.Key))">@context.Name</span>
+                </MudTd>
+                <MudTd><span class="v3-mono v3-muted">@Fmt.Bytes(context.Size)</span></MudTd>
+                <MudTd><span class="v3-mono v3-muted">@context.Modified?.ToString("yyyy-MM-dd HH:mm:ss")</span></MudTd>
+                <MudTd Style="text-align:right; white-space:nowrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Download(context.Key))">get</MudButton>
+                    @if (_armedDelete == context.Key)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Class="v3-armed" OnClick="@(() => Delete(context.Key))">confirm?</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Class="v3-faint" OnClick="@(() => _armedDelete = context.Key)">del</MudButton>
+                    }
+                </MudTd>
+            }
+        </RowTemplate>
+        <ChildRowContent>
+            @if (!context.IsFolder && _openKey == context.Key)
+            {
+                <tr class="mud-table-row">
+                    <td class="mud-table-cell v3-inspect-cell" colspan="4">
+                        <ObjectInspector Bucket="@Bucket" ObjectKey="@context.Key" />
+                    </td>
+                </tr>
+            }
+        </ChildRowContent>
+        <NoRecordsContent>
+            <div class="v3-empty">empty</div>
+        </NoRecordsContent>
+        <LoadingContent>
+            <div class="v3-empty">loading</div>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@if (_nextToken is not null)
+{
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-4" OnClick="LoadMore" Disabled="_loading">load more</MudButton>
+}
+
+@code {
+    [Parameter] public string Bucket { get; set; } = "";
+    [SupplyParameterFromQuery(Name = "prefix")] public string? Prefix { get; set; }
+
+    string CurrentPrefix => Prefix ?? "";
+
+    sealed record Row(string Key, string Name, bool IsFolder, long Size, DateTime? Modified);
+
+    List<Row> _rows = [];
+    bool _loading = true;
+    string? _error;
+    string _summary = "";
+    string? _nextToken;
+    string? _armedDelete;
+    string? _openKey;
+    (string Bucket, string Prefix)? _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == (Bucket, CurrentPrefix)) return;
+        _loaded = (Bucket, CurrentPrefix);
+        _rows = [];
+        _nextToken = null;
+        _armedDelete = null;
+        _openKey = null;
+        _error = null;
+        await Load(continuation: null);
+    }
+
+    async Task Load(string? continuation)
+    {
+        _loading = true;
+        try
+        {
+            var resp = await S3.ListObjectsV2Async(new ListObjectsV2Request
+            {
+                BucketName = Bucket,
+                Prefix = CurrentPrefix,
+                Delimiter = "/",
+                MaxKeys = 250,
+                ContinuationToken = continuation,
+            });
+
+            foreach (var p in resp.CommonPrefixes ?? [])
+                _rows.Add(new Row(p, TrimPrefix(p).TrimEnd('/'), IsFolder: true, 0, null));
+
+            foreach (var o in resp.S3Objects ?? [])
+            {
+                if (o.Key == CurrentPrefix) continue;
+                _rows.Add(new Row(o.Key, TrimPrefix(o.Key), IsFolder: false, o.Size ?? 0, o.LastModified));
+            }
+
+            _nextToken = resp.IsTruncated == true ? resp.NextContinuationToken : null;
+            UpdateSummary();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _summary = "error";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    Task LoadMore() => Load(_nextToken);
+
+    void ToggleInspect(string key) =>
+        _openKey = _openKey == key ? null : key;
+
+    void Download(string key)
+    {
+        try
+        {
+            _ = JS.InvokeVoidAsync("window.open", Urls.For(Bucket, key), "_blank");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"presign failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    async Task Delete(string key)
+    {
+        try
+        {
+            await S3.DeleteObjectAsync(Bucket, key);
+            _rows.RemoveAll(r => r.Key == key);
+            if (_openKey == key) _openKey = null;
+            UpdateSummary();
+            Snackbar.Add($"deleted {TrimPrefix(key)}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"delete failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _armedDelete = null;
+        }
+    }
+
+    void UpdateSummary()
+    {
+        var folders = _rows.Count(r => r.IsFolder);
+        var objects = _rows.Count - folders;
+        _summary = $"{objects} object{(objects == 1 ? "" : "s")}"
+            + (folders > 0 ? $" · {folders} prefix{(folders == 1 ? "" : "es")}" : "")
+            + (_nextToken is not null ? " · more available" : "");
+    }
+
+    string TrimPrefix(string key) =>
+        key.StartsWith(CurrentPrefix, StringComparison.Ordinal) ? key[CurrentPrefix.Length..] : key;
+
+    string PrefixHref(string prefix) =>
+        $"buckets/{Bucket}?prefix={Uri.EscapeDataString(prefix)}";
+}

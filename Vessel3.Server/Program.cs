@@ -1,11 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using Vessel3.Server;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
-using static Vessel3.Server.RequestHelpers;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -116,6 +114,10 @@ app.Use(async (ctx, next) =>
     }
 });
 
+#if VESSEL3_UI
+app.UseVessel3Ui(accessKey, secretKey, region);
+#endif
+
 app.UseMiddleware<SigV4Middleware>();
 
 app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
@@ -124,31 +126,9 @@ app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry regis
     await xml.WriteListBuckets(res.Body, registry.List(), ct);
 });
 
-app.MapPut("/_admin/gc", async (
-    HttpRequest req, HttpResponse res,
-    IGarbageCollector gc,
-    CancellationToken ct) =>
-{
-    var blobAgeSec = ParseAgeQuery(req.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
-    var uploadAgeSec = ParseAgeQuery(req.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
-    var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
-    res.ContentType = "application/json";
-    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.GcReport, ct);
-});
+app.MapPut("/_admin/gc", AdminEndpoints.RunGc);
 
-app.MapPut("/_admin/lifecycle", async (
-    HttpRequest req, HttpResponse res,
-    ILifecycleSweeper sweeper,
-    CancellationToken ct) =>
-{
-    var now = DateTimeOffset.UtcNow;
-    if (req.Query.TryGetValue("now", out var nowRaw)
-        && DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
-        now = parsed;
-    var report = sweeper.Run(now);
-    res.ContentType = "application/json";
-    await JsonSerializer.SerializeAsync(res.Body, report, AdminJsonContext.Default.LifecycleReport, ct);
-});
+app.MapPut("/_admin/lifecycle", AdminEndpoints.RunLifecycle);
 
 app.MapGet("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
     dispatch.Dispatch(HttpMethods.Get, bucket, ctx));

@@ -1,0 +1,107 @@
+@page "/admin"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<div class="v3-page-head">
+    <div class="v3-kicker">maintenance</div>
+    <MudText Typo="Typo.h1">admin</MudText>
+</div>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" md="6">
+        <MudPaper Elevation="0" Class="pa-4 v3-card">
+            <MudText Typo="Typo.h3" Class="mb-1">garbage collector</MudText>
+            <MudText Typo="Typo.caption" Class="v3-muted mb-3 d-block">delete unreferenced blobs and reap abandoned multipart uploads</MudText>
+            <MudGrid Spacing="2" Class="mb-3">
+                <MudItem xs="6">
+                    <MudNumericField T="long" @bind-Value="_gcBlobAgeSec" Label="min blob age (sec)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField T="long" @bind-Value="_gcUploadAgeSec" Label="min upload age (sec)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Delete" OnClick="RunGc" Disabled="_gcBusy">
+                @(_gcBusy ? "running…" : "run")
+            </MudButton>
+            @if (_gcReport is not null)
+            {
+                <MudDivider Class="my-3" />
+                <div class="v3-readout"><span class="k">blobs deleted</span><span class="v">@_gcReport.BlobsDeleted</span></div>
+                <div class="v3-readout"><span class="k">uploads reaped</span><span class="v">@_gcReport.UploadsReaped</span></div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Elevation="0" Class="pa-4 v3-card">
+            <MudText Typo="Typo.h3" Class="mb-1">lifecycle sweep</MudText>
+            <MudText Typo="Typo.caption" Class="v3-muted mb-3 d-block">expire current versions per bucket lifecycle config; reap lone delete markers</MudText>
+            <MudTextField T="string" @bind-Value="_sweepNow" Label="now override (ISO 8601, optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" Placeholder="@DateTimeOffset.UtcNow.ToString("u")" />
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Schedule" OnClick="RunSweep" Disabled="_sweepBusy">
+                @(_sweepBusy ? "running…" : "run")
+            </MudButton>
+            @if (_sweepReport is not null)
+            {
+                <MudDivider Class="my-3" />
+                <div class="v3-readout"><span class="k">expired</span><span class="v">@_sweepReport.Expired</span></div>
+                <div class="v3-readout"><span class="k">markers reaped</span><span class="v">@_sweepReport.MarkersReaped</span></div>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    long _gcBlobAgeSec = 3600;
+    long _gcUploadAgeSec = 604800;
+    string _sweepNow = "";
+    bool _gcBusy;
+    bool _sweepBusy;
+    GcReport? _gcReport;
+    LifecycleReport? _sweepReport;
+
+    sealed record GcReport(int BlobsDeleted, int UploadsReaped);
+    sealed record LifecycleReport(int Expired, int MarkersReaped);
+
+    async Task RunGc()
+    {
+        _gcBusy = true;
+        try
+        {
+            var url = $"admin/gc?blob-age={_gcBlobAgeSec}&upload-age={_gcUploadAgeSec}";
+            using var resp = await Http.PostAsync(url, null);
+            resp.EnsureSuccessStatusCode();
+            _gcReport = await resp.Content.ReadFromJsonAsync<GcReport>();
+            Snackbar.Add($"gc: {_gcReport?.BlobsDeleted} blobs, {_gcReport?.UploadsReaped} uploads", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"gc failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _gcBusy = false;
+        }
+    }
+
+    async Task RunSweep()
+    {
+        _sweepBusy = true;
+        try
+        {
+            var url = string.IsNullOrWhiteSpace(_sweepNow) ? "admin/lifecycle" : $"admin/lifecycle?now={Uri.EscapeDataString(_sweepNow)}";
+            using var resp = await Http.PostAsync(url, null);
+            resp.EnsureSuccessStatusCode();
+            _sweepReport = await resp.Content.ReadFromJsonAsync<LifecycleReport>();
+            Snackbar.Add($"sweep: {_sweepReport?.Expired} expired, {_sweepReport?.MarkersReaped} markers reaped", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"sweep failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _sweepBusy = false;
+        }
+    }
+}

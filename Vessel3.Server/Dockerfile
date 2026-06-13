@@ -3,10 +3,12 @@
 
 ARG DOTNET_VERSION=10.0
 ARG TARGET_RID=linux-x64
+ARG EMBED_UI=false
 
 # ---- build ---------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 ARG TARGET_RID
+ARG EMBED_UI
 
 # Native AOT toolchain (clang/zlib already in the SDK image; this is belt-and-braces)
 RUN apt-get update \
@@ -18,15 +20,18 @@ WORKDIR /src
 COPY global.json ./
 COPY Directory.Build.props ./
 COPY Vessel3.Server/Vessel3.Server.csproj Vessel3.Server/
-RUN dotnet restore Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID}
+COPY Vessel3.UI/Vessel3.UI.csproj Vessel3.UI/
+RUN dotnet restore Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID} -p:EmbedUi=${EMBED_UI}
 
 COPY .editorconfig ./
 COPY Vessel3.Server/ Vessel3.Server/
+COPY Vessel3.UI/ Vessel3.UI/
 
 RUN dotnet publish Vessel3.Server/Vessel3.Server.csproj \
     -c Release \
     -r ${TARGET_RID} \
     --no-restore \
+    -p:EmbedUi=${EMBED_UI} \
     -o /publish \
  && mkdir -p /staging/data
 

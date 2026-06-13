@@ -24,14 +24,47 @@
     <RuntimeIdentifiers>linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64;win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <EmbedUi Condition="'$(EmbedUi)' == ''">true</EmbedUi>
+    <DefineConstants Condition="'$(EmbedUi)' == 'true'">$(DefineConstants);VESSEL3_UI</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="Ulid" Version="*" />
     <PackageReference Include="System.IO.Hashing" Version="*" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="*" Condition="'$(EmbedUi)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vessel3.Tests" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <GenerateEmbeddedFilesManifest Condition="'$(EmbedUi)' == 'true'">true</GenerateEmbeddedFilesManifest>
+    <UIProject>$(MSBuildThisFileDirectory)..\Vessel3.UI\Vessel3.UI.csproj</UIProject>
+    <UIPublishDir>$(MSBuildThisFileDirectory)obj\ui\</UIPublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*" />
+  </ItemGroup>
+
+  <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
+    <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
+    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; -p:BaseIntermediateOutputPath=&quot;$(UIPublishDir)obj/&quot; -p:MSBuildProjectExtensionsPath=&quot;$(UIPublishDir)obj/&quot; -p:BaseOutputPath=&quot;$(UIPublishDir)bin/&quot; --nologo -v q" />
+  </Target>
+
+  <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(UIPublishDir)wwwroot\index.html')" Text="UI publish did not produce wwwroot/index.html at $(UIPublishDir)" />
+    <ItemGroup>
+      <_UIFile Include="$(UIPublishDir)wwwroot\**\*.*" />
+      <EmbeddedResource Include="@(_UIFile)">
+        <LogicalName>wwwroot/$([MSBuild]::ValueOrDefault('%(_UIFile.RecursiveDir)', '').Replace('\', '/'))%(_UIFile.Filename)%(_UIFile.Extension)</LogicalName>
+        <WithCulture>false</WithCulture>
+        <Type>Non-Resx</Type>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
 
 </Project>
