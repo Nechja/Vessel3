@@ -1,12 +1,17 @@
 using System.Text.Json;
+using System.Threading.Channels;
 
 namespace Vessel3.Server.Storage;
 
 internal sealed class VersionLog(string path) : IDisposable
 {
-    private readonly Lock writeLock = new();
+    private readonly Lock gate = new();
     private FileStream? writer;
     private long nextSeq;
+    private Channel<Envelope>? channel;
+    private Task? drainer;
+
+    private readonly record struct Envelope(byte[] Bytes, TaskCompletionSource Tcs);
 
     public void Open(long startingSeq)
     {
@@ -20,28 +25,61 @@ internal sealed class VersionLog(string path) : IDisposable
             Options = FileOptions.Asynchronous,
         });
         nextSeq = startingSeq;
+        channel = Channel.CreateUnbounded<Envelope>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+        drainer = Task.Run(DrainLoop);
     }
 
     public void Dispose()
     {
+        channel?.Writer.TryComplete();
+        try { drainer?.Wait(); } catch { }
         writer?.Dispose();
         writer = null;
     }
 
     public VersionEvent Append(VersionEvent proto)
     {
-        if (writer is null) throw new InvalidOperationException("Log not opened");
+        if (writer is null || channel is null) throw new InvalidOperationException("Log not opened");
 
         VersionEvent withSeq;
-        lock (writeLock)
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (gate)
         {
             withSeq = proto.WithSeq(nextSeq++);
             var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
-            writer.Write(body);
-            writer.WriteByte((byte)'\n');
-            writer.Flush(flushToDisk: true);
+            var packed = new byte[body.Length + 1];
+            Buffer.BlockCopy(body, 0, packed, 0, body.Length);
+            packed[^1] = (byte)'\n';
+            channel.Writer.TryWrite(new Envelope(packed, tcs));
         }
+        tcs.Task.GetAwaiter().GetResult();
         return withSeq;
+    }
+
+    private async Task DrainLoop()
+    {
+        var batch = new List<Envelope>(64);
+        var reader = channel!.Reader;
+        while (await reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            batch.Clear();
+            while (reader.TryRead(out var env)) batch.Add(env);
+            try
+            {
+                foreach (var e in batch) writer!.Write(e.Bytes);
+                writer!.Flush(flushToDisk: true);
+                foreach (var e in batch) e.Tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                foreach (var e in batch) e.Tcs.TrySetException(ex);
+            }
+        }
     }
 
     public IEnumerable<VersionEvent> Replay()
