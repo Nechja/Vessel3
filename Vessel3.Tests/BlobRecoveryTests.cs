@@ -25,7 +25,7 @@ public class BlobRecoveryTests : IDisposable
         try { Directory.Delete(root, recursive: true); } catch { }
     }
 
-    private BlobPool NewBlobPool() => new(new BlobPoolOptions(blobsDir));
+    private BlobPool NewBlobPool() => new(new BlobPoolOptions(blobsDir), new InlineDurabilityWriter());
 
     private static async Task<StoredBlob> Store(IBlobPool pool, byte[] body) =>
         ((Result<StoredBlob>.Success)await pool.Write(
