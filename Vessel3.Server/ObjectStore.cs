@@ -43,7 +43,22 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal))
             return new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}");
 
+        var promisedCrc32 = declaredChecksums.Crc32 == S3.ChecksumHeaders.Pending;
+        var promisedCrc32C = declaredChecksums.Crc32C == S3.ChecksumHeaders.Pending;
+        var promisedSha1 = declaredChecksums.Sha1 == S3.ChecksumHeaders.Pending;
+        var promisedSha256 = declaredChecksums.Sha256 == S3.ChecksumHeaders.Pending;
+
         declaredChecksums = ChecksumAlgorithms.MergeTrailers(declaredChecksums, body);
+
+        if (promisedCrc32 && declaredChecksums.Crc32 is null)
+            return new InvalidRequestError("declared x-amz-checksum-crc32 trailer was not sent");
+        if (promisedCrc32C && declaredChecksums.Crc32C is null)
+            return new InvalidRequestError("declared x-amz-checksum-crc32c trailer was not sent");
+        if (promisedSha1 && declaredChecksums.Sha1 is null)
+            return new InvalidRequestError("declared x-amz-checksum-sha1 trailer was not sent");
+        if (promisedSha256 && declaredChecksums.Sha256 is null)
+            return new InvalidRequestError("declared x-amz-checksum-sha256 trailer was not sent");
+
         if (declaredChecksums.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"crc32 declared (hex){c32}, actual {blob.Crc32}");
         if (declaredChecksums.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
