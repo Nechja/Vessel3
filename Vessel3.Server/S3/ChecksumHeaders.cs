@@ -2,6 +2,8 @@ namespace Vessel3.Server.S3;
 
 internal static class ChecksumHeaders
 {
+    public const string Pending = "__PENDING__";
+
     public static ChecksumSet? ParseDeclared(IHeaderDictionary headers)
     {
         string? Decode(string name)
@@ -15,9 +17,17 @@ internal static class ChecksumHeaders
         var c32c = Decode(ChecksumAlgorithms.HeaderCrc32C);
         var s1 = Decode(ChecksumAlgorithms.HeaderSha1);
         var s256 = Decode(ChecksumAlgorithms.HeaderSha256);
-        return c32 is "__MALFORMED__" || c32c is "__MALFORMED__" || s1 is "__MALFORMED__" || s256 is "__MALFORMED__"
-            ? null
-            : new ChecksumSet(c32, c32c, s1, s256);
+        if (c32 is "__MALFORMED__" || c32c is "__MALFORMED__" || s1 is "__MALFORMED__" || s256 is "__MALFORMED__")
+            return null;
+        var trailers = headers["x-amz-trailer"].ToString();
+        if (!string.IsNullOrEmpty(trailers))
+        {
+            if (c32 is null && trailers.Contains(ChecksumAlgorithms.HeaderCrc32, StringComparison.OrdinalIgnoreCase)) c32 = Pending;
+            if (c32c is null && trailers.Contains(ChecksumAlgorithms.HeaderCrc32C, StringComparison.OrdinalIgnoreCase)) c32c = Pending;
+            if (s1 is null && trailers.Contains(ChecksumAlgorithms.HeaderSha1, StringComparison.OrdinalIgnoreCase)) s1 = Pending;
+            if (s256 is null && trailers.Contains(ChecksumAlgorithms.HeaderSha256, StringComparison.OrdinalIgnoreCase)) s256 = Pending;
+        }
+        return new ChecksumSet(c32, c32c, s1, s256);
     }
 
     public static void Emit(IHeaderDictionary headers, ChecksumSet sums, string fallbackSha256Hex)

@@ -52,7 +52,7 @@ public class DiskFullTests : IDisposable
     public async Task BlobPool_NoSpaceMidWrite_ReturnsInsufficientStorage_AndCleansTemp()
     {
         var src = new EnospcStream(failAtByte: 100_000);
-        var r = await pool.Write(src, declaredSize: null, CancellationToken.None);
+        var r = await pool.Write(src, declaredSize: null, ChecksumIntent.All, CancellationToken.None);
         Assert.IsType<Result<StoredBlob>.Failure>(r);
         var err = ((Result<StoredBlob>.Failure)r).Error;
         Assert.IsType<InsufficientStorageError>(err);
@@ -65,11 +65,11 @@ public class DiskFullTests : IDisposable
     [Fact]
     public async Task BlobPool_RecoveryAfterEnospc_NextWriteSucceeds()
     {
-        var fail = await pool.Write(new EnospcStream(failAtByte: 100), declaredSize: null, CancellationToken.None);
+        var fail = await pool.Write(new EnospcStream(failAtByte: 100), declaredSize: null, ChecksumIntent.All, CancellationToken.None);
         Assert.IsType<Result<StoredBlob>.Failure>(fail);
 
         using var ok = new MemoryStream("recovered"u8.ToArray());
-        var r = await pool.Write(ok, declaredSize: null, CancellationToken.None);
+        var r = await pool.Write(ok, declaredSize: null, ChecksumIntent.All, CancellationToken.None);
         Assert.IsType<Result<StoredBlob>.Success>(r);
     }
 }

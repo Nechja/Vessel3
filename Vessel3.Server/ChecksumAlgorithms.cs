@@ -116,7 +116,7 @@ internal static class ChecksumAlgorithms
         var trailers = chunked.Trailers;
         if (trailers.Count is 0) return existing;
         string? Read(string name, string? current) =>
-            current is not null ? current
+            current is { } cur && cur != Vessel3.Server.S3.ChecksumHeaders.Pending ? cur
             : !trailers.TryGetValue(name, out var raw) || string.IsNullOrEmpty(raw) ? null
             : Base64ToHex(raw);
         return new ChecksumSet(

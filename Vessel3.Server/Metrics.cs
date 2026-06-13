@@ -25,7 +25,7 @@ internal static class Metrics
     private static readonly long[] RequestBytes = new long[MethodCount];
     private static readonly long[] ResponseBytes = new long[MethodCount];
 
-    // Cumulative bucket counts. Flat layout: methodIdx * (BucketCount + 1) + bucketIdx.
+    // Per-bucket non-cumulative; Render cumulates.
     private static readonly long[] LatencyBucketCounts = new long[MethodCount * (LatencyBuckets.Length + 1)];
     private static readonly long[] LatencyCount = new long[MethodCount];
     private static readonly long[] LatencySumTicks = new long[MethodCount];
@@ -64,11 +64,7 @@ internal static class Metrics
         {
             if (seconds <= LatencyBuckets[i]) { bucketIdx = i; break; }
         }
-        var rowBase = methodIdx * (BucketCount + 1);
-        for (var i = bucketIdx; i <= BucketCount; i++)
-        {
-            Interlocked.Increment(ref LatencyBucketCounts[rowBase + i]);
-        }
+        Interlocked.Increment(ref LatencyBucketCounts[methodIdx * (BucketCount + 1) + bucketIdx]);
     }
 
     public static void Render(StringBuilder sb)
@@ -143,15 +139,18 @@ internal static class Metrics
             var count = Interlocked.Read(ref LatencyCount[m]);
             if (count == 0) continue;
             var rowBase = m * (BucketCount + 1);
+            long cumulative = 0;
             for (var b = 0; b < BucketCount; b++)
             {
+                cumulative += Interlocked.Read(ref LatencyBucketCounts[rowBase + b]);
                 sb.Append("vessel3_http_request_duration_seconds_bucket{method=\"").Append(MethodNames[m])
                     .Append("\",le=\"").Append(LatencyBuckets[b].ToString("0.###", inv)).Append("\"} ")
-                    .Append(Interlocked.Read(ref LatencyBucketCounts[rowBase + b]).ToString(inv)).Append('\n');
+                    .Append(cumulative.ToString(inv)).Append('\n');
             }
+            cumulative += Interlocked.Read(ref LatencyBucketCounts[rowBase + BucketCount]);
             sb.Append("vessel3_http_request_duration_seconds_bucket{method=\"").Append(MethodNames[m])
                 .Append("\",le=\"+Inf\"} ")
-                .Append(Interlocked.Read(ref LatencyBucketCounts[rowBase + BucketCount]).ToString(inv)).Append('\n');
+                .Append(cumulative.ToString(inv)).Append('\n');
             var sumSec = (double)Interlocked.Read(ref LatencySumTicks[m]) / Stopwatch.Frequency;
             sb.Append("vessel3_http_request_duration_seconds_sum{method=\"").Append(MethodNames[m]).Append("\"} ")
                 .Append(sumSec.ToString("0.######", inv)).Append('\n');

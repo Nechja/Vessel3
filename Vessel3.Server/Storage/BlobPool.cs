@@ -4,12 +4,18 @@ using Vessel3.Server;
 
 namespace Vessel3.Server.Storage;
 
-internal sealed record StoredBlob(string Sha, string Md5, string Crc32, string Crc32C, string Sha1, long Size);
+internal sealed record StoredBlob(string Sha, string Md5, string? Crc32, string? Crc32C, string? Sha1, long Size);
 internal sealed record BlobPoolOptions(string Root);
+
+internal readonly record struct ChecksumIntent(bool Crc32, bool Crc32C, bool Sha1)
+{
+    public static ChecksumIntent All { get; } = new(true, true, true);
+    public static ChecksumIntent None { get; } = new(false, false, false);
+}
 
 internal interface IBlobPool
 {
-    Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct);
+    Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct);
     Result<Stream> Open(string sha);
     bool Exists(string sha);
     Result<bool> Delete(string sha);
@@ -19,7 +25,7 @@ internal interface IBlobPool
 
 internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
 {
-    public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, CancellationToken ct)
+    public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
         var tmpDir = Path.Combine(options.Root, "tmp");
         Directory.CreateDirectory(tmpDir);
@@ -31,9 +37,9 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             long total;
             string sha;
             string md5;
-            string crc32hex;
-            string crc32chex;
-            string sha1hex;
+            string? crc32hex = null;
+            string? crc32chex = null;
+            string? sha1hex = null;
 
             await using (var temp = new FileStream(tempPath, new FileStreamOptions
             {
@@ -47,9 +53,9 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             {
                 using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                 using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-                using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-                var crc32 = new System.IO.Hashing.Crc32();
-                var crc32c = new Vessel3.Server.Crc32C();
+                using var sha1 = intent.Sha1 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA1) : null;
+                var crc32 = intent.Crc32 ? new System.IO.Hashing.Crc32() : null;
+                var crc32c = intent.Crc32C ? new Vessel3.Server.Crc32C() : null;
                 var buf = new byte[81920];
                 total = 0;
                 int n;
@@ -58,17 +64,17 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
                     var span = buf.AsSpan(0, n);
                     sha256.AppendData(buf, 0, n);
                     md5Hash.AppendData(buf, 0, n);
-                    sha1.AppendData(buf, 0, n);
-                    crc32.Append(span);
-                    crc32c.Append(span);
+                    sha1?.AppendData(buf, 0, n);
+                    crc32?.Append(span);
+                    crc32c?.Append(span);
                     await temp.WriteAsync(buf.AsMemory(0, n), ct);
                     total += n;
                 }
                 sha = Convert.ToHexStringLower(sha256.GetHashAndReset());
                 md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
-                sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
-                crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
-                crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
+                if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
+                if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
+                if (crc32c is not null) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
                 temp.Flush(flushToDisk: true);
             }
 

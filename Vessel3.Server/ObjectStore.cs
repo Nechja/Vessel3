@@ -29,7 +29,11 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
 {
     public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null)
     {
-        var written = await blobs.Write(body, declaredSize, ct);
+        var intent = new ChecksumIntent(
+            Crc32: declaredChecksums.Crc32 is not null,
+            Crc32C: declaredChecksums.Crc32C is not null,
+            Sha1: declaredChecksums.Sha1 is not null);
+        var written = await blobs.Write(body, declaredSize, intent, ct);
         if (written is Result<StoredBlob>.Failure bf) return bf.Error;
         var blob = ((Result<StoredBlob>.Success)written).Value;
 
