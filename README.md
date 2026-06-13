@@ -91,9 +91,9 @@ All via environment variables. No config file.
 | Variable | Default | Meaning |
 |---|---|---|
 | `VESSEL3_DATA` | next to the binary | Data root (blobs, index, log). Persist this. |
-| `VESSEL3_ACCESS_KEY` | unset → auth disabled | SigV4 access key id. |
-| `VESSEL3_SECRET_KEY` | unset → auth disabled | SigV4 secret. |
-| `VESSEL3_REGION` | `us-east-1` | Region string used for SigV4 verification. |
+| `VESSEL3_ACCESS_KEY` | unset -> auth disabled | SigV4 access key id. |
+| `VESSEL3_SECRET_KEY` | unset -> auth disabled | SigV4 secret. |
+| `VESSEL3_REGION` | `us-west-1` | Region string used for SigV4 verification. |
 | `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
 
@@ -112,7 +112,7 @@ aws --endpoint-url http://127.0.0.1:9000 s3 cp ./cat.jpg s3://photos/
 
 ## Durability
 
-In plain English: if the process dies mid-write, Vessel3 comes back with a consistent view and can rebuild its index from the event log.
+If the process dies mid-write, Vessel3 comes back with a consistent view and can rebuild its index from the event log.
 
 - Every PUT lands in a temp file, gets fsync'd, then moved into place.
 - Every version is appended to a per-bucket event log; the log file is fsync'd before the call returns.
@@ -147,4 +147,4 @@ Apache 2.0. See [LICENSE](LICENSE).
 
 ## AI Use
 
-AI's did design a lot of the testing in this repo.
+AI's did design a lot of the testing in this repo, and assist with the readme.
