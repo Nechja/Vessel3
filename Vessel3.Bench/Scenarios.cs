@@ -105,11 +105,21 @@ internal static class Scenarios
 
     private static async Task<LatencySummary> RunPutWorkload(AmazonS3Client s3, BenchOptions opts, int size)
     {
-        var payload = new byte[size];
-        Random.Shared.NextBytes(payload);
+        // One buffer per worker; stamp a per-op counter so every PUT has distinct content
+        // (a shared payload would dedup to one blob and skip the create/rename/dir-fsync path).
+        var buffers = new byte[opts.Concurrency][];
+        for (var i = 0; i < buffers.Length; i++)
+        {
+            buffers[i] = new byte[size];
+            Random.Shared.NextBytes(buffers[i]);
+        }
+        var counters = new long[opts.Concurrency];
 
         return await RunWorkload(opts, async (wid, ct) =>
         {
+            var payload = buffers[wid];
+            if (payload.Length >= 8)
+                BitConverter.TryWriteBytes(payload.AsSpan(0, 8), ++counters[wid]);
             var key = $"bench/w{wid}/{Guid.NewGuid():N}";
             using var ms = new MemoryStream(payload);
             await s3.PutObjectAsync(new PutObjectRequest

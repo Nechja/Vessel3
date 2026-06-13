@@ -16,7 +16,7 @@ public class ConcatStreamTests
                 ? (Result<Stream>)new MemoryStream(bytes, writable: false)
                 : new NotFoundError($"blob {sha}");
 
-        public Task<Result<StoredBlob>> Write(Stream s, long? sz, CancellationToken ct) => throw new NotImplementedException();
+        public Task<Result<StoredBlob>> Write(Stream s, long? sz, ChecksumIntent intent, CancellationToken ct) => throw new NotImplementedException();
         public bool Exists(string sha) => map.ContainsKey(sha);
         public Result<bool> Delete(string sha) => map.Remove(sha);
         public IEnumerable<string> EnumerateAll() => map.Keys;

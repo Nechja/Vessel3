@@ -57,7 +57,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         var dir = UploadDir(uploadId);
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
 
-        var written = await blobs.Write(body, declaredSize, ct);
+        var written = await blobs.Write(body, declaredSize, ChecksumIntent.All, ct);
         if (written is Result<StoredBlob>.Failure f) return f.Error;
         var blob = ((Result<StoredBlob>.Success)written).Value;
 

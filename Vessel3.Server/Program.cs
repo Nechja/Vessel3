@@ -7,9 +7,12 @@ using Vessel3.Server.Storage;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+
 builder.WebHost.ConfigureKestrel(o =>
 {
     o.Limits.MaxRequestBodySize = 5L * 1024 * 1024 * 1024;
+    o.Limits.MinRequestBodyDataRate = null;
 });
 
 var dataRoot = Environment.GetEnvironmentVariable("VESSEL3_DATA")

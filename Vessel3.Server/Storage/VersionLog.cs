@@ -39,7 +39,8 @@ internal sealed class VersionLog(string path) : IDisposable
             var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
             writer.Write(body);
             writer.WriteByte((byte)'\n');
-            writer.Flush(flushToDisk: true);
+            if (PosixFsync.IsLinux) { writer.Flush(); PosixFsync.DataSync(writer.SafeFileHandle); }
+            else writer.Flush(flushToDisk: true);
         }
         return withSeq;
     }
