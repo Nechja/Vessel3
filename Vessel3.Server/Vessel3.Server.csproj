@@ -43,7 +43,7 @@
   <PropertyGroup>
     <GenerateEmbeddedFilesManifest Condition="'$(EmbedUi)' == 'true'">true</GenerateEmbeddedFilesManifest>
     <UIProject>$(MSBuildThisFileDirectory)..\Vessel3.UI\Vessel3.UI.csproj</UIProject>
-    <UIPublishDir>$(MSBuildThisFileDirectory)obj\ui\</UIPublishDir>
+    <UIPublishDir>$(MSBuildThisFileDirectory)obj/ui/</UIPublishDir>
   </PropertyGroup>
 
   <ItemGroup>
