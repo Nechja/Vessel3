@@ -7,6 +7,7 @@ namespace Vessel3.Tests;
 public class PutTaggingEventTests
 {
     private readonly IFileSync sync = new PortableFileSync();
+    private readonly IDurableWrite durable = new DurableWrite(new PortableFileSync());
 
     private static string Tmp() => Path.Combine(Path.GetTempPath(), "vessel3-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -18,7 +19,7 @@ public class PutTaggingEventTests
         try
         {
             string versionId;
-            using (var b = new Bucket("test", dir, sync))
+            using (var b = new Bucket("test", dir, sync, durable))
             {
                 b.Open();
                 var put = b.AppendPut("k.txt", new PutRequest(
@@ -36,7 +37,7 @@ public class PutTaggingEventTests
             File.Delete(Path.Combine(dir, "index.db-wal"));
             File.Delete(Path.Combine(dir, "index.db-shm"));
 
-            using var reopened = new Bucket("test", dir, sync);
+            using var reopened = new Bucket("test", dir, sync, durable);
             reopened.Open();
             var got = reopened.Index.GetVersion("k.txt", versionId);
             var entry = ((Result<PutEntry?>.Success)got).Value!;
@@ -56,7 +57,7 @@ public class PutTaggingEventTests
         Directory.CreateDirectory(dir);
         try
         {
-            using var b = new Bucket("test", dir, sync);
+            using var b = new Bucket("test", dir, sync, durable);
             b.Open();
             var put = b.AppendPut("k.txt", new PutRequest(
                 BlobSha: new string('1', 64),
@@ -85,7 +86,7 @@ public class PutTaggingEventTests
         Directory.CreateDirectory(dir);
         try
         {
-            using var b = new Bucket("test", dir, sync);
+            using var b = new Bucket("test", dir, sync, durable);
             b.Open();
             b.SetVersioning(VersioningStatus.Enabled);
 
@@ -94,10 +95,10 @@ public class PutTaggingEventTests
             b.AppendPut("k.txt", new PutRequest(
                 BlobSha: new string('2', 64), Md5: new string('2', 32), Size: 1,
                 ContentType: "text/plain", Metadata: new Dictionary<string, string>()));
-            Assert.Equal(BucketIndex.KindPut, b.Index.GetCurrentKind("k.txt"));
+            Assert.Equal(VersionKind.Put, b.Index.GetCurrentKind("k.txt"));
 
             b.AppendDelete("k.txt", bypassGovernance: false);
-            Assert.Equal(BucketIndex.KindDeleteMarker, b.Index.GetCurrentKind("k.txt"));
+            Assert.Equal(VersionKind.DeleteMarker, b.Index.GetCurrentKind("k.txt"));
         }
         finally
         {

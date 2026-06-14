@@ -51,6 +51,7 @@ builder.Services.AddSingleton<IFileSync>(
     System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux)
         ? new PosixFileSync()
         : new PortableFileSync());
+builder.Services.AddSingleton<IDurableWrite, DurableWrite>();
 builder.Services.AddSingleton<IBlobPool, BlobPool>();
 builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();

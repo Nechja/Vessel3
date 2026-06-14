@@ -5,11 +5,10 @@ using Vessel3.Server;
 
 namespace Vessel3.Server.Storage;
 
+internal enum VersionKind { Put = 0, DeleteMarker = 1 }
+
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
-    internal const int KindPut = 0;
-    internal const int KindDeleteMarker = 1;
-
     private SqliteConnection? writeConn;
     private SqliteConnection? readConn;
     private SqliteTransaction? currentTx;
@@ -104,7 +103,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$v", ev.VersionId);
         cmd.Parameters.AddWithValue("$b", ev.BlobSha);
         cmd.Parameters.AddWithValue("$m", ev.Md5);
-        cmd.Parameters.AddWithValue("$kd", KindPut);
+        cmd.Parameters.AddWithValue("$kd", (int)VersionKind.Put);
         cmd.Parameters.AddWithValue("$sz", ev.Size);
         cmd.Parameters.AddWithValue("$ct", ev.ContentType);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
@@ -130,11 +129,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$tj", SerializeMetadata(tags));
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
-        cmd.Parameters.AddWithValue("$kp", KindPut);
+        cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
         cmd.ExecuteNonQuery();
     }
 
-    public int? GetVersionKind(string key, string versionId)
+    public VersionKind? GetVersionKind(string key, string versionId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -142,10 +141,10 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         using var r = cmd.ExecuteReader();
-        return r.Read() ? r.GetInt32(0) : (int?)null;
+        return r.Read() ? (VersionKind)r.GetInt32(0) : (VersionKind?)null;
     }
 
-    public int? GetCurrentKind(string key)
+    public VersionKind? GetCurrentKind(string key)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -154,7 +153,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.Parameters.AddWithValue("$k", key);
         using var r = cmd.ExecuteReader();
-        return r.Read() ? r.GetInt32(0) : (int?)null;
+        return r.Read() ? (VersionKind)r.GetInt32(0) : (VersionKind?)null;
     }
 
     public int CountVersions(string key)
@@ -178,7 +177,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$s", ev.Seq);
         cmd.Parameters.AddWithValue("$k", ev.Key);
         cmd.Parameters.AddWithValue("$v", ev.VersionId);
-        cmd.Parameters.AddWithValue("$kd", KindDeleteMarker);
+        cmd.Parameters.AddWithValue("$kd", (int)VersionKind.DeleteMarker);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.ExecuteNonQuery();
     }
@@ -205,7 +204,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
-        cmd.Parameters.AddWithValue("$kp", KindPut);
+        cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
         using var r = cmd.ExecuteReader();
         return r.Read()
             ? new PutEntry(
@@ -256,7 +255,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.Parameters.AddWithValue("$k", key);
         using var r = cmd.ExecuteReader();
-        return !r.Read() || r.GetInt32(0) is not KindPut
+        return !r.Read() || (VersionKind)r.GetInt32(0) is not VersionKind.Put
             ? (PutEntry?)null
             : new PutEntry(
                 VersionId: r.GetString(1),
@@ -329,9 +328,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             var isLatest = key != lastKey;
             lastKey = key;
             var versionId = r.GetString(1);
-            var kind = r.GetInt32(2);
+            var kind = (VersionKind)r.GetInt32(2);
             var at = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(5));
-            results.Add(kind is KindPut
+            results.Add(kind is VersionKind.Put
                 ? new AllVersionsEntry.Put(key, versionId, at, isLatest,
                     r.GetString(3), r.GetInt64(4), DeserializeParts(r.GetString(6)))
                 : new AllVersionsEntry.Marker(key, versionId, at, isLatest));
@@ -349,7 +348,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
              WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
                AND v1.kind = $kp
             """;
-        cmd.Parameters.AddWithValue("$kp", KindPut);
+        cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
         if (prefix is not null)
         {
             sql += " AND v1.key LIKE $p ESCAPE '\\' ";

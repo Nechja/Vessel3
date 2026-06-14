@@ -64,14 +64,16 @@ internal static class ChecksumAlgorithms
 
     public static bool TryParseName(string name, out ChecksumAlgorithm algo)
     {
-        switch (name.Trim().ToUpperInvariant())
+        bool ok;
+        (ok, algo) = name.Trim().ToUpperInvariant() switch
         {
-            case "CRC32":   algo = ChecksumAlgorithm.Crc32;   return true;
-            case "CRC32C":  algo = ChecksumAlgorithm.Crc32C;  return true;
-            case "SHA1":    algo = ChecksumAlgorithm.Sha1;    return true;
-            case "SHA256":  algo = ChecksumAlgorithm.Sha256;  return true;
-            default:        algo = default;                   return false;
-        }
+            "CRC32"  => (true, ChecksumAlgorithm.Crc32),
+            "CRC32C" => (true, ChecksumAlgorithm.Crc32C),
+            "SHA1"   => (true, ChecksumAlgorithm.Sha1),
+            "SHA256" => (true, ChecksumAlgorithm.Sha256),
+            _        => (false, default),
+        };
+        return ok;
     }
 
     public static (string Crc32, string Crc32C, string Sha1, string Sha256) ComputeAll(ReadOnlySpan<byte> data)

@@ -9,6 +9,7 @@ public class BlobRecoveryTests : IDisposable
     private readonly string root;
     private readonly string blobsDir;
     private readonly IFileSync sync = new PortableFileSync();
+    private readonly IDurableWrite durable = new DurableWrite(new PortableFileSync());
 
     public BlobRecoveryTests()
     {
@@ -57,13 +58,13 @@ public class BlobRecoveryTests : IDisposable
         var body = "durable-payload"u8.ToArray();
         var pool = NewBlobPool();
         var blob = await Store(pool, body);
-        using (var b = new Bucket("b", root, sync))
+        using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
             b.AppendPut("k", Req(blob));
         }
 
-        using var restored = new Bucket("b", root, sync);
+        using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
         Assert.Equal(blob.Sha, entry.BlobSha);
@@ -77,7 +78,7 @@ public class BlobRecoveryTests : IDisposable
         var body = "rebuilt-from-log"u8.ToArray();
         var pool = NewBlobPool();
         var blob = await Store(pool, body);
-        using (var b = new Bucket("b", root, sync))
+        using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
             b.AppendPut("k", Req(blob));
@@ -85,7 +86,7 @@ public class BlobRecoveryTests : IDisposable
 
         WipeIndex(root);
 
-        using var restored = new Bucket("b", root, sync);
+        using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
         Assert.Equal(body, ReadBlob(pool, entry.BlobSha));
@@ -97,13 +98,13 @@ public class BlobRecoveryTests : IDisposable
     {
         var pool = NewBlobPool();
         var orphan = await Store(pool, "never-acked"u8.ToArray());
-        using (var b = new Bucket("b", root, sync))
+        using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
             b.AppendPut("k", Req(await Store(pool, "real"u8.ToArray())));
         }
 
-        using var restored = new Bucket("b", root, sync);
+        using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         Assert.True(pool.Exists(orphan.Sha));
         Assert.DoesNotContain(orphan.Sha, restored.Index.ReferencedBlobs());
@@ -117,7 +118,7 @@ public class BlobRecoveryTests : IDisposable
         var blobB = await Store(pool, "BBBBBBBB"u8.ToArray());
 
         long sizeAfterA;
-        using (var b = new Bucket("b", root, sync))
+        using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
             b.AppendPut("a", Req(blobA));
@@ -129,7 +130,7 @@ public class BlobRecoveryTests : IDisposable
             fs.SetLength(sizeAfterA);
         WipeIndex(root);
 
-        using var restored = new Bucket("b", root, sync);
+        using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         Assert.NotNull(((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value);
         Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry?>.Success { Value: not null });

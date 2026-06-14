@@ -8,13 +8,14 @@ public class AtomicOverwriteTests : IDisposable
 {
     private readonly string root;
     private readonly IFileSync sync = new PortableFileSync();
+    private readonly IDurableWrite durable = new DurableWrite(new PortableFileSync());
     private readonly Bucket bucket;
 
     public AtomicOverwriteTests()
     {
         root = Path.Combine(Path.GetTempPath(), $"vessel3-atomic-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
-        bucket = new Bucket("atomic", root, sync);
+        bucket = new Bucket("atomic", root, sync, durable);
         bucket.Open();
     }
 

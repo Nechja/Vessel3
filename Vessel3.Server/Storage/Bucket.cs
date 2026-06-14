@@ -5,7 +5,7 @@ namespace Vessel3.Server.Storage;
 
 internal enum VersioningStatus { Unversioned, Enabled, Suspended }
 
-internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDisposable
+internal sealed class Bucket(string name, string path, IFileSync fileSync, IDurableWrite durableWrite) : IDisposable
 {
     private readonly VersionLog log = new(Path.Combine(path, "log"), fileSync);
     private readonly string versioningPath = Path.Combine(path, "versioning.txt");
@@ -51,8 +51,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDi
             if (File.Exists(versioningPath)) File.Delete(versioningPath);
             return Result.Ok;
         }
-        DurableWrite.AtomicReplace(versioningPath, status.ToString());
-        return Result.Ok;
+        return durableWrite.AtomicReplace(versioningPath, status.ToString());
     }
 
     public Result SetObjectLock(ObjectLockConfig cfg)
@@ -63,8 +62,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDi
             return new InvalidBucketStateError("Object Lock cannot be disabled once enabled");
 
         ObjectLock = cfg;
-        DurableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
-        return Result.Ok;
+        return durableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
     }
 
     private VersioningStatus ReadVersioning() =>
@@ -80,8 +78,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDi
     public Result SetLifecycle(LifecycleConfig cfg)
     {
         Lifecycle = cfg;
-        DurableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
-        return Result.Ok;
+        return durableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
     }
 
     public Result RemoveLifecycle()
@@ -145,7 +142,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDi
         {
             var latest = Index.LatestVersionId(key);
             if (latest != markerVersionId) return false;
-            if (Index.GetCurrentKind(key) is not BucketIndex.KindDeleteMarker) return false;
+            if (Index.GetCurrentKind(key) is not VersionKind.DeleteMarker) return false;
             if (Index.CountVersions(key) != 1) return false;
 
             log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, markerVersionId)).ApplyTo(Index);

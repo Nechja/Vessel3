@@ -40,7 +40,7 @@ internal interface IMultipartStore
     int ReapAbandonedUploads(DateTime cutoffUtc);
 }
 
-internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs) : IMultipartStore
+internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs, IDurableWrite durableWrite) : IMultipartStore
 {
     public Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata) =>
         registry.Exists(bucket).Match<Result<CreateUploadOutcome>>(
@@ -73,7 +73,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 
         var part = new MultipartPart(partNumber, blob.Sha, blob.Md5, blob.Size,
             Crc32: blob.Crc32, Crc32C: blob.Crc32C, Sha1: blob.Sha1);
-        WritePartFile(dir, part);
+        if (WritePartFile(dir, part) is Result.Failure wf) return wf.Error;
         var sums = new ChecksumSet(blob.Crc32, blob.Crc32C, blob.Sha1, blob.Sha);
         return new UploadPartOutcome(blob.Md5, blob.Sha, blob.Size, sums);
     }
@@ -245,7 +245,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         return result;
     }
 
-    private CreateUploadOutcome CreateUpload(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
+    private Result<CreateUploadOutcome> CreateUpload(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
     {
         var uploadId = Ulid.NewUlid().ToString();
         var dir = UploadDir(uploadId);
@@ -258,18 +258,18 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             DateTimeOffset.UtcNow);
 
         var metaPath = Path.Combine(dir, "meta.json");
-        DurableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, MultipartJsonContext.Default.UploadMeta));
-
-        return new CreateUploadOutcome(uploadId);
+        return durableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, MultipartJsonContext.Default.UploadMeta)) is Result.Failure mf
+            ? mf.Error
+            : new CreateUploadOutcome(uploadId);
     }
 
-    private static void WritePartFile(string uploadDir, MultipartPart part)
+    private Result WritePartFile(string uploadDir, MultipartPart part)
     {
         var partsDir = Path.Combine(uploadDir, "parts");
         Directory.CreateDirectory(partsDir);
         var name = part.Number.ToString("D5", CultureInfo.InvariantCulture) + ".json";
         var path = Path.Combine(partsDir, name);
-        DurableWrite.AtomicReplace(path, JsonSerializer.Serialize(part, MultipartJsonContext.Default.MultipartPart));
+        return durableWrite.AtomicReplace(path, JsonSerializer.Serialize(part, MultipartJsonContext.Default.MultipartPart));
     }
 
     private static UploadMeta? ReadMeta(string uploadDir)
