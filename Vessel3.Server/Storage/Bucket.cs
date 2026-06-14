@@ -5,9 +5,9 @@ namespace Vessel3.Server.Storage;
 
 internal enum VersioningStatus { Unversioned, Enabled, Suspended }
 
-internal sealed class Bucket(string name, string path) : IDisposable
+internal sealed class Bucket(string name, string path, IFileSync fileSync) : IDisposable
 {
-    private readonly VersionLog log = new(Path.Combine(path, "log"));
+    private readonly VersionLog log = new(Path.Combine(path, "log"), fileSync);
     private readonly string versioningPath = Path.Combine(path, "versioning.txt");
     private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
     private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");

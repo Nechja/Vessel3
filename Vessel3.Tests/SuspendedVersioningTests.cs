@@ -7,13 +7,14 @@ namespace Vessel3.Tests;
 public class SuspendedVersioningTests : IDisposable
 {
     private readonly string root;
+    private readonly IFileSync sync = new PortableFileSync();
     private readonly Bucket bucket;
 
     public SuspendedVersioningTests()
     {
         root = Path.Combine(Path.GetTempPath(), "vessel3-susp-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        bucket = new Bucket("susp", root);
+        bucket = new Bucket("susp", root, sync);
         bucket.Open();
     }
 

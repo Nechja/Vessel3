@@ -7,6 +7,7 @@ namespace Vessel3.Tests;
 public class PowerLossTests : IDisposable
 {
     private readonly string root;
+    private readonly IFileSync sync = new PortableFileSync();
 
     public PowerLossTests()
     {
@@ -46,7 +47,7 @@ public class PowerLossTests : IDisposable
     public void Replay_rebuilds_index_when_only_log_survives()
     {
         string v1, v2;
-        using (var b = new Bucket("b", root))
+        using (var b = new Bucket("b", root, sync))
         {
             b.Open();
             b.SetVersioning(VersioningStatus.Enabled);
@@ -56,7 +57,7 @@ public class PowerLossTests : IDisposable
 
         WipeIndex(root);
 
-        using var restored = new Bucket("b", root);
+        using var restored = new Bucket("b", root, sync);
         restored.Open();
         var current = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
         Assert.Equal(v2, current.VersionId);
@@ -66,7 +67,7 @@ public class PowerLossTests : IDisposable
     [Fact]
     public void Partial_trailing_event_is_dropped_on_recovery()
     {
-        using (var b = new Bucket("b", root))
+        using (var b = new Bucket("b", root, sync))
         {
             b.Open();
             b.SetVersioning(VersioningStatus.Enabled);
@@ -82,7 +83,7 @@ public class PowerLossTests : IDisposable
 
         WipeIndex(root);
 
-        using (var b = new Bucket("b", root))
+        using (var b = new Bucket("b", root, sync))
         {
             b.Open();
             Assert.NotNull(((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value);
@@ -91,7 +92,7 @@ public class PowerLossTests : IDisposable
 
         Assert.True(LogSize(root) < corruptedSize);
 
-        using (var b = new Bucket("b", root))
+        using (var b = new Bucket("b", root, sync))
         {
             b.Open();
             b.AppendPut("k", Req("post-recovery"));
@@ -111,7 +112,7 @@ public class PowerLossTests : IDisposable
             fs.Write("{\"kind\":\"Put\",\"Seq\":1,\"Key\":\"k\",\"VersionId\""u8);
         }
 
-        using var b = new Bucket("b", root);
+        using var b = new Bucket("b", root, sync);
         b.Open();
         Assert.True(b.Index.IsEmpty());
         Assert.Equal(0, LogSize(root));

@@ -41,7 +41,7 @@ internal interface IBucketRegistry : IDisposable
     IEnumerable<string> AllReferencedBlobs();
 }
 
-internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketRegistry
+internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync) : IBucketRegistry
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
@@ -255,7 +255,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
 
         var lazy = openBuckets.GetOrAdd(bucket, _ => new Lazy<Bucket>(() =>
         {
-            var b = new Bucket(bucket, path);
+            var b = new Bucket(bucket, path, fileSync);
             b.Open();
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));

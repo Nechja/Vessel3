@@ -7,13 +7,14 @@ namespace Vessel3.Tests;
 public class AtomicOverwriteTests : IDisposable
 {
     private readonly string root;
+    private readonly IFileSync sync = new PortableFileSync();
     private readonly Bucket bucket;
 
     public AtomicOverwriteTests()
     {
         root = Path.Combine(Path.GetTempPath(), $"vessel3-atomic-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
-        bucket = new Bucket("atomic", root);
+        bucket = new Bucket("atomic", root, sync);
         bucket.Open();
     }
 

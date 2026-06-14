@@ -7,13 +7,14 @@ namespace Vessel3.Tests;
 public class DiskFullTests : IDisposable
 {
     private readonly string root;
+    private readonly IFileSync sync = new PortableFileSync();
     private readonly BlobPool pool;
 
     public DiskFullTests()
     {
         root = Path.Combine(Path.GetTempPath(), $"vessel3-diskfull-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
-        pool = new BlobPool(new BlobPoolOptions(root));
+        pool = new BlobPool(new BlobPoolOptions(root), sync);
     }
 
     public void Dispose()

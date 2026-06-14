@@ -47,6 +47,10 @@ builder.Services.AddSingleton(new ServerRegion(region));
 builder.Services.AddSingleton(new BlobPoolOptions(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton(new BucketRegistryOptions(dataRoot));
 builder.Services.AddSingleton(new MultipartStoreOptions(Path.Combine(dataRoot, "uploads")));
+builder.Services.AddSingleton<IFileSync>(
+    System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux)
+        ? new PosixFileSync()
+        : new PortableFileSync());
 builder.Services.AddSingleton<IBlobPool, BlobPool>();
 builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
