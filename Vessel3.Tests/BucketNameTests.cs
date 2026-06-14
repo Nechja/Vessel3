@@ -1,4 +1,5 @@
 using Vessel3.Server;
+using Vessel3.Server.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -6,7 +7,7 @@ namespace Vessel3.Tests;
 public class BucketNameTests
 {
     private static readonly BucketRegistry Reg = new(new BucketRegistryOptions(
-        Path.Combine(Path.GetTempPath(), "vessel3-name-tests-" + Guid.NewGuid().ToString("N"))));
+        Path.Combine(Path.GetTempPath(), "vessel3-name-tests-" + Guid.NewGuid().ToString("N"))), new PortableFileSync(), new DurableWrite(new PortableFileSync()));
 
     [Theory]
     [InlineData("vessel3-bench")]

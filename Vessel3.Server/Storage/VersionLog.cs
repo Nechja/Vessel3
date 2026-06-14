@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Vessel3.Server.Storage;
 
-internal sealed class VersionLog(string path) : IDisposable
+internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 {
     private readonly Lock writeLock = new();
     private FileStream? writer;
@@ -39,8 +39,7 @@ internal sealed class VersionLog(string path) : IDisposable
             var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
             writer.Write(body);
             writer.WriteByte((byte)'\n');
-            if (PosixFsync.IsLinux) { writer.Flush(); PosixFsync.DataSync(writer.SafeFileHandle); }
-            else writer.Flush(flushToDisk: true);
+            if (fileSync.SyncData(writer) is Result.Failure f) throw new IOException(f.Error.Message);
         }
         return withSeq;
     }

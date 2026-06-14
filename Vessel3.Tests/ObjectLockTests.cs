@@ -15,7 +15,7 @@ public sealed class ObjectLockTests : IDisposable
     {
         root = Path.Combine(Path.GetTempPath(), "vessel3-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        registry = new BucketRegistry(new BucketRegistryOptions(root));
+        registry = new BucketRegistry(new BucketRegistryOptions(root), new PortableFileSync(), new DurableWrite(new PortableFileSync()));
     }
 
     public void Dispose()

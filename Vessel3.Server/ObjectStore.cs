@@ -92,8 +92,8 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
 
     private bool IsDeleteMarkerTarget(string bucket, string key, string? versionId) =>
         versionId is null
-            ? registry.GetCurrentKind(bucket, key) == Storage.BucketIndex.KindDeleteMarker
-            : registry.GetVersionKind(bucket, key, versionId) == Storage.BucketIndex.KindDeleteMarker;
+            ? registry.GetCurrentKind(bucket, key) == Storage.VersionKind.DeleteMarker
+            : registry.GetVersionKind(bucket, key, versionId) == Storage.VersionKind.DeleteMarker;
 
     public Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId) =>
         PutTagging(bucket, key, versionId, new Dictionary<string, string>());

@@ -26,8 +26,8 @@ internal interface IBucketRegistry : IDisposable
     Result<VersioningStatus> GetVersioning(string bucket);
     Result SetVersioning(string bucket, VersioningStatus status);
     Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags);
-    int? GetCurrentKind(string bucket, string key);
-    int? GetVersionKind(string bucket, string key, string versionId);
+    VersionKind? GetCurrentKind(string bucket, string key);
+    VersionKind? GetVersionKind(string bucket, string key, string versionId);
     Result<ObjectLockConfig?> GetObjectLock(string bucket);
     Result SetObjectLock(string bucket, ObjectLockConfig cfg);
     Result<LifecycleConfig?> GetLifecycle(string bucket);
@@ -41,7 +41,7 @@ internal interface IBucketRegistry : IDisposable
     IEnumerable<string> AllReferencedBlobs();
 }
 
-internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketRegistry
+internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync, IDurableWrite durableWrite) : IBucketRegistry
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
@@ -217,12 +217,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
             return b.AppendPutTagging(key, resolved, tags);
         });
 
-    public int? GetCurrentKind(string bucket, string key) =>
+    public VersionKind? GetCurrentKind(string bucket, string key) =>
         !IsValidName(bucket) || string.IsNullOrEmpty(key)
             ? null
             : Open(bucket) is { } b ? b.Index.GetCurrentKind(key) : null;
 
-    public int? GetVersionKind(string bucket, string key, string versionId) =>
+    public VersionKind? GetVersionKind(string bucket, string key, string versionId) =>
         !IsValidName(bucket) || string.IsNullOrEmpty(key)
             ? null
             : Open(bucket) is { } b ? b.Index.GetVersionKind(key, versionId) : null;
@@ -255,7 +255,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options) : IBucketReg
 
         var lazy = openBuckets.GetOrAdd(bucket, _ => new Lazy<Bucket>(() =>
         {
-            var b = new Bucket(bucket, path);
+            var b = new Bucket(bucket, path, fileSync, durableWrite);
             b.Open();
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));

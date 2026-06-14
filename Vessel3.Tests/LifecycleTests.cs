@@ -20,7 +20,7 @@ public sealed class LifecycleTests : IDisposable
     {
         root = Path.Combine(Path.GetTempPath(), "vessel3-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        registry = new BucketRegistry(new BucketRegistryOptions(root));
+        registry = new BucketRegistry(new BucketRegistryOptions(root), new PortableFileSync(), new DurableWrite(new PortableFileSync()));
         sweeper = new LifecycleSweeper(registry);
     }
 
@@ -58,9 +58,9 @@ public sealed class LifecycleTests : IDisposable
         Assert.Equal(0, report.MarkersReaped);
 
         var kind = registry.GetCurrentKind(b, "logs/a.txt");
-        Assert.Equal(BucketIndex.KindDeleteMarker, kind);
+        Assert.Equal(VersionKind.DeleteMarker, kind);
 
-        Assert.Equal(BucketIndex.KindPut, registry.GetCurrentKind(b, "keep/a.txt"));
+        Assert.Equal(VersionKind.Put, registry.GetCurrentKind(b, "keep/a.txt"));
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class LifecycleTests : IDisposable
         var report = sweeper.Run(put.Value.At + TimeSpan.FromDays(10));
 
         Assert.Equal(0, report.Expired);
-        Assert.Equal(BucketIndex.KindPut, registry.GetCurrentKind(b, "k"));
+        Assert.Equal(VersionKind.Put, registry.GetCurrentKind(b, "k"));
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class LifecycleTests : IDisposable
         var report = sweeper.Run(put.Value.At + TimeSpan.FromDays(10));
 
         Assert.Equal(0, report.Expired);
-        Assert.Equal(BucketIndex.KindPut, registry.GetCurrentKind(b, "k"));
+        Assert.Equal(VersionKind.Put, registry.GetCurrentKind(b, "k"));
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class LifecycleTests : IDisposable
         registry.HardDeleteVersion(b, "k", put.Value.VersionId, bypassGovernance: false);
         registry.AppendDelete(b, "k", bypassGovernance: false);
 
-        Assert.Equal(BucketIndex.KindDeleteMarker, registry.GetCurrentKind(b, "k"));
+        Assert.Equal(VersionKind.DeleteMarker, registry.GetCurrentKind(b, "k"));
 
         registry.SetLifecycle(b, new LifecycleConfig(new[]
         {
@@ -171,7 +171,7 @@ public sealed class LifecycleTests : IDisposable
 
         var report = sweeper.Run(DateTimeOffset.UtcNow);
         Assert.Equal(0, report.MarkersReaped);
-        Assert.Equal(BucketIndex.KindDeleteMarker, registry.GetCurrentKind(b, "k"));
+        Assert.Equal(VersionKind.DeleteMarker, registry.GetCurrentKind(b, "k"));
     }
 
     [Fact]

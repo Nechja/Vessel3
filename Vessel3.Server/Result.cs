@@ -41,6 +41,10 @@ internal sealed record InvalidRequestError(string Detail)
     : Error("InvalidRequest", Detail)
 { public override int Status => 400; }
 
+internal sealed record DurabilityError(string Detail)
+    : Error("InternalError", $"durability sync failed: {Detail}")
+{ public override int Status => 500; }
+
 internal sealed record PreconditionFailedError(string Resource)
     : Error("PreconditionFailed", $"At least one of the preconditions failed for {Resource}")
 { public override int Status => 412; }

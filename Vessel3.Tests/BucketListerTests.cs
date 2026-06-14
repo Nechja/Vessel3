@@ -31,8 +31,8 @@ public class BucketListerTests
         public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) => throw new NotImplementedException();
         public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit) => new VersionsPage([], false);
         public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) => throw new NotImplementedException();
-        public int? GetCurrentKind(string bucket, string key) => null;
-        public int? GetVersionKind(string bucket, string key, string versionId) => null;
+        public VersionKind? GetCurrentKind(string bucket, string key) => null;
+        public VersionKind? GetVersionKind(string bucket, string key, string versionId) => null;
         public Result<VersioningStatus> GetVersioning(string bucket) => VersioningStatus.Unversioned;
         public Result SetVersioning(string bucket, VersioningStatus status) => Result.Ok;
         public Result<ObjectLockConfig?> GetObjectLock(string bucket) => (ObjectLockConfig?)null;

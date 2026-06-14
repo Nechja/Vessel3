@@ -23,7 +23,7 @@ internal interface IBlobPool
     DateTime? GetLastWriteUtc(string sha);
 }
 
-internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
+internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IBlobPool
 {
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
@@ -75,8 +75,7 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
                 if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
                 if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
                 if (crc32c is not null) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
-                if (PosixFsync.IsLinux) { temp.Flush(); PosixFsync.DataSync(temp.SafeFileHandle); }
-                else temp.Flush(flushToDisk: true);
+                if (fileSync.SyncData(temp) is Result.Failure df) return df.Error;
             }
 
             var finalPath = PathFor(sha);
@@ -87,7 +86,6 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
             {
                 File.Move(tempPath, finalPath, overwrite: false);
                 moved = true;
-                PosixFsync.SyncDirectory(finalDir);
             }
             catch (IOException) when (File.Exists(finalPath))
             {
@@ -95,7 +93,9 @@ internal sealed class BlobPool(BlobPoolOptions options) : IBlobPool
                 TryDelete(tempPath);
             }
 
-            return new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
+            return fileSync.SyncDirectory(finalDir) is Result.Failure ef
+                ? ef.Error
+                : new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
         }
         catch (IOException ex) when (IsOutOfSpace(ex))
         {
