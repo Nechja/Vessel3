@@ -50,7 +50,7 @@ public class ConcatStreamTests
         var (parts, blobs) = Setup("hello "u8.ToArray(), "world"u8.ToArray(), "!"u8.ToArray());
         using var s = new ConcatStream(parts, blobs);
         var sink = new MemoryStream();
-        await s.CopyToAsync(sink);
+        await s.CopyToAsync(sink, TestContext.Current.CancellationToken);
         Assert.Equal("hello world!"u8.ToArray(), sink.ToArray());
     }
 

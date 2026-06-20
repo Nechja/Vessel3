@@ -40,7 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         mode: [jit, aot, container]
-    name: probe (${{ matrix.mode }})
+        aws: ['3.7.*', '4.*']
+    name: probe (${{ matrix.mode }} / aws ${{ matrix.aws }})
     steps:
       - uses: actions/checkout@v6
 
@@ -113,7 +114,7 @@ jobs:
           VESSEL3_ENDPOINT: http://127.0.0.1:9000
           VESSEL3_ACCESS_KEY: AKIATEST
           VESSEL3_SECRET_KEY: secretkey1234567890
-        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile
+        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile -p:AwsSdkVersion='${{ matrix.aws }}'
 
       - name: Server logs on failure
         if: failure() && matrix.mode != 'container'

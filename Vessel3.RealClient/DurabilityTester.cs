@@ -114,7 +114,7 @@ internal static class DurabilityTester
             }
 
             var versions = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = state.Bucket });
-            var verCount = versions.Versions?.Count(v => !v.IsDeleteMarker && v.Key == "ver.bin") ?? 0;
+            var verCount = versions.Versions?.Count(v => v.IsDeleteMarker != true && v.Key == "ver.bin") ?? 0;
             if (verCount != 2)
                 throw new InvalidOperationException($"expected 2 versions of ver.bin, got {verCount}");
 

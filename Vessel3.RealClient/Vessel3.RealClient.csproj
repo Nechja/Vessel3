@@ -16,8 +16,13 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <AwsSdkVersion Condition="'$(AwsSdkVersion)' == ''">3.7.*</AwsSdkVersion>
+    <DefineConstants Condition="$(AwsSdkVersion.StartsWith('3'))">$(DefineConstants);AWSSDK_V3</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
+    <PackageReference Include="AWSSDK.S3" Version="$(AwsSdkVersion)" />
     <PackageReference Include="System.IO.Hashing" Version="*" />
   </ItemGroup>
 
