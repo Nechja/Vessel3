@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
     <PackageReference Include="Ulid" Version="*" />
     <PackageReference Include="System.IO.Hashing" Version="*" />
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="*" Condition="'$(EmbedUi)' == 'true'" />
