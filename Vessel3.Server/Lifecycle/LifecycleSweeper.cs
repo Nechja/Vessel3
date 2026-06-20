@@ -1,6 +1,6 @@
 using Vessel3.Server.Storage;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Lifecycle;
 
 internal sealed record LifecycleReport(int Expired, int MarkersReaped);
 

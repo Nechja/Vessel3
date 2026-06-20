@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using Vessel3.Server;
+using Vessel3.Server.Lifecycle;
 using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.S3;

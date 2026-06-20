@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Lifecycle;
 
 internal sealed record LifecycleConfig(IReadOnlyList<LifecycleRule> Rules);
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Vessel3.Server.Lifecycle;
 using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server;

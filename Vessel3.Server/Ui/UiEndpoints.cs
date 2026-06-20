@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Vessel3.Server.Storage;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Ui;
 
 internal static class UiEndpoints
 {

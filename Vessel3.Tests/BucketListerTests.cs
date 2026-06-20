@@ -1,4 +1,5 @@
 using Vessel3.Server;
+using Vessel3.Server.Lifecycle;
 using Vessel3.Server.Storage;
 using Xunit;
 
