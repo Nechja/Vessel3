@@ -134,13 +134,19 @@ internal static class RequestHelpers
     {
         bucket = string.Empty;
         key = string.Empty;
-        var trimmed = raw.StartsWith('/') ? raw[1..] : raw;
+        var trimmed = raw.StartsWith('/') ? raw[1..]
+            : raw.StartsWith("%2F", StringComparison.OrdinalIgnoreCase) ? raw[3..]
+            : raw;
         var qm = trimmed.IndexOf('?', StringComparison.Ordinal);
         if (qm >= 0) trimmed = trimmed[..qm];
+        // Bucket/key separator may be a literal '/' or URL-encoded '%2F' (AWS SDK v4 encodes it).
+        // Bucket names contain neither, so the earlier of the two is the boundary.
         var slash = trimmed.IndexOf('/', StringComparison.Ordinal);
-        if (slash <= 0 || slash == trimmed.Length - 1) return false;
-        bucket = trimmed[..slash];
-        key = Uri.UnescapeDataString(trimmed[(slash + 1)..]);
+        var enc = trimmed.IndexOf("%2F", StringComparison.OrdinalIgnoreCase);
+        var (sep, sepLen) = enc >= 0 && (slash < 0 || enc < slash) ? (enc, 3) : (slash, 1);
+        if (sep <= 0 || sep + sepLen >= trimmed.Length) return false;
+        bucket = trimmed[..sep];
+        key = Uri.UnescapeDataString(trimmed[(sep + sepLen)..]);
         return true;
     }
 }

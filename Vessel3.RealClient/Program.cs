@@ -11,7 +11,9 @@ var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY") ?? "AKI
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY") ?? "secretkey1234567890";
 var region    = Environment.GetEnvironmentVariable("VESSEL3_REGION")     ?? "us-east-1";
 
+#if AWSSDK_V3
 Amazon.AWSConfigsS3.UseSignatureVersion4 = true;
+#endif
 var config = new AmazonS3Config
 {
     ServiceURL = endpoint,
@@ -113,7 +115,7 @@ await Run("ListObjectsV1", async () =>
         BucketName = bucket,
         MaxKeys = 1,
     });
-    if (!paged.IsTruncated)
+    if (paged.IsTruncated != true)
         throw new InvalidOperationException("v1 paged response not truncated with max-keys=1");
     if (string.IsNullOrEmpty(paged.NextMarker))
         throw new InvalidOperationException("v1 paged response missing NextMarker");
@@ -199,14 +201,14 @@ await Run("ListObjectVersions", async () =>
 
         var lv = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket });
         var entries = lv.Versions ?? [];
-        var versionCount = entries.Count(v => !v.IsDeleteMarker);
-        var markerCount = entries.Count(v => v.IsDeleteMarker);
+        var versionCount = entries.Count(v => v.IsDeleteMarker != true);
+        var markerCount = entries.Count(v => v.IsDeleteMarker == true);
         if (versionCount != 2)
             throw new InvalidOperationException($"expected 2 versions, got {versionCount}");
         if (markerCount != 1)
             throw new InvalidOperationException($"expected 1 delete marker, got {markerCount}");
 
-        var latestMarker = entries.FirstOrDefault(v => v.IsDeleteMarker && v.IsLatest);
+        var latestMarker = entries.FirstOrDefault(v => v.IsDeleteMarker == true && v.IsLatest == true);
         if (latestMarker is null)
             throw new InvalidOperationException("no delete marker reported as IsLatest");
     }
@@ -481,7 +483,7 @@ await Run("ConcurrencyStress", async () =>
                 BucketName = sbucket, ContinuationToken = token,
             });
             foreach (var o in page.S3Objects ?? []) finalKeys.Add(o.Key);
-            token = page.IsTruncated ? page.NextContinuationToken : null;
+            token = page.IsTruncated == true ? page.NextContinuationToken : null;
         } while (token is not null);
 
         var missing = writtenKeys.Keys.Where(k => !finalKeys.Contains(k)).ToList();
@@ -507,7 +509,7 @@ await Run("ConcurrencyStress", async () =>
                         Objects = page.S3Objects.Select(o => new KeyVersion { Key = o.Key }).ToList(),
                     });
                 }
-                token = page.IsTruncated ? page.NextContinuationToken : null;
+                token = page.IsTruncated == true ? page.NextContinuationToken : null;
             } while (token is not null);
             await s3.DeleteBucketAsync(sbucket);
         }
@@ -1434,7 +1436,7 @@ await Run("ListVersionsPaging", async () =>
         }
 
         var first = await s3.ListVersionsAsync(new ListVersionsRequest { BucketName = vbucket, MaxKeys = 2 });
-        if (!first.IsTruncated)
+        if (first.IsTruncated != true)
             throw new InvalidOperationException("ListVersions with MaxKeys=2 should be truncated for 5 versions");
         if (string.IsNullOrEmpty(first.NextKeyMarker))
             throw new InvalidOperationException("truncated ListVersions response missing NextKeyMarker");
@@ -1748,7 +1750,7 @@ await Run("PutTagging", async () =>
         });
 
         var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
-        var dict = got.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var dict = got.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (dict["env"] != "prod" || dict["team"] != "platform")
             throw new InvalidOperationException("tag round-trip mismatch");
     }
@@ -1772,8 +1774,8 @@ await Run("GetTagging", async () =>
         });
 
         var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
-        if (got.Tagging.Count != 0)
-            throw new InvalidOperationException($"expected 0 tags initially, got {got.Tagging.Count}");
+        if ((got.Tagging?.Count ?? 0) != 0)
+            throw new InvalidOperationException($"expected 0 tags initially, got {got.Tagging?.Count ?? 0}");
     }
     finally
     {
@@ -1801,8 +1803,8 @@ await Run("DeleteTagging", async () =>
 
         await s3.DeleteObjectTaggingAsync(new DeleteObjectTaggingRequest { BucketName = tbucket, Key = tkey });
         var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
-        if (got.Tagging.Count != 0)
-            throw new InvalidOperationException($"expected 0 tags after delete, got {got.Tagging.Count}");
+        if ((got.Tagging?.Count ?? 0) != 0)
+            throw new InvalidOperationException($"expected 0 tags after delete, got {got.Tagging?.Count ?? 0}");
     }
     finally
     {
@@ -1825,7 +1827,7 @@ await Run("PutWithTaggingHeader", async () =>
         });
 
         var got = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = tkey });
-        var dict = got.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var dict = got.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (dict["env"] != "stg" || dict["k 2"] != "v 2")
             throw new InvalidOperationException("x-amz-tagging header did not seed tags");
     }
@@ -1859,19 +1861,22 @@ await Run("CopyTaggingDirective", async () =>
             DestinationBucket = tbucket, DestinationKey = dstCopy,
         });
         var inherited = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = dstCopy });
-        var inhMap = inherited.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var inhMap = inherited.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (inhMap.GetValueOrDefault("origin") != "src")
-            throw new InvalidOperationException($"default COPY did not inherit source tags (got {inherited.Tagging.Count})");
+            throw new InvalidOperationException($"default COPY did not inherit source tags (got {inherited.Tagging?.Count ?? 0})");
 
         var copyReplaceReq = new CopyObjectRequest
         {
             SourceBucket = tbucket, SourceKey = srcKey,
             DestinationBucket = tbucket, DestinationKey = dstReplace,
+#if !AWSSDK_V3
+            TaggingDirective = TaggingDirective.REPLACE,
+#endif
             TagSet = [new Tag { Key = "origin", Value = "copy" }],
         };
         await s3.CopyObjectAsync(copyReplaceReq);
         var replaced = await s3.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = tbucket, Key = dstReplace });
-        var repMap = replaced.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var repMap = replaced.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (repMap.GetValueOrDefault("origin") != "copy")
             throw new InvalidOperationException($"REPLACE directive did not apply (got origin={repMap.GetValueOrDefault("origin")})");
     }
@@ -1924,7 +1929,7 @@ await Run("VersionedTagging", async () =>
         {
             BucketName = tbucket, Key = tkey, VersionId = v1,
         });
-        var v1Map = gotV1.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var v1Map = gotV1.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (v1Map["ver"] != "1-edited")
             throw new InvalidOperationException($"v1 tags: got '{v1Map["ver"]}', expected '1-edited'");
 
@@ -1932,7 +1937,7 @@ await Run("VersionedTagging", async () =>
         {
             BucketName = tbucket, Key = tkey, VersionId = v2,
         });
-        var v2Map = gotV2.Tagging.ToDictionary(t => t.Key, t => t.Value);
+        var v2Map = gotV2.Tagging?.ToDictionary(t => t.Key, t => t.Value) ?? new();
         if (v2Map["ver"] != "2")
             throw new InvalidOperationException($"v2 tags should be unchanged; got '{v2Map["ver"]}'");
     }
