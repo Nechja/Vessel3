@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Vessel3.Server.Lifecycle;
 using Vessel3.Server.Storage;
 
 namespace Vessel3.Server;

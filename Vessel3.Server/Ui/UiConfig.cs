@@ -1,7 +1,7 @@
 #if VESSEL3_UI
 using System.Text.Json.Serialization;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Ui;
 
 internal sealed record UiConfig(string AccessKey, string SecretKey, string Region);
 

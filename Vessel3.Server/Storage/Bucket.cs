@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Vessel3.Server;
+using Vessel3.Server.Lifecycle;
 
 namespace Vessel3.Server.Storage;
 
