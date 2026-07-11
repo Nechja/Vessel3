@@ -10,7 +10,9 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
     public void Open(long startingSeq)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var dir = Path.GetDirectoryName(path)!;
+        if (fileSync.CreateDirectoryDurable(dir) is Result.Failure df) throw new IOException(df.Error.Message);
+        var isNewFile = !File.Exists(path);
         writer = new FileStream(path, new FileStreamOptions
         {
             Mode = FileMode.Append,
@@ -19,6 +21,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
             BufferSize = 4096,
             Options = FileOptions.Asynchronous,
         });
+        if (isNewFile && fileSync.SyncDirectory(dir) is Result.Failure sf) throw new IOException(sf.Error.Message);
         nextSeq = startingSeq;
     }
 

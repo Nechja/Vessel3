@@ -80,7 +80,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
 
             var finalPath = PathFor(sha);
             var finalDir = Path.GetDirectoryName(finalPath)!;
-            Directory.CreateDirectory(finalDir);
+            if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;
 
             try
             {

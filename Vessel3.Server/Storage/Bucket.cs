@@ -174,8 +174,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 _ => null,
             };
 
-            var assignedPut = (PutEvent)log.Append(putEvent);
             HardDeleteEvent? assignedHd = hardDelete is null ? null : (HardDeleteEvent)log.Append(hardDelete);
+            var assignedPut = (PutEvent)log.Append(putEvent);
 
             using (var tx = Index.BeginTransaction())
             {

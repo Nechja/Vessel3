@@ -67,7 +67,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         var path = Path.Combine(bucketsRoot, bucket);
         if (Directory.Exists(path)) return false;
 
-        Directory.CreateDirectory(path);
+        if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
         Open(bucket);
         return true;
     }
@@ -261,6 +261,15 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
-        return lazy.Value;
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            // A faulted Lazy caches its exception forever; drop it so open is retryable.
+            openBuckets.TryRemove(new KeyValuePair<string, Lazy<Bucket>>(bucket, lazy));
+            throw;
+        }
     }
 }
