@@ -91,6 +91,9 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
             {
                 moved = true;
                 TryDelete(tempPath);
+                // Dedupe hit: refresh mtime so GC's min-age grace covers this fresh reference.
+                try { File.SetLastWriteTimeUtc(finalPath, DateTime.UtcNow); }
+                catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
 
             return fileSync.SyncDirectory(finalDir) is Result.Failure ef

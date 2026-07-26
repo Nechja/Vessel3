@@ -46,6 +46,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
+    private readonly Lock lifecycleGate = new();
 
     public bool IsValidName(string bucket)
     {
@@ -65,10 +66,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        if (Directory.Exists(path)) return false;
-
-        if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
-        Open(bucket);
+        lock (lifecycleGate)
+        {
+            if (Directory.Exists(path)) return false;
+            if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
+            OpenLocked(bucket, path);
+        }
         return true;
     }
 
@@ -77,15 +80,20 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
+        lock (lifecycleGate)
+        {
+            if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
 
-        var b = Open(bucket);
-        if (b is not null && !b.IsEmpty()) return new BucketNotEmptyError(bucket);
+            // Seal the bucket against writes while empty, under the same gate as the removal, so an
+            // AppendPut can't slip in after the emptiness check and before the directory is gone.
+            var b = OpenLocked(bucket, path);
+            if (b is not null && !b.CloseIfEmpty()) return new BucketNotEmptyError(bucket);
 
-        if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
-            lazy.Value.Dispose();
+            if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
+                lazy.Value.Dispose();
 
-        Directory.Delete(path, recursive: true);
+            Directory.Delete(path, recursive: true);
+        }
         return Result.Ok;
     }
 
@@ -251,7 +259,20 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     private Bucket? Open(string bucket)
     {
+        if (openBuckets.TryGetValue(bucket, out var existing))
+            return Resolve(bucket, existing);
+
         var path = Path.Combine(bucketsRoot, bucket);
+        if (!Directory.Exists(path)) return null;
+
+        // Opening a not-yet-cached bucket shares lifecycleGate with Create/Delete so a concurrent
+        // Delete can't be resurrected onto a directory it is removing.
+        lock (lifecycleGate)
+            return OpenLocked(bucket, path);
+    }
+
+    private Bucket? OpenLocked(string bucket, string path)
+    {
         if (!Directory.Exists(path)) return null;
 
         var lazy = openBuckets.GetOrAdd(bucket, _ => new Lazy<Bucket>(() =>
@@ -261,6 +282,11 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
+        return Resolve(bucket, lazy);
+    }
+
+    private Bucket? Resolve(string bucket, Lazy<Bucket> lazy)
+    {
         try
         {
             return lazy.Value;
