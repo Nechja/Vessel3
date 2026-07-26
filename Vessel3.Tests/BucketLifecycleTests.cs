@@ -36,24 +36,24 @@ public class BucketLifecycleTests : IDisposable
         Size: body.Length, ContentType: "text/plain", Metadata: new Dictionary<string, string>());
 
     [Fact]
-    public void CloseIfEmpty_Seals_Empty_Bucket_Against_Writes()
+    public void TrySealForDelete_Seals_Empty_Bucket_Against_Writes()
     {
         using var b = new Bucket("b", Path.Combine(root, "b"), sync, durable);
         b.Open();
 
-        Assert.True(b.CloseIfEmpty());
+        Assert.True(b.TrySealForDelete());
         Assert.Throws<InvalidOperationException>(() => b.AppendPut("k", Req("x")));
         Assert.IsType<Result<DeleteOutcome>.Failure>(b.AppendDelete("k", false));
     }
 
     [Fact]
-    public void CloseIfEmpty_Refuses_A_NonEmpty_Bucket_Which_Stays_Writable()
+    public void TrySealForDelete_Refuses_A_NonEmpty_Bucket_Which_Stays_Writable()
     {
         using var b = new Bucket("b", Path.Combine(root, "b"), sync, durable);
         b.Open();
         Assert.NotNull(b.AppendPut("k", Req("x")));
 
-        Assert.False(b.CloseIfEmpty());
+        Assert.False(b.TrySealForDelete());
         Assert.NotNull(b.AppendPut("k2", Req("y")));
     }
 
@@ -76,7 +76,6 @@ public class BucketLifecycleTests : IDisposable
         Assert.False(reg.Delete("mybucket").TryGetError(out _));
         Assert.IsType<Result<bool>.Success>(reg.Create("mybucket"));
 
-        // A write to the recreated bucket must land in the live bucket and read back.
         Assert.IsType<Result<PutEntry>.Success>(reg.AppendPut("mybucket", "k", Req("hello")));
         var cur = ((Result<PutEntry?>.Success)reg.GetCurrentPut("mybucket", "k")).Value!;
         Assert.Equal("hello".Length, cur.Size);

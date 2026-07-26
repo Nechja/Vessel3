@@ -46,7 +46,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
-    private readonly Lock lifecycleGate = new();
+    private readonly Lock createDeleteGate = new();
 
     public bool IsValidName(string bucket)
     {
@@ -66,7 +66,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        lock (lifecycleGate)
+        lock (createDeleteGate)
         {
             if (Directory.Exists(path)) return false;
             if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
@@ -80,14 +80,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        lock (lifecycleGate)
+        lock (createDeleteGate)
         {
             if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
 
-            // Seal the bucket against writes while empty, under the same gate as the removal, so an
-            // AppendPut can't slip in after the emptiness check and before the directory is gone.
             var b = OpenLocked(bucket, path);
-            if (b is not null && !b.CloseIfEmpty()) return new BucketNotEmptyError(bucket);
+            if (b is not null && !b.TrySealForDelete()) return new BucketNotEmptyError(bucket);
 
             if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
                 lazy.Value.Dispose();
@@ -260,14 +258,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     private Bucket? Open(string bucket)
     {
         if (openBuckets.TryGetValue(bucket, out var existing))
-            return Resolve(bucket, existing);
+            return ResolveEvictingOnFault(bucket, existing);
 
         var path = Path.Combine(bucketsRoot, bucket);
         if (!Directory.Exists(path)) return null;
 
-        // Opening a not-yet-cached bucket shares lifecycleGate with Create/Delete so a concurrent
-        // Delete can't be resurrected onto a directory it is removing.
-        lock (lifecycleGate)
+        lock (createDeleteGate)
             return OpenLocked(bucket, path);
     }
 
@@ -282,10 +278,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
-        return Resolve(bucket, lazy);
+        return ResolveEvictingOnFault(bucket, lazy);
     }
 
-    private Bucket? Resolve(string bucket, Lazy<Bucket> lazy)
+    private Bucket? ResolveEvictingOnFault(string bucket, Lazy<Bucket> lazy)
     {
         try
         {
@@ -293,7 +289,6 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         }
         catch
         {
-            // A faulted Lazy caches its exception forever; drop it so open is retryable.
             openBuckets.TryRemove(new KeyValuePair<string, Lazy<Bucket>>(bucket, lazy));
             throw;
         }

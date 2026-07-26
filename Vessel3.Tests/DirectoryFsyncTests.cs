@@ -5,9 +5,6 @@ using Xunit;
 
 namespace Vessel3.Tests;
 
-// Dirent durability (a created file/dir surviving power loss) can't be proven on a live
-// filesystem in-process, so these assert fsync *placement*: that the parent directory of every
-// newly created path an acked write depends on is handed to SyncDirectory before the ack.
 public class DirectoryFsyncTests : IDisposable
 {
     private readonly string root;
@@ -35,7 +32,6 @@ public class DirectoryFsyncTests : IDisposable
         }
     }
 
-    // Fails the first n SyncDirectory calls with a durability error, then succeeds.
     private sealed class FailingFileSync(int failFirst) : IFileSync
     {
         private int remaining = failFirst;
@@ -82,9 +78,9 @@ public class DirectoryFsyncTests : IDisposable
         var res = await pool.Write(new MemoryStream(Encoding.UTF8.GetBytes("hello")), null, ChecksumIntent.None, TestContext.Current.CancellationToken);
         var sha = ((Result<StoredBlob>.Success)res).Value.Sha;
 
-        Assert.Contains(Full(root), rec.DirSyncs);                          // persists aa/ in root
-        Assert.Contains(Full(root, sha[..2]), rec.DirSyncs);               // persists bb/ in aa/
-        Assert.Contains(Full(root, sha[..2], sha[2..4]), rec.DirSyncs);    // persists the blob in bb/
+        Assert.Contains(Full(root), rec.DirSyncs);
+        Assert.Contains(Full(root, sha[..2]), rec.DirSyncs);
+        Assert.Contains(Full(root, sha[..2], sha[2..4]), rec.DirSyncs);
     }
 
     [Fact]
@@ -95,7 +91,7 @@ public class DirectoryFsyncTests : IDisposable
 
         reg.Create("mybucket");
 
-        Assert.Contains(Full(root, "buckets"), rec.DirSyncs);   // persists mybucket/ in buckets/
+        Assert.Contains(Full(root, "buckets"), rec.DirSyncs);
     }
 
     [Fact]
@@ -114,7 +110,6 @@ public class DirectoryFsyncTests : IDisposable
         Directory.CreateDirectory(Path.Combine(root, "buckets", "mybucket"));
         var reg = new BucketRegistry(new BucketRegistryOptions(root), new FailingFileSync(1), durable);
 
-        // First open faults while fsyncing the new log dir; a cached-exception Lazy would brick it.
         Assert.Throws<IOException>(() => reg.GetVersioning("mybucket"));
         Assert.IsType<Result<VersioningStatus>.Success>(reg.GetVersioning("mybucket"));
     }

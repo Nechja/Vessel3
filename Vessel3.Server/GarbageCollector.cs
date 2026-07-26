@@ -30,11 +30,7 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
 
             var candidates = blobs.EnumerateAll().ToList();
 
-            // In-flight scanned before the registry: a multipart Complete commits its registry
-            // reference, then deletes the upload dir, so this order can never miss both.
-            var referenced = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var sha in multipart.EnumerateInFlightPartShas()) referenced.Add(sha);
-            foreach (var sha in registry.AllReferencedBlobs()) referenced.Add(sha);
+            var referenced = ScanInFlightThenCommittedReferences();
 
             var deleted = 0;
             foreach (var sha in candidates)
@@ -48,5 +44,13 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
             var reaped = multipart.ReapAbandonedUploads(uploadCutoff);
             return new GcReport(deleted, reaped);
         }
+    }
+
+    private HashSet<string> ScanInFlightThenCommittedReferences()
+    {
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var sha in multipart.EnumerateInFlightPartShas()) referenced.Add(sha);
+        foreach (var sha in registry.AllReferencedBlobs()) referenced.Add(sha);
+        return referenced;
     }
 }

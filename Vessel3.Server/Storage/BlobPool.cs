@@ -91,9 +91,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
             {
                 moved = true;
                 TryDelete(tempPath);
-                // Dedupe hit: refresh mtime so GC's min-age grace covers this fresh reference.
-                try { File.SetLastWriteTimeUtc(finalPath, DateTime.UtcNow); }
-                catch (IOException) { } catch (UnauthorizedAccessException) { }
+                RestartGcGracePeriod(finalPath);
             }
 
             return fileSync.SyncDirectory(finalDir) is Result.Failure ef
@@ -114,6 +112,12 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
         ex.HResult is unchecked((int)0x80070027) or unchecked((int)0x80070070)
             || ex.Message.Contains("No space left", StringComparison.OrdinalIgnoreCase)
             || ex.Message.Contains("disk is full", StringComparison.OrdinalIgnoreCase);
+
+    private static void RestartGcGracePeriod(string blobPath)
+    {
+        try { File.SetLastWriteTimeUtc(blobPath, DateTime.UtcNow); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
 
     private static void TryDelete(string path)
     {

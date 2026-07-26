@@ -72,6 +72,49 @@ public class AwsChunkedStreamTests
         await Assert.ThrowsAsync<InvalidDataException>(async () => await ReadAll(s));
     }
 
+    [Fact]
+    public async Task HugeDeclaredChunkSize_DoesNotAllocate_UpFront()
+    {
+        var input = new MemoryStream("7fffffff;chunk-signature=abc\r\n"u8.ToArray());
+        using var s = new AwsChunkedStream(input);
+
+        var before = GC.GetTotalAllocatedBytes(precise: true);
+        await Assert.ThrowsAnyAsync<Exception>(async () => await ReadAll(s));
+        var allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+        Assert.True(allocated < 10 * 1024 * 1024, $"allocated {allocated} bytes for an empty 2 GiB claim");
+    }
+
+    [Fact]
+    public async Task ChunkSizeBeyondDeclaredPayloadLength_Throws()
+    {
+        var input = new MemoryStream("1000;chunk-signature=abc\r\n"u8.ToArray());
+        using var s = new AwsChunkedStream(input, sigCtx: null, decodedLength: 16);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await ReadAll(s));
+    }
+
+    [Theory]
+    [InlineData("zz\r\n")]
+    [InlineData("100000000\r\n")]
+    [InlineData("ffffffff\r\n")]
+    public async Task MalformedChunkSize_Throws_InvalidData(string header)
+    {
+        var input = new MemoryStream(Encoding.ASCII.GetBytes(header));
+        using var s = new AwsChunkedStream(input);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await ReadAll(s));
+    }
+
+    [Fact]
+    public async Task UnterminatedHeaderLine_Throws_Instead_Of_Buffering()
+    {
+        var input = new MemoryStream(Encoding.ASCII.GetBytes(new string('a', 64 * 1024)));
+        using var s = new AwsChunkedStream(input);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await ReadAll(s));
+    }
+
     private static byte[] BuildChunksWithTrailers(byte[] data, params (string Name, string Value)[] trailers)
     {
         var ms = new MemoryStream();

@@ -35,8 +35,6 @@ public class GarbageCollectorTests : IDisposable
 
     private string BlobPath(string sha) => Path.Combine(blobsRoot, sha[..2], sha[2..4], sha);
 
-    // A completed multipart object keeps its data only in the Parts list (blob_sha is empty), so the
-    // referenced set must reach into parts_json. Otherwise GC deletes a live object's blobs.
     [Fact]
     public async Task Gc_Keeps_Blobs_Of_A_Completed_Multipart_Object()
     {
@@ -51,8 +49,6 @@ public class GarbageCollectorTests : IDisposable
             upload.UploadId, [(1, part.Etag, null)], compositeAlgo: null, ct);
         Assert.IsType<Result<CompleteUploadOutcome>.Success>(complete);
 
-        // The completing upload's dir is gone, so only the parts_json reference can protect the blob.
-        // Age it past the GC cutoff so mtime alone would not save it.
         File.SetLastWriteTimeUtc(BlobPath(part.BlobSha), DateTime.UtcNow - TimeSpan.FromHours(2));
 
         var report = gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
@@ -64,8 +60,6 @@ public class GarbageCollectorTests : IDisposable
         Assert.Equal(part.BlobSha, current.Parts![0].BlobSha);
     }
 
-    // A meta-less orphan dir can never complete and would otherwise pin its part blobs forever;
-    // reap must remove it once aged, while leaving a fresh live upload untouched.
     [Fact]
     public void Reap_Removes_Aged_MetaLess_Orphan_But_Keeps_Live_Upload()
     {
@@ -86,8 +80,6 @@ public class GarbageCollectorTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(uploadsRoot, live.UploadId)));
     }
 
-    // A dedupe write must refresh the existing blob's mtime, or GC's min-age grace can't protect a
-    // fresh reference landing on an old blob (the PUT-vs-GC race that scan ordering can't close).
     [Fact]
     public async Task Dedupe_Write_Refreshes_Blob_Mtime()
     {
@@ -104,7 +96,6 @@ public class GarbageCollectorTests : IDisposable
         Assert.True(File.GetLastWriteTimeUtc(BlobPath(first.Sha)) > aged);
     }
 
-    // An unreferenced, aged blob is still collected — proves the test above isn't passing vacuously.
     [Fact]
     public async Task Gc_Deletes_An_Unreferenced_Aged_Blob()
     {

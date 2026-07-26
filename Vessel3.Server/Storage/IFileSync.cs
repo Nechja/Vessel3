@@ -10,21 +10,28 @@ internal interface IFileSync
 
 internal static class FileSyncExtensions
 {
-    // Creates dir and fsyncs the parent of every level created, so new dirents survive power loss.
     public static Result CreateDirectoryDurable(this IFileSync fileSync, string dir)
     {
-        var created = new List<string>();
-        for (var d = dir; d is not null && !Directory.Exists(d); d = Path.GetDirectoryName(d))
-            created.Add(d);
-        if (created.Count == 0) return Result.Ok;
+        var missingLevels = MissingLevels(dir);
+        if (missingLevels.Count == 0) return Result.Ok;
 
         Directory.CreateDirectory(dir);
 
-        foreach (var c in created)
-            if (Path.GetDirectoryName(c) is { } parent && fileSync.SyncDirectory(parent) is Result.Failure f)
+        foreach (var level in missingLevels)
+            if (ParentOf(level) is { } parent && fileSync.SyncDirectory(parent) is Result.Failure f)
                 return f.Error;
         return Result.Ok;
     }
+
+    private static List<string> MissingLevels(string dir)
+    {
+        var missing = new List<string>();
+        for (var level = dir; level is not null && !Directory.Exists(level); level = ParentOf(level))
+            missing.Add(level);
+        return missing;
+    }
+
+    private static string? ParentOf(string dir) => Path.GetDirectoryName(dir);
 }
 
 internal sealed class PortableFileSync : IFileSync

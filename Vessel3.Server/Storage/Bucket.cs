@@ -13,7 +13,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
     private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
     private readonly Lock writeGate = new();
-    private bool closed;
+    private bool sealedForDelete;
 
     public string Name { get; } = name;
     public BucketIndex Index { get; } = new(Path.Combine(path, "index.db"));
@@ -152,14 +152,12 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
-    // Returns true once the bucket is empty and sealed against further writes, so Delete can remove
-    // it without racing a concurrent create. Once sealed the bucket never accepts writes again.
-    public bool CloseIfEmpty()
+    public bool TrySealForDelete()
     {
         lock (writeGate)
         {
             if (!Index.IsEmpty()) return false;
-            closed = true;
+            sealedForDelete = true;
             return true;
         }
     }
@@ -168,7 +166,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     {
         lock (writeGate)
         {
-            if (closed) throw new InvalidOperationException($"bucket {Name} is being deleted");
+            if (sealedForDelete) throw new InvalidOperationException($"bucket {Name} is being deleted");
             var versionId = Versioning is VersioningStatus.Suspended ? "null" : Ulid.NewUlid().ToString();
             var putEvent = new PutEvent(
                 0, DateTimeOffset.UtcNow, key, versionId,
@@ -236,7 +234,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     {
         lock (writeGate)
         {
-            if (closed) return new NoSuchBucketError(Name);
+            if (sealedForDelete) return new NoSuchBucketError(Name);
             switch (Versioning)
             {
                 case VersioningStatus.Enabled:

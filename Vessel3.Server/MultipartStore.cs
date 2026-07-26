@@ -215,15 +215,15 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         var reaped = 0;
         foreach (var dir in EnumerateUploadDirs())
         {
-            // A meta-less dir (crash mid-create, or parts recreated after Abort/Complete) can never
-            // complete, yet its parts still count as referenced; reap it by dir age so its blobs free.
-            var age = ReadMeta(dir)?.CreatedAt.UtcDateTime ?? Directory.GetLastWriteTimeUtc(dir);
-            if (age > cutoffUtc) continue;
+            if (StartedAt(dir) > cutoffUtc) continue;
             Directory.Delete(dir, recursive: true);
             reaped++;
         }
         return reaped;
     }
+
+    private static DateTime StartedAt(string uploadDir) =>
+        ReadMeta(uploadDir)?.CreatedAt.UtcDateTime ?? Directory.GetLastWriteTimeUtc(uploadDir);
 
     private IEnumerable<string> EnumerateUploadDirs() =>
         Directory.Exists(options.Root) ? Directory.EnumerateDirectories(options.Root) : [];
