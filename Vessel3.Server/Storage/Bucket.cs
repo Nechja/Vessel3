@@ -121,11 +121,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                         ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
                         : null;
                     var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
-                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
-                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    var applied = log.Append(hd is null ? [marker] : [hd, marker]);
                     using var tx = Index.BeginTransaction();
-                    assignedHd?.ApplyTo(Index);
-                    assignedMarker.ApplyTo(Index);
+                    foreach (var op in applied) op.ApplyTo(Index);
                     tx.Commit();
                     return true;
                 }
@@ -186,13 +184,12 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 _ => null,
             };
 
-            HardDeleteEvent? assignedHd = hardDelete is null ? null : (HardDeleteEvent)log.Append(hardDelete);
-            var assignedPut = (PutEvent)log.Append(putEvent);
+            var applied = log.Append(hardDelete is null ? [putEvent] : [hardDelete, putEvent]);
+            var assignedPut = (PutEvent)applied[^1];
 
             using (var tx = Index.BeginTransaction())
             {
-                assignedHd?.ApplyTo(Index);
-                assignedPut.ApplyTo(Index);
+                foreach (var op in applied) op.ApplyTo(Index);
                 tx.Commit();
             }
 
@@ -250,12 +247,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                         ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
                         : null;
                     var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
-                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
-                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    var applied = log.Append(hd is null ? [marker] : [hd, marker]);
                     using (var tx = Index.BeginTransaction())
                     {
-                        assignedHd?.ApplyTo(Index);
-                        assignedMarker.ApplyTo(Index);
+                        foreach (var op in applied) op.ApplyTo(Index);
                         tx.Commit();
                     }
                     return new DeleteOutcome("null", IsDeleteMarker: true, Found: true);

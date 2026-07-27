@@ -79,7 +79,10 @@ internal sealed record PutLegalHoldEvent(
         index.ApplyLegalHold(Key, VersionId, On);
 }
 
+internal sealed record LogRecord(long Seq, DateTimeOffset At, IReadOnlyList<VersionEvent> Ops);
+
 [JsonSourceGenerationOptions(WriteIndented = false)]
+[JsonSerializable(typeof(LogRecord))]
 [JsonSerializable(typeof(VersionEvent))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(List<MultipartPart>))]

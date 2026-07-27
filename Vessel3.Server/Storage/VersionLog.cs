@@ -1,12 +1,22 @@
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace Vessel3.Server.Storage;
 
 internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 {
+    private const int HeaderLength = 21;
+    private const long ResyncScanLimit = 8L * 1024 * 1024;
+
     private readonly Lock writeLock = new();
     private FileStream? writer;
     private long nextSeq;
+    private uint previousCrc;
+    private bool faulted;
+    private bool chainKnown;
+    private long scannedNextSeq;
 
     public void Open(long startingSeq)
     {
@@ -22,7 +32,8 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
             Options = FileOptions.Asynchronous,
         });
         if (isNewFile && fileSync.SyncDirectory(dir) is Result.Failure sf) throw new IOException(sf.Error.Message);
-        nextSeq = startingSeq;
+        if (!chainKnown) RestoreChainState();
+        nextSeq = scannedNextSeq > 0 ? scannedNextSeq : startingSeq;
     }
 
     public void Dispose()
@@ -31,75 +42,271 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         writer = null;
     }
 
-    public VersionEvent Append(VersionEvent proto)
+    public IReadOnlyList<VersionEvent> Append(IReadOnlyList<VersionEvent> ops)
     {
         if (writer is null) throw new InvalidOperationException("Log not opened");
+        if (ops.Count is 0) return [];
 
-        VersionEvent withSeq;
         lock (writeLock)
         {
-            withSeq = proto.WithSeq(nextSeq++);
-            var body = JsonSerializer.SerializeToUtf8Bytes(withSeq, VersionEventContext.Default.VersionEvent);
-            writer.Write(body);
-            writer.WriteByte((byte)'\n');
-            if (fileSync.SyncData(writer) is Result.Failure f) throw new IOException(f.Error.Message);
+            if (faulted) throw new IOException("Log is faulted; restart required");
+
+            var seq = nextSeq;
+            var assigned = new List<VersionEvent>(ops.Count);
+            foreach (var op in ops) assigned.Add(op.WithSeq(seq++));
+
+            var payload = JsonSerializer.SerializeToUtf8Bytes(
+                new LogRecord(nextSeq, DateTimeOffset.UtcNow, assigned), VersionEventContext.Default.LogRecord);
+            var crc = ChainCrc(previousCrc, payload);
+
+            try
+            {
+                writer.Write(Frame(payload, crc));
+                if (fileSync.SyncData(writer) is Result.Failure f) throw new IOException(f.Error.Message);
+            }
+            catch
+            {
+                faulted = true;
+                throw;
+            }
+
+            previousCrc = crc;
+            nextSeq = seq;
+            return assigned;
         }
-        return withSeq;
+    }
+
+    public VersionEvent Append(VersionEvent proto) => Append([proto])[0];
+
+    private static byte[] Frame(byte[] payload, uint crc)
+    {
+        var header = Encoding.ASCII.GetBytes($"v1 {payload.Length:x8} {crc:x8} ");
+        var frame = new byte[header.Length + payload.Length + 1];
+        header.CopyTo(frame, 0);
+        payload.CopyTo(frame, header.Length);
+        frame[^1] = (byte)'\n';
+        return frame;
+    }
+
+    private static uint ChainCrc(uint previous, ReadOnlySpan<byte> payload)
+    {
+        Span<byte> seed = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(seed, previous);
+        var crc = new Crc32C();
+        crc.Append(seed);
+        crc.Append(payload);
+        return crc.GetCurrentHashAndReset();
     }
 
     public IEnumerable<VersionEvent> Replay()
     {
         if (!File.Exists(path)) yield break;
 
-        long completeEnd;
-        using (var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        long goodEnd = 0;
+        chainKnown = true;
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            completeEnd = FindLastNewline(probe);
+            foreach (var (ev, end) in ReadRecords(fs))
+            {
+                goodEnd = end;
+                yield return ev;
+            }
         }
 
-        if (completeEnd < new FileInfo(path).Length)
+        if (goodEnd < new FileInfo(path).Length) TruncateTo(goodEnd);
+    }
+
+    private void RestoreChainState()
+    {
+        previousCrc = 0;
+        chainKnown = true;
+        if (!File.Exists(path)) return;
+
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        try
         {
-            using var trunc = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
-            trunc.SetLength(completeEnd);
+            foreach (var _ in ReadRecords(fs)) { }
         }
-
-        if (completeEnd is 0) yield break;
-
-        using var fs = new FileStream(path, new FileStreamOptions
+        catch (InvalidDataException)
         {
-            Mode = FileMode.Open,
-            Access = FileAccess.Read,
-            Share = FileShare.ReadWrite,
-            BufferSize = 8192,
-            Options = FileOptions.SequentialScan,
-        });
-        using var reader = new StreamReader(fs);
-
-        while (reader.ReadLine() is { } line)
-        {
-            if (line.Length is 0) continue;
-            var ev = JsonSerializer.Deserialize(line, VersionEventContext.Default.VersionEvent)
-                ?? throw new InvalidDataException("Null event in log");
-            yield return ev;
         }
     }
 
-    private static long FindLastNewline(Stream fs)
+    private void TruncateTo(long length)
     {
-        var len = fs.Length;
-        if (len is 0) return 0;
-        const int chunk = 4096;
-        var buf = new byte[chunk];
-        var pos = len;
-        while (pos > 0)
+        using var trunc = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
+        trunc.SetLength(length);
+        trunc.Flush(flushToDisk: true);
+    }
+
+    private IEnumerable<(VersionEvent Event, long End)> ReadRecords(FileStream fs)
+    {
+        previousCrc = 0;
+        scannedNextSeq = 0;
+        var expectedSeq = -1L;
+
+        while (true)
         {
-            var read = (int)Math.Min(chunk, pos);
-            pos -= read;
-            fs.Seek(pos, SeekOrigin.Begin);
-            fs.ReadExactly(buf, 0, read);
-            for (var i = read - 1; i >= 0; i--)
-                if (buf[i] == (byte)'\n') return pos + i + 1;
+            var start = fs.Position;
+            if (start >= fs.Length) yield break;
+
+            if (!TryReadRecord(fs, out var ops, out var recordSeq, out var crc, out var framed))
+            {
+                if (HasParsableRecordAfter(fs, start))
+                    throw new InvalidDataException($"Version log corrupt at offset {start}");
+                yield break;
+            }
+
+            if (expectedSeq >= 0 && recordSeq != expectedSeq)
+            {
+                if (HasParsableRecordAfter(fs, start))
+                    throw new InvalidDataException($"Version log seq gap at offset {start}: expected {expectedSeq}, found {recordSeq}");
+                yield break;
+            }
+
+            if (framed) previousCrc = crc;
+            expectedSeq = recordSeq + ops.Count;
+            scannedNextSeq = expectedSeq;
+            var end = fs.Position;
+            foreach (var op in ops) yield return (op, end);
         }
-        return 0;
+    }
+
+    private bool TryReadRecord(FileStream fs, out IReadOnlyList<VersionEvent> ops, out long recordSeq, out uint crc, out bool framed)
+    {
+        ops = [];
+        recordSeq = 0;
+        crc = 0;
+        framed = false;
+
+        var start = fs.Position;
+        var first = fs.ReadByte();
+        if (first < 0) return false;
+        fs.Position = start;
+
+        if (first == '{') return TryReadLegacyRecord(fs, out ops, out recordSeq);
+
+        var header = new byte[HeaderLength];
+        if (!ReadFully(fs, header) || !ParseHeader(header, start, fs.Length, out var length, out var declaredCrc))
+            return false;
+
+        var payload = new byte[length];
+        if (!ReadFully(fs, payload) || fs.ReadByte() != '\n') return false;
+        if (ChainCrc(previousCrc, payload) != declaredCrc) return false;
+
+        LogRecord? record;
+        try
+        {
+            record = JsonSerializer.Deserialize(payload, VersionEventContext.Default.LogRecord);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        if (record is null || record.Ops.Count is 0) return false;
+
+        ops = record.Ops;
+        recordSeq = record.Seq;
+        crc = declaredCrc;
+        framed = true;
+        return true;
+    }
+
+    private static bool TryReadLegacyRecord(FileStream fs, out IReadOnlyList<VersionEvent> ops, out long recordSeq)
+    {
+        ops = [];
+        recordSeq = 0;
+        var line = new List<byte>(512);
+        while (true)
+        {
+            var b = fs.ReadByte();
+            if (b < 0) return false;
+            if (b == '\n') break;
+            line.Add((byte)b);
+        }
+
+        try
+        {
+            var ev = JsonSerializer.Deserialize(line.ToArray(), VersionEventContext.Default.VersionEvent);
+            if (ev is null) return false;
+            ops = [ev];
+            recordSeq = ev.Seq;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool ParseHeader(ReadOnlySpan<byte> header, long start, long fileLength, out int length, out uint crc)
+    {
+        length = 0;
+        crc = 0;
+        var text = Encoding.ASCII.GetString(header);
+        return text.StartsWith("v1 ", StringComparison.Ordinal)
+            && text[11] == ' '
+            && text[20] == ' '
+            && int.TryParse(text.AsSpan(3, 8), NumberStyles.HexNumber, null, out length)
+            && length >= 0
+            && uint.TryParse(text.AsSpan(12, 8), NumberStyles.HexNumber, null, out crc)
+            && start + HeaderLength + length + 1 <= fileLength;
+    }
+
+    private static bool ReadFully(FileStream fs, Span<byte> buffer)
+    {
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = fs.Read(buffer[read..]);
+            if (n <= 0) return false;
+            read += n;
+        }
+        return true;
+    }
+
+    private static bool HasParsableRecordAfter(FileStream fs, long start)
+    {
+        var limit = Math.Min(fs.Length, start + ResyncScanLimit);
+        for (var candidate = NextLineStart(fs, start, limit); candidate >= 0; candidate = NextLineStart(fs, candidate, limit))
+        {
+            if (IsRecordStart(fs, candidate))
+            {
+                fs.Position = start;
+                return true;
+            }
+        }
+        fs.Position = start;
+        return false;
+    }
+
+    private static bool IsRecordStart(FileStream fs, long offset)
+    {
+        fs.Position = offset;
+        var first = fs.ReadByte();
+        if (first < 0) return false;
+        fs.Position = offset;
+
+        var header = new byte[HeaderLength];
+        return first == '{'
+            ? TryReadLegacyRecord(fs, out _, out _)
+            : ReadFully(fs, header) && ParseHeader(header, offset, fs.Length, out _, out _);
+    }
+
+    private static long NextLineStart(FileStream fs, long from, long limit)
+    {
+        fs.Position = from;
+        var buffer = new byte[8192];
+        var position = from;
+        while (position < limit)
+        {
+            fs.Position = position;
+            var n = fs.Read(buffer, 0, (int)Math.Min(buffer.Length, limit - position));
+            if (n <= 0) return -1;
+            for (var i = 0; i < n; i++)
+                if (buffer[i] == (byte)'\n' && position + i + 1 < limit) return position + i + 1;
+            position += n;
+        }
+        return -1;
     }
 }
