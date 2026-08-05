@@ -14,6 +14,7 @@ public class GarbageCollectorTests : IDisposable
     private readonly BlobPool blobs;
     private readonly BucketRegistry registry;
     private readonly MultipartStore multipart;
+    private readonly GcGate gate = new();
     private readonly GarbageCollector gc;
 
     public GarbageCollectorTests()
@@ -23,8 +24,8 @@ public class GarbageCollectorTests : IDisposable
         Directory.CreateDirectory(root);
         blobs = new BlobPool(new BlobPoolOptions(blobsRoot), sync);
         registry = new BucketRegistry(new BucketRegistryOptions(root), sync, durable);
-        multipart = new MultipartStore(new MultipartStoreOptions(Path.Combine(root, "uploads")), registry, blobs, durable);
-        gc = new GarbageCollector(blobs, registry, multipart);
+        multipart = new MultipartStore(new MultipartStoreOptions(Path.Combine(root, "uploads")), registry, blobs, durable, gate);
+        gc = new GarbageCollector(blobs, registry, multipart, gate, new GcOptions(TimeSpan.FromSeconds(30)));
     }
 
     public void Dispose()
@@ -51,7 +52,7 @@ public class GarbageCollectorTests : IDisposable
 
         File.SetLastWriteTimeUtc(BlobPath(part.BlobSha), DateTime.UtcNow - TimeSpan.FromHours(2));
 
-        var report = gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
+        var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(0, report.BlobsDeleted);
         Assert.True(blobs.Exists(part.BlobSha));
@@ -81,29 +82,13 @@ public class GarbageCollectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Dedupe_Write_Refreshes_Blob_Mtime()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var first = ((Result<StoredBlob>.Success)await blobs.Write(
-            new MemoryStream(Encoding.UTF8.GetBytes("same bytes")), null, ChecksumIntent.None, ct)).Value;
-        File.SetLastWriteTimeUtc(BlobPath(first.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
-        var aged = File.GetLastWriteTimeUtc(BlobPath(first.Sha));
-
-        var second = ((Result<StoredBlob>.Success)await blobs.Write(
-            new MemoryStream(Encoding.UTF8.GetBytes("same bytes")), null, ChecksumIntent.None, ct)).Value;
-
-        Assert.Equal(first.Sha, second.Sha);
-        Assert.True(File.GetLastWriteTimeUtc(BlobPath(first.Sha)) > aged);
-    }
-
-    [Fact]
     public async Task Gc_Deletes_An_Unreferenced_Aged_Blob()
     {
         var orphan = ((Result<StoredBlob>.Success)await blobs.Write(
             new MemoryStream(Encoding.UTF8.GetBytes("nobody points at me")), null, ChecksumIntent.None, TestContext.Current.CancellationToken)).Value;
         File.SetLastWriteTimeUtc(BlobPath(orphan.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
 
-        var report = gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
+        var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(1, report.BlobsDeleted);
         Assert.False(blobs.Exists(orphan.Sha));

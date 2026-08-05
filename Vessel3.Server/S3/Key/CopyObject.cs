@@ -6,7 +6,7 @@ internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpRe
 {
     public S3KeyRoute Route => new(HttpMethods.Put, S3KeySubresource.None, S3KeyHeaderFlag.CopySource);
 
-    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
         var req = ctx.Request;
         var res = ctx.Response;
@@ -23,19 +23,21 @@ internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpRe
         if (tagDirective.Equals("REPLACE", StringComparison.OrdinalIgnoreCase))
         {
             if (!TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString()).TryGetValue(out var parsed, out var hdrErr))
-                return Task.FromResult(http.Map(hdrErr));
+                return http.Map(hdrErr);
             tagsOverride = parsed;
         }
 
-        return Task.FromResult(TryParseCopySource(copySource, out var srcBucket, out var srcKey)
-            ? objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride).Match<IResult>(
-                outcome =>
-                {
-                    res.Headers["x-amz-copy-source-version-id"] = outcome.VersionId;
-                    res.ContentType = "application/xml";
-                    return Results.Stream(async stream => await xml.WriteCopyObjectResult(stream, outcome, ct), "application/xml");
-                },
-                http.Map)
-            : http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}")));
+        if (!TryParseCopySource(copySource, out var srcBucket, out var srcKey))
+            return http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
+
+        var copied = await objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride);
+        return copied.Match<IResult>(
+            outcome =>
+            {
+                res.Headers["x-amz-copy-source-version-id"] = outcome.VersionId;
+                res.ContentType = "application/xml";
+                return Results.Stream(async stream => await xml.WriteCopyObjectResult(stream, outcome, ct), "application/xml");
+            },
+            http.Map);
     }
 }

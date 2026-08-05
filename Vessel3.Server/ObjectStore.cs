@@ -14,7 +14,7 @@ internal sealed record ObjectAttributesData(
 internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null);
-    Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride);
+    Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride);
     Result<StoredObject> Get(string bucket, string key, string? versionId = null);
     Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
     Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null);
@@ -25,10 +25,11 @@ internal interface IObjectStore
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
 }
 
-internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre) : IObjectStore
+internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate) : IObjectStore
 {
     public async Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null)
     {
+        using var lease = await gate.Writing();
         var intent = new ChecksumIntent(
             Crc32: declaredChecksums.Crc32 is not null,
             Crc32C: declaredChecksums.Crc32C is not null,
@@ -131,7 +132,13 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     public Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId, bool bypassGovernance = false) =>
         registry.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
 
-    public Result<CopyOutcome> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride) =>
+    public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride)
+    {
+        using var lease = await gate.Writing();
+        return CopyUnderGate(destBucket, destKey, srcBucket, srcKey, copyHeaders, metadataOverride, tagsOverride);
+    }
+
+    private Result<CopyOutcome> CopyUnderGate(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride) =>
         registry.GetCurrentPut(srcBucket, srcKey).Match<Result<CopyOutcome>>(
             srcEntry => srcEntry is null
                 ? new NoSuchKeyError(srcKey)
