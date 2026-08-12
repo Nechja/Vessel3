@@ -78,6 +78,9 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
                 if (fileSync.SyncData(temp) is Result.Failure df) return df.Error;
             }
 
+            if (declaredSize is { } expected && total != expected)
+                return new IncompleteBodyError(expected, total);
+
             var finalPath = PathFor(sha);
             var finalDir = Path.GetDirectoryName(finalPath)!;
             if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;

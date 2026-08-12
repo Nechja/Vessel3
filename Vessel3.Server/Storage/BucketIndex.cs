@@ -69,8 +69,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     private ReadHandle ReadCmd()
     {
+        var connection = readConn ?? throw new ObjectDisposedException(nameof(BucketIndex));
         Monitor.Enter(readGate);
-        return new ReadHandle(readConn!.CreateCommand(), readGate);
+        try
+        {
+            return new ReadHandle(connection.CreateCommand(), readGate);
+        }
+        catch
+        {
+            Monitor.Exit(readGate);
+            throw;
+        }
     }
 
     internal readonly struct ReadHandle(SqliteCommand cmd, object gate) : IDisposable

@@ -33,6 +33,10 @@ internal sealed record BucketNotEmptyError(string Bucket)
     : Error("BucketNotEmpty", $"Bucket {Bucket} is not empty")
 { public override int Status => 409; }
 
+internal sealed record IncompleteBodyError(long Declared, long Received)
+    : Error("IncompleteBody", $"You did not provide the number of bytes specified by the request: declared {Declared}, received {Received}")
+{ public override int Status => 400; }
+
 internal sealed record BadDigestError(string Detail)
     : Error("BadDigest", $"Content does not match declared hash: {Detail}")
 { public override int Status => 400; }
