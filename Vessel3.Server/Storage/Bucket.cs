@@ -13,6 +13,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
     private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
     private readonly Lock writeGate = new();
+    private bool sealedForDelete;
 
     public string Name { get; } = name;
     public BucketIndex Index { get; } = new(Path.Combine(path, "index.db"));
@@ -120,11 +121,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                         ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
                         : null;
                     var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
-                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
-                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    var applied = log.Append(hd is null ? [marker] : [hd, marker]);
                     using var tx = Index.BeginTransaction();
-                    assignedHd?.ApplyTo(Index);
-                    assignedMarker.ApplyTo(Index);
+                    foreach (var op in applied) op.ApplyTo(Index);
                     tx.Commit();
                     return true;
                 }
@@ -151,10 +150,21 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
+    public bool TrySealForDelete()
+    {
+        lock (writeGate)
+        {
+            if (!Index.IsEmpty()) return false;
+            sealedForDelete = true;
+            return true;
+        }
+    }
+
     public PutEntry AppendPut(string key, PutRequest req)
     {
         lock (writeGate)
         {
+            if (sealedForDelete) throw new InvalidOperationException($"bucket {Name} is being deleted");
             var versionId = Versioning is VersioningStatus.Suspended ? "null" : Ulid.NewUlid().ToString();
             var putEvent = new PutEvent(
                 0, DateTimeOffset.UtcNow, key, versionId,
@@ -174,13 +184,12 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 _ => null,
             };
 
-            var assignedPut = (PutEvent)log.Append(putEvent);
-            HardDeleteEvent? assignedHd = hardDelete is null ? null : (HardDeleteEvent)log.Append(hardDelete);
+            var applied = log.Append(hardDelete is null ? [putEvent] : [hardDelete, putEvent]);
+            var assignedPut = (PutEvent)applied[^1];
 
             using (var tx = Index.BeginTransaction())
             {
-                assignedHd?.ApplyTo(Index);
-                assignedPut.ApplyTo(Index);
+                foreach (var op in applied) op.ApplyTo(Index);
                 tx.Commit();
             }
 
@@ -222,6 +231,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     {
         lock (writeGate)
         {
+            if (sealedForDelete) return new NoSuchBucketError(Name);
             switch (Versioning)
             {
                 case VersioningStatus.Enabled:
@@ -237,12 +247,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                         ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
                         : null;
                     var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
-                    var assignedHd = hd is null ? null : (HardDeleteEvent)log.Append(hd);
-                    var assignedMarker = (DeleteMarkerEvent)log.Append(marker);
+                    var applied = log.Append(hd is null ? [marker] : [hd, marker]);
                     using (var tx = Index.BeginTransaction())
                     {
-                        assignedHd?.ApplyTo(Index);
-                        assignedMarker.ApplyTo(Index);
+                        foreach (var op in applied) op.ApplyTo(Index);
                         tx.Commit();
                     }
                     return new DeleteOutcome("null", IsDeleteMarker: true, Found: true);
@@ -306,8 +314,6 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             return Result.Ok;
         }
     }
-
-    public bool IsEmpty() => Index.IsEmpty();
 
     public void Dispose()
     {

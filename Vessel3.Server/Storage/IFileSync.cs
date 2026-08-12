@@ -8,6 +8,32 @@ internal interface IFileSync
     Result SyncDirectory(string directory);
 }
 
+internal static class FileSyncExtensions
+{
+    public static Result CreateDirectoryDurable(this IFileSync fileSync, string dir)
+    {
+        var missingLevels = MissingLevels(dir);
+        if (missingLevels.Count == 0) return Result.Ok;
+
+        Directory.CreateDirectory(dir);
+
+        foreach (var level in missingLevels)
+            if (ParentOf(level) is { } parent && fileSync.SyncDirectory(parent) is Result.Failure f)
+                return f.Error;
+        return Result.Ok;
+    }
+
+    private static List<string> MissingLevels(string dir)
+    {
+        var missing = new List<string>();
+        for (var level = dir; level is not null && !Directory.Exists(level); level = ParentOf(level))
+            missing.Add(level);
+        return missing;
+    }
+
+    private static string? ParentOf(string dir) => Path.GetDirectoryName(dir);
+}
+
 internal sealed class PortableFileSync : IFileSync
 {
     public Result SyncData(FileStream file)

@@ -46,6 +46,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
+    private readonly Lock createDeleteGate = new();
 
     public bool IsValidName(string bucket)
     {
@@ -65,10 +66,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        if (Directory.Exists(path)) return false;
-
-        Directory.CreateDirectory(path);
-        Open(bucket);
+        lock (createDeleteGate)
+        {
+            if (Directory.Exists(path)) return false;
+            if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
+            OpenLocked(bucket, path);
+        }
         return true;
     }
 
@@ -77,15 +80,18 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
+        lock (createDeleteGate)
+        {
+            if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
 
-        var b = Open(bucket);
-        if (b is not null && !b.IsEmpty()) return new BucketNotEmptyError(bucket);
+            var b = OpenLocked(bucket, path);
+            if (b is not null && !b.TrySealForDelete()) return new BucketNotEmptyError(bucket);
 
-        if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
-            lazy.Value.Dispose();
+            if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
+                lazy.Value.Dispose();
 
-        Directory.Delete(path, recursive: true);
+            Directory.Delete(path, recursive: true);
+        }
         return Result.Ok;
     }
 
@@ -251,7 +257,18 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     private Bucket? Open(string bucket)
     {
+        if (openBuckets.TryGetValue(bucket, out var existing))
+            return ResolveEvictingOnFault(bucket, existing);
+
         var path = Path.Combine(bucketsRoot, bucket);
+        if (!Directory.Exists(path)) return null;
+
+        lock (createDeleteGate)
+            return OpenLocked(bucket, path);
+    }
+
+    private Bucket? OpenLocked(string bucket, string path)
+    {
         if (!Directory.Exists(path)) return null;
 
         var lazy = openBuckets.GetOrAdd(bucket, _ => new Lazy<Bucket>(() =>
@@ -261,6 +278,19 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
-        return lazy.Value;
+        return ResolveEvictingOnFault(bucket, lazy);
+    }
+
+    private Bucket? ResolveEvictingOnFault(string bucket, Lazy<Bucket> lazy)
+    {
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            openBuckets.TryRemove(new KeyValuePair<string, Lazy<Bucket>>(bucket, lazy));
+            throw;
+        }
     }
 }

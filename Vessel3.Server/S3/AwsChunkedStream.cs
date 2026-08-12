@@ -4,9 +4,12 @@ using System.Text;
 
 namespace Vessel3.Server.S3;
 
-internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null) : Stream
+internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null, long? decodedLength = null) : Stream
 {
     private const string EmptyStringSha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    private const int ReadBlock = 81920;
+    private const int MaxLineLength = 8192;
+    private const int MaxTrailers = 32;
 
     private byte[] currentChunk = [];
     private int currentOffset;
@@ -44,13 +47,12 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
 
             var (size, declaredSig) = ParseChunkHeader(header);
 
-            if (currentChunk.Length < size) currentChunk = new byte[Math.Max(size, 1)];
             currentLength = size;
             currentOffset = 0;
 
             if (size > 0)
             {
-                await inner.ReadExactlyAsync(currentChunk.AsMemory(0, size), ct);
+                await ReadChunkBodyAsItArrives(size, ct);
                 await ReadCrLf(ct);
             }
 
@@ -94,18 +96,47 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
                 $"Chunk signature mismatch (expected {expected}, got {declaredSig})");
     }
 
+    private async Task ReadChunkBodyAsItArrives(int size, CancellationToken ct)
+    {
+        var filled = 0;
+        while (filled < size)
+        {
+            var block = Math.Min(size - filled, ReadBlock);
+            EnsureCapacity(filled + block);
+            await inner.ReadExactlyAsync(currentChunk.AsMemory(filled, block), ct);
+            filled += block;
+        }
+    }
+
+    private void EnsureCapacity(int needed)
+    {
+        if (currentChunk.Length >= needed) return;
+        var cap = Math.Max(currentChunk.Length, ReadBlock);
+        while (cap < needed) cap = (int)Math.Min((long)cap * 2, int.MaxValue);
+        Array.Resize(ref currentChunk, cap);
+    }
+
     private (int Size, string Signature) ParseChunkHeader(string header)
     {
         var semi = header.IndexOf(';', StringComparison.Ordinal);
-        if (semi < 0)
-            return (int.Parse(header, NumberStyles.HexNumber, CultureInfo.InvariantCulture), string.Empty);
+        var sizeHex = semi < 0 ? header : header[..semi];
+        var sig = string.Empty;
+        if (semi >= 0)
+        {
+            var rest = header[(semi + 1)..];
+            var eq = rest.IndexOf('=', StringComparison.Ordinal);
+            if (eq >= 0) sig = rest[(eq + 1)..];
+        }
 
-        var sizeHex = header[..semi];
-        var rest = header[(semi + 1)..];
-        var eq = rest.IndexOf('=', StringComparison.Ordinal);
-        var sig = eq >= 0 ? rest[(eq + 1)..] : string.Empty;
-        return (int.Parse(sizeHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture), sig);
+        return (ParseChunkSize(sizeHex), sig);
     }
+
+    private int ParseChunkSize(string sizeHex) =>
+        !int.TryParse(sizeHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var size) || size < 0
+            ? throw new InvalidDataException($"Malformed chunk size '{sizeHex}'")
+            : decodedLength is { } max && size > max
+                ? throw new InvalidDataException($"Chunk size {size} exceeds declared payload length {max}")
+                : size;
 
     private async Task<string?> ReadLine(CancellationToken ct)
     {
@@ -122,6 +153,8 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
                     ? Encoding.ASCII.GetString([.. bytes])
                     : throw new InvalidDataException("Expected LF after CR");
             }
+            if (bytes.Count >= MaxLineLength)
+                throw new InvalidDataException($"Chunk header exceeds {MaxLineLength} bytes");
             bytes.Add(one[0]);
         }
     }
@@ -140,6 +173,8 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
         {
             var line = await ReadLine(ct);
             if (line is null || line.Length is 0) return;
+            if (trailers.Count >= MaxTrailers)
+                throw new InvalidDataException($"More than {MaxTrailers} trailers");
             var colon = line.IndexOf(':', StringComparison.Ordinal);
             if (colon <= 0) continue;
             var name = line[..colon].Trim();

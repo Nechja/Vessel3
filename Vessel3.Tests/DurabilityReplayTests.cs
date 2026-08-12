@@ -51,6 +51,30 @@ public class DurabilityReplayTests : IDisposable
     }
 
     [Fact]
+    public void Replay_Recovers_Suspended_Null_Overwrite()
+    {
+        using (var b = new Bucket("b", root, sync, durable))
+        {
+            b.Open();
+            b.SetVersioning(VersioningStatus.Suspended);
+            b.AppendPut("k", Req("first"));
+            b.AppendPut("k", Req("second"));
+        }
+
+        foreach (var f in Directory.GetFiles(root, "index.db*"))
+            File.Delete(f);
+
+        using (var b = new Bucket("b", root, sync, durable))
+        {
+            b.Open();
+            var current = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
+            Assert.NotNull(current);
+            Assert.Equal("null", current!.VersionId);
+            Assert.Equal("second".Length, current.Size);
+        }
+    }
+
+    [Fact]
     public void Replay_Recovers_When_Index_Is_Behind_Log()
     {
         string sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("orphan"u8.ToArray()));

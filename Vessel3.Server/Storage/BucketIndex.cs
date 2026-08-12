@@ -69,8 +69,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     private ReadHandle ReadCmd()
     {
+        var connection = readConn ?? throw new ObjectDisposedException(nameof(BucketIndex));
         Monitor.Enter(readGate);
-        return new ReadHandle(readConn!.CreateCommand(), readGate);
+        try
+        {
+            return new ReadHandle(connection.CreateCommand(), readGate);
+        }
+        catch
+        {
+            Monitor.Exit(readGate);
+            throw;
+        }
     }
 
     internal readonly struct ReadHandle(SqliteCommand cmd, object gate) : IDisposable
@@ -414,14 +423,19 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public IEnumerable<string> ReferencedBlobs()
     {
-        List<string> shas;
+        var shas = new List<string>();
         using (var rh = ReadCmd())
         {
             var cmd = rh.Cmd;
-            cmd.CommandText = "SELECT DISTINCT blob_sha FROM versions WHERE blob_sha <> ''";
+            cmd.CommandText = "SELECT blob_sha, parts_json FROM versions";
             using var r = cmd.ExecuteReader();
-            shas = [];
-            while (r.Read()) shas.Add(r.GetString(0));
+            while (r.Read())
+            {
+                if (r.GetString(0) is { Length: > 0 } blobSha) shas.Add(blobSha);
+                if (DeserializeParts(r.GetString(1)) is { } parts)
+                    foreach (var p in parts)
+                        if (p.BlobSha.Length > 0) shas.Add(p.BlobSha);
+            }
         }
         return shas;
     }

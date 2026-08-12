@@ -40,7 +40,7 @@ internal interface IMultipartStore
     int ReapAbandonedUploads(DateTime cutoffUtc);
 }
 
-internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs, IDurableWrite durableWrite) : IMultipartStore
+internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs, IDurableWrite durableWrite, IGcGate gate) : IMultipartStore
 {
     public Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata) =>
         registry.Exists(bucket).Match<Result<CreateUploadOutcome>>(
@@ -53,6 +53,8 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
     {
         if (partNumber is < 1 or > 10000)
             return new InvalidPartError($"partNumber {partNumber} out of range [1, 10000]");
+
+        using var lease = await gate.Writing();
 
         var dir = UploadDir(uploadId);
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
@@ -82,6 +84,8 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
     {
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
+
+        using var lease = await gate.Writing();
 
         var dir = UploadDir(uploadId);
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
@@ -215,14 +219,15 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         var reaped = 0;
         foreach (var dir in EnumerateUploadDirs())
         {
-            var meta = ReadMeta(dir);
-            if (meta is null) continue;
-            if (meta.CreatedAt.UtcDateTime > cutoffUtc) continue;
+            if (StartedAt(dir) > cutoffUtc) continue;
             Directory.Delete(dir, recursive: true);
             reaped++;
         }
         return reaped;
     }
+
+    private static DateTime StartedAt(string uploadDir) =>
+        ReadMeta(uploadDir)?.CreatedAt.UtcDateTime ?? Directory.GetLastWriteTimeUtc(uploadDir);
 
     private IEnumerable<string> EnumerateUploadDirs() =>
         Directory.Exists(options.Root) ? Directory.EnumerateDirectories(options.Root) : [];

@@ -60,6 +60,12 @@ builder.Services.AddSingleton<IBlobPool, BlobPool>();
 builder.Services.AddSingleton<IBucketRegistry, BucketRegistry>();
 builder.Services.AddSingleton<IObjectStore, ObjectStore>();
 builder.Services.AddSingleton<IMultipartStore, MultipartStore>();
+builder.Services.AddSingleton<IGcGate, GcGate>();
+var gcMaxWaitSec = long.TryParse(
+    Environment.GetEnvironmentVariable("VESSEL3_GC_MAX_WAIT_SECONDS"),
+    NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedGcWaitSec)
+    ? parsedGcWaitSec : 120;
+builder.Services.AddSingleton(new GcOptions(TimeSpan.FromSeconds(gcMaxWaitSec)));
 builder.Services.AddSingleton<IGarbageCollector, GarbageCollector>();
 builder.Services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
 

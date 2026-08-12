@@ -12,7 +12,7 @@ internal static class AdminEndpoints
         var gc = ctx.RequestServices.GetRequiredService<IGarbageCollector>();
         var blobAgeSec = ParseAgeQuery(ctx.Request.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
         var uploadAgeSec = ParseAgeQuery(ctx.Request.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
-        var report = gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
+        var report = await gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
         ctx.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.GcReport, ctx.RequestAborted);
     }
