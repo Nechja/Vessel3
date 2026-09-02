@@ -19,7 +19,8 @@ internal interface IBlobPool
     Result<Stream> Open(string sha);
     bool Exists(string sha);
     Result<bool> Delete(string sha);
-    IEnumerable<string> EnumerateAll();
+    IEnumerable<string> EnumerateShards();
+    IEnumerable<string> Enumerate(string shard);
     DateTime? GetLastWriteUtc(string sha);
 }
 
@@ -151,11 +152,22 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
         return true;
     }
 
-    public IEnumerable<string> EnumerateAll()
+    public IEnumerable<string> EnumerateShards()
     {
         var rootFull = Path.GetFullPath(options.Root);
         if (!Directory.Exists(rootFull)) yield break;
-        foreach (var path in Directory.EnumerateFiles(rootFull, "*", SearchOption.AllDirectories))
+        foreach (var dir in Directory.EnumerateDirectories(rootFull))
+        {
+            var name = Path.GetFileName(dir);
+            if (name.Length == 2 && name.All(IsHexLower)) yield return name;
+        }
+    }
+
+    public IEnumerable<string> Enumerate(string shard)
+    {
+        var dir = Path.Combine(Path.GetFullPath(options.Root), shard);
+        if (!Directory.Exists(dir)) yield break;
+        foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
         {
             var name = Path.GetFileName(path);
             if (IsLikelySha(name)) yield return name;
@@ -166,5 +178,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
         Path.Combine(options.Root, sha[..2], sha[2..4], sha);
 
     private bool IsLikelySha(string name) =>
-        name.Length == 64 && name.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+        name.Length == 64 && name.All(IsHexLower);
+
+    private static bool IsHexLower(char c) => c is (>= '0' and <= '9') or (>= 'a' and <= 'f');
 }

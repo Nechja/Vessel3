@@ -25,7 +25,7 @@ public class GarbageCollectorTests : IDisposable
         blobs = new BlobPool(new BlobPoolOptions(blobsRoot), sync);
         registry = new BucketRegistry(new BucketRegistryOptions(root), sync, durable);
         multipart = new MultipartStore(new MultipartStoreOptions(Path.Combine(root, "uploads")), registry, blobs, durable, gate);
-        gc = new GarbageCollector(blobs, registry, multipart, gate, new GcOptions(TimeSpan.FromSeconds(30)));
+        gc = new GarbageCollector(blobs, registry, multipart, gate, new GcOptions(TimeSpan.FromSeconds(30), Path.Combine(root, "gc-tmp")));
     }
 
     public void Dispose()
@@ -92,5 +92,39 @@ public class GarbageCollectorTests : IDisposable
 
         Assert.Equal(1, report.BlobsDeleted);
         Assert.False(blobs.Exists(orphan.Sha));
+    }
+
+    [Fact]
+    public async Task Gc_Sweeps_Across_Shards()
+    {
+        registry.Create("mybucket");
+        var ct = TestContext.Current.CancellationToken;
+
+        var kept = new List<string>();
+        var orphaned = new List<string>();
+        for (var i = 0; kept.Count < 4 || orphaned.Count < 4; i++)
+        {
+            var body = $"payload-{i}";
+            var written = ((Result<StoredBlob>.Success)await blobs.Write(
+                new MemoryStream(Encoding.UTF8.GetBytes(body)), null, ChecksumIntent.None, ct)).Value;
+            File.SetLastWriteTimeUtc(BlobPath(written.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
+            if (i % 2 == 0 && kept.Count < 4)
+            {
+                registry.AppendPut("mybucket", $"k{i}", new PutRequest(
+                    written.Sha, written.Md5, body.Length, "text/plain", new Dictionary<string, string>()));
+                kept.Add(written.Sha);
+            }
+            else
+            {
+                orphaned.Add(written.Sha);
+            }
+        }
+        Assert.True(kept.Concat(orphaned).Select(s => s[..2]).Distinct().Count() > 1);
+
+        var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
+
+        Assert.Equal(orphaned.Count, report.BlobsDeleted);
+        Assert.All(kept, sha => Assert.True(blobs.Exists(sha)));
+        Assert.All(orphaned, sha => Assert.False(blobs.Exists(sha)));
     }
 }

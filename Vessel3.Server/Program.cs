@@ -65,7 +65,7 @@ var gcMaxWaitSec = long.TryParse(
     Environment.GetEnvironmentVariable("VESSEL3_GC_MAX_WAIT_SECONDS"),
     NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedGcWaitSec)
     ? parsedGcWaitSec : 120;
-builder.Services.AddSingleton(new GcOptions(TimeSpan.FromSeconds(gcMaxWaitSec)));
+builder.Services.AddSingleton(new GcOptions(TimeSpan.FromSeconds(gcMaxWaitSec), Path.Combine(dataRoot, "gc-tmp")));
 builder.Services.AddSingleton<IGarbageCollector, GarbageCollector>();
 builder.Services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
 

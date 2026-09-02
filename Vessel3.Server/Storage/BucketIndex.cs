@@ -450,21 +450,32 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public IEnumerable<string> ReferencedBlobs()
     {
-        var shas = new List<string>();
-        using (var rh = ReadCmd())
+        const int pageSize = 10000;
+        long after = 0;
+        while (true)
         {
-            var cmd = rh.Cmd;
-            cmd.CommandText = "SELECT blob_sha, parts_json FROM versions";
-            using var r = cmd.ExecuteReader();
-            while (r.Read())
+            var page = new List<string>();
+            var rows = 0;
+            using (var rh = ReadCmd())
             {
-                if (r.GetString(0) is { Length: > 0 } blobSha) shas.Add(blobSha);
-                if (DeserializeParts(r.GetString(1)) is { } parts)
-                    foreach (var p in parts)
-                        if (p.BlobSha.Length > 0) shas.Add(p.BlobSha);
+                var cmd = rh.Cmd;
+                cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
+                cmd.Parameters.AddWithValue("@after", after);
+                cmd.Parameters.AddWithValue("@limit", pageSize);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    rows++;
+                    after = r.GetInt64(0);
+                    if (r.GetString(1) is { Length: > 0 } blobSha) page.Add(blobSha);
+                    if (DeserializeParts(r.GetString(2)) is { } parts)
+                        foreach (var p in parts)
+                            if (p.BlobSha.Length > 0) page.Add(p.BlobSha);
+                }
             }
+            foreach (var sha in page) yield return sha;
+            if (rows < pageSize) yield break;
         }
-        return shas;
     }
 
     private string EscapeLike(string s) =>

@@ -6,7 +6,7 @@ namespace Vessel3.Server;
 
 internal sealed record GcReport(int BlobsDeleted, int UploadsReaped, bool TimedOut = false);
 
-internal sealed record GcOptions(TimeSpan MaxWait);
+internal sealed record GcOptions(TimeSpan MaxWait, string ScratchRoot);
 
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(GcReport))]
@@ -30,28 +30,65 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
         var blobCutoff = now - minBlobAge;
         var uploadCutoff = now - minUploadAge;
 
-        var candidates = blobs.EnumerateAll().ToList();
-
-        var referenced = ScanInFlightThenCommittedReferences();
-
-        var deleted = 0;
-        foreach (var sha in candidates)
+        var scratch = Path.Combine(options.ScratchRoot, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
         {
-            if (referenced.Contains(sha)) continue;
-            var mtime = blobs.GetLastWriteUtc(sha);
-            if (mtime is null || mtime > blobCutoff) continue;
-            if (blobs.Delete(sha) is Result<bool>.Success { Value: true }) deleted++;
-        }
+            SpillInFlightThenCommittedReferences(scratch);
 
-        var reaped = multipart.ReapAbandonedUploads(uploadCutoff);
-        return new GcReport(deleted, reaped);
+            var deleted = 0;
+            foreach (var shard in blobs.EnumerateShards())
+            {
+                var referenced = LoadShardReferences(Path.Combine(scratch, shard));
+                foreach (var sha in blobs.Enumerate(shard).ToList())
+                {
+                    if (referenced.Contains(sha)) continue;
+                    var mtime = blobs.GetLastWriteUtc(sha);
+                    if (mtime is null || mtime > blobCutoff) continue;
+                    if (blobs.Delete(sha) is Result<bool>.Success { Value: true }) deleted++;
+                }
+            }
+
+            var reaped = multipart.ReapAbandonedUploads(uploadCutoff);
+            return new GcReport(deleted, reaped);
+        }
+        finally
+        {
+            try { Directory.Delete(scratch, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
-    private HashSet<string> ScanInFlightThenCommittedReferences()
+    private void SpillInFlightThenCommittedReferences(string scratch)
     {
-        var referenced = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var sha in multipart.EnumerateInFlightPartShas()) referenced.Add(sha);
-        foreach (var sha in registry.AllReferencedBlobs()) referenced.Add(sha);
-        return referenced;
+        var writers = new Dictionary<string, StreamWriter>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var sha in multipart.EnumerateInFlightPartShas()) Spill(writers, scratch, sha);
+            foreach (var sha in registry.AllReferencedBlobs()) Spill(writers, scratch, sha);
+        }
+        finally
+        {
+            foreach (var w in writers.Values) w.Dispose();
+        }
+    }
+
+    private static void Spill(Dictionary<string, StreamWriter> writers, string scratch, string sha)
+    {
+        if (sha.Length < 2) return;
+        var shard = sha[..2];
+        if (!writers.TryGetValue(shard, out var writer))
+            writers[shard] = writer = new StreamWriter(Path.Combine(scratch, shard));
+        writer.WriteLine(sha);
+    }
+
+    private static HashSet<string> LoadShardReferences(string path)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (!File.Exists(path)) return set;
+        foreach (var line in File.ReadLines(path))
+            if (line.Length > 0) set.Add(line);
+        return set;
     }
 }
