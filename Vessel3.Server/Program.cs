@@ -65,7 +65,7 @@ var gcMaxWaitSec = long.TryParse(
     Environment.GetEnvironmentVariable("VESSEL3_GC_MAX_WAIT_SECONDS"),
     NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedGcWaitSec)
     ? parsedGcWaitSec : 120;
-builder.Services.AddSingleton(new GcOptions(TimeSpan.FromSeconds(gcMaxWaitSec)));
+builder.Services.AddSingleton(new GcOptions(TimeSpan.FromSeconds(gcMaxWaitSec), Path.Combine(dataRoot, "gc-tmp")));
 builder.Services.AddSingleton<IGarbageCollector, GarbageCollector>();
 builder.Services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
 
@@ -75,6 +75,17 @@ var lifecycleIntervalSec = long.TryParse(
     ? parsedLcSec : 3600;
 builder.Services.AddSingleton(new LifecycleServiceOptions(TimeSpan.FromSeconds(lifecycleIntervalSec)));
 builder.Services.AddHostedService<LifecycleService>();
+builder.Services.AddSingleton<ICompactor, Compactor>();
+var compactIntervalSec = long.TryParse(
+    Environment.GetEnvironmentVariable("VESSEL3_COMPACT_INTERVAL_SECONDS"),
+    NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedCompactSec)
+    ? parsedCompactSec : 3600;
+var compactThresholdBytes = long.TryParse(
+    Environment.GetEnvironmentVariable("VESSEL3_COMPACT_THRESHOLD_BYTES"),
+    NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedCompactBytes)
+    ? parsedCompactBytes : 64L * 1024 * 1024;
+builder.Services.AddSingleton(new CompactionServiceOptions(TimeSpan.FromSeconds(compactIntervalSec), compactThresholdBytes));
+builder.Services.AddHostedService<CompactionService>();
 builder.Services.AddSingleton<IBucketLister, BucketLister>();
 builder.Services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
 builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
@@ -147,6 +158,8 @@ app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry regis
 app.MapPut("/_admin/gc", AdminEndpoints.RunGc);
 
 app.MapPut("/_admin/lifecycle", AdminEndpoints.RunLifecycle);
+
+app.MapPut("/_admin/compact", AdminEndpoints.RunCompact);
 
 app.MapGet("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
     dispatch.Dispatch(HttpMethods.Get, bucket, ctx));

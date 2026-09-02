@@ -13,7 +13,14 @@ namespace Vessel3.Server.Storage;
 internal abstract record VersionEvent(long Seq, DateTimeOffset At, string Key, string VersionId)
 {
     public abstract VersionEvent WithSeq(long seq);
-    public abstract void ApplyTo(BucketIndex index);
+
+    public void ApplyTo(BucketIndex index)
+    {
+        Apply(index);
+        index.MarkApplied(Seq);
+    }
+
+    protected abstract void Apply(BucketIndex index);
 }
 
 internal sealed record PutEvent(
@@ -32,7 +39,7 @@ internal sealed record PutEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) => index.Insert(this);
+    protected override void Apply(BucketIndex index) => index.Insert(this);
 }
 
 internal sealed record PutTaggingEvent(
@@ -41,7 +48,7 @@ internal sealed record PutTaggingEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) => index.UpdateTags(Key, VersionId, Tags);
+    protected override void Apply(BucketIndex index) => index.UpdateTags(Key, VersionId, Tags);
 }
 
 internal sealed record DeleteMarkerEvent(
@@ -49,7 +56,7 @@ internal sealed record DeleteMarkerEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) => index.Insert(this);
+    protected override void Apply(BucketIndex index) => index.Insert(this);
 }
 
 internal sealed record HardDeleteEvent(
@@ -57,7 +64,7 @@ internal sealed record HardDeleteEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) => index.Remove(Key, VersionId);
+    protected override void Apply(BucketIndex index) => index.Remove(Key, VersionId);
 }
 
 internal sealed record PutRetentionEvent(
@@ -66,7 +73,7 @@ internal sealed record PutRetentionEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) =>
+    protected override void Apply(BucketIndex index) =>
         index.ApplyRetention(Key, VersionId, Mode, RetainUntilUnixSeconds);
 }
 
@@ -75,7 +82,7 @@ internal sealed record PutLegalHoldEvent(
     : VersionEvent(Seq, At, Key, VersionId)
 {
     public override VersionEvent WithSeq(long seq) => this with { Seq = seq };
-    public override void ApplyTo(BucketIndex index) =>
+    protected override void Apply(BucketIndex index) =>
         index.ApplyLegalHold(Key, VersionId, On);
 }
 

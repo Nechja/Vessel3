@@ -20,6 +20,7 @@ internal interface IObjectStore
     Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null);
     Result<DeleteOutcome> Delete(string bucket, string key, bool bypassGovernance = false);
     Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId, bool bypassGovernance = false);
+    Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items);
     Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId);
     Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags);
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
@@ -131,6 +132,9 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
 
     public Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId, bool bypassGovernance = false) =>
         registry.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
+
+    public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) =>
+        registry.DeleteBatch(bucket, items);
 
     public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride)
     {

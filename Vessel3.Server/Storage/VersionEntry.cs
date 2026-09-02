@@ -9,6 +9,8 @@ internal sealed record MultipartPart(int Number, string BlobSha, string Md5, lon
 
 internal sealed record DeleteOutcome(string VersionId, bool IsDeleteMarker, bool Found);
 
+internal sealed record BatchDeleteItem(string Key, string? VersionId, bool BypassGovernance);
+
 internal sealed record PutTaggingOutcome(string VersionId);
 
 internal sealed record PutRequest(

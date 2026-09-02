@@ -78,6 +78,60 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
     public VersionEvent Append(VersionEvent proto) => Append([proto])[0];
 
+    public void Compact(long throughSeq)
+    {
+        lock (writeLock)
+        {
+            if (writer is null) throw new InvalidOperationException("Log not opened");
+            if (faulted) throw new IOException("Log is faulted; restart required");
+
+            writer.Dispose();
+            writer = null;
+
+            try
+            {
+                var kept = new List<VersionEvent>();
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    foreach (var (ev, _) in ReadRecords(fs))
+                        if (ev.Seq > throughSeq) kept.Add(ev);
+                }
+
+                var tmp = path + ".tmp";
+                uint chain = 0;
+                using (var outStream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    if (kept.Count > 0)
+                    {
+                        var payload = JsonSerializer.SerializeToUtf8Bytes(
+                            new LogRecord(kept[0].Seq, DateTimeOffset.UtcNow, kept), VersionEventContext.Default.LogRecord);
+                        chain = ChainCrc(0, payload);
+                        outStream.Write(Frame(payload, chain));
+                    }
+                    if (fileSync.SyncData(outStream) is Result.Failure sf) throw new IOException(sf.Error.Message);
+                }
+                File.Move(tmp, path, overwrite: true);
+                if (fileSync.SyncDirectory(Path.GetDirectoryName(path)!) is Result.Failure df) throw new IOException(df.Error.Message);
+
+                previousCrc = chain;
+            }
+            catch
+            {
+                faulted = true;
+                throw;
+            }
+
+            writer = new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.Append,
+                Access = FileAccess.Write,
+                Share = FileShare.Read,
+                BufferSize = 4096,
+                Options = FileOptions.Asynchronous,
+            });
+        }
+    }
+
     private static byte[] Frame(byte[] payload, uint crc)
     {
         var header = Encoding.ASCII.GetBytes($"v1 {payload.Length:x8} {crc:x8} ");

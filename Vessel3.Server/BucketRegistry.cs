@@ -22,6 +22,7 @@ internal interface IBucketRegistry : IDisposable
     Result<PutEntry> AppendPut(string bucket, string key, PutRequest req);
     Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance);
     Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance);
+    Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items);
     Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
     Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit);
     Result<VersioningStatus> GetVersioning(string bucket);
@@ -121,6 +122,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) =>
         OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
+
+    public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) =>
+        OnBucket<IReadOnlyList<Result<DeleteOutcome>>>(bucket,
+            b => new Result<IReadOnlyList<Result<DeleteOutcome>>>.Success(b.AppendDeleteBatch(items)));
 
     public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
         OnBucketRaw<ObjectLockConfig?>(bucket, b => b.ObjectLock);

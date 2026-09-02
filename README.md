@@ -95,6 +95,8 @@ All via environment variables. No config file.
 | `VESSEL3_SECRET_KEY` | unset -> auth disabled | SigV4 secret. |
 | `VESSEL3_REGION` | `us-west-1` | Region string used for SigV4 verification. |
 | `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
+| `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
+| `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs `PUT /_admin/compact` compacts |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
 
 The listen address comes from Kestrel's `--urls` flag in the usual ASP.NET way.
@@ -116,7 +118,8 @@ If the process dies mid-write, Vessel3 comes back with a consistent view and can
 
 - Every PUT lands in a temp file, gets fsync'd, then moved into place.
 - Every version is appended to a per-bucket event log; the log file is fsync'd before the call returns.
-- The SQLite index runs in WAL mode and is rebuildable from the log alone, even after a wipe.
+- The SQLite index runs in WAL mode and is rebuildable from the snapshot plus the log tail, even after a wipe.
+- Compaction checkpoints the index into `snapshot.db` and truncates the log; both land via fsync + atomic rename, so a crash at any point leaves a consistent pair.
 - Concurrent overwrites are atomic from the reader's point of view.
 - Mid-write crashes leave at most a partial trailing event in the log, which is truncated on next open.
 
@@ -128,12 +131,22 @@ The kill-9 and replay paths are covered by automated tests. The "drive lies abou
 VESSEL3_DATA/
   blobs/aa/bb/<sha256>          content-addressed object bytes
   buckets/<name>/
-    log                         append-only JSONL event log
-    index                       SQLite catalog (rebuildable from log)
+    log                         append-only event log, truncated by compaction
+    index.db                    SQLite catalog (rebuildable from snapshot + log)
+    snapshot.db                 checkpoint of the catalog, written by compaction
     versioning                  bucket versioning state
     object-lock.json            bucket object-lock config
   uploads/<upload-id>/          in-flight multipart parts
 ```
+
+## High-churn workloads (Loki, backups with retention)
+
+Vessel3 works as a Loki object store out of the box, working to improve this as I do more testing in my home lab.
+
+- **Keep the bucket unversioned.** With versioning enabled, retention deletes leave markers and old versions are never freedup. Unversioned buckets hard-delete gc goes and does bad things
+- Compaction keeps the event log proportional to recent activity instead of all-time history. The default sweep `PUT /_admin/compact` is fine
+
+Bulk deletes (`DeleteObjects`) commit each request as a single log record with one fsync, so 1000-key retention sweeps complete in one disk round-trip.
 
 ## Limits
 

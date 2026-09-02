@@ -98,6 +98,33 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    public void MarkApplied(long seq)
+    {
+        using var cmd = WriteCmd();
+        cmd.CommandText = """
+            INSERT INTO meta(key, value) VALUES('applied_seq', @seq)
+            ON CONFLICT(key) DO UPDATE SET value = max(value, excluded.value)
+            """;
+        cmd.Parameters.AddWithValue("@seq", seq);
+        cmd.ExecuteNonQuery();
+    }
+
+    public long AppliedSeq()
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT COALESCE((SELECT value FROM meta WHERE key = 'applied_seq'), 0)";
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public void SnapshotTo(string path)
+    {
+        using var cmd = writeConn!.CreateCommand();
+        cmd.CommandText = "VACUUM INTO @path";
+        cmd.Parameters.AddWithValue("@path", path);
+        cmd.ExecuteNonQuery();
+    }
+
     public void Insert(PutEvent ev)
     {
         using var cmd = WriteCmd();
@@ -423,21 +450,32 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public IEnumerable<string> ReferencedBlobs()
     {
-        var shas = new List<string>();
-        using (var rh = ReadCmd())
+        const int pageSize = 10000;
+        long after = 0;
+        while (true)
         {
-            var cmd = rh.Cmd;
-            cmd.CommandText = "SELECT blob_sha, parts_json FROM versions";
-            using var r = cmd.ExecuteReader();
-            while (r.Read())
+            var page = new List<string>();
+            var rows = 0;
+            using (var rh = ReadCmd())
             {
-                if (r.GetString(0) is { Length: > 0 } blobSha) shas.Add(blobSha);
-                if (DeserializeParts(r.GetString(1)) is { } parts)
-                    foreach (var p in parts)
-                        if (p.BlobSha.Length > 0) shas.Add(p.BlobSha);
+                var cmd = rh.Cmd;
+                cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
+                cmd.Parameters.AddWithValue("@after", after);
+                cmd.Parameters.AddWithValue("@limit", pageSize);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    rows++;
+                    after = r.GetInt64(0);
+                    if (r.GetString(1) is { Length: > 0 } blobSha) page.Add(blobSha);
+                    if (DeserializeParts(r.GetString(2)) is { } parts)
+                        foreach (var p in parts)
+                            if (p.BlobSha.Length > 0) page.Add(p.BlobSha);
+                }
             }
+            foreach (var sha in page) yield return sha;
+            if (rows < pageSize) yield break;
         }
-        return shas;
     }
 
     private string EscapeLike(string s) =>
@@ -480,6 +518,10 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
 

@@ -10,16 +10,19 @@ internal sealed class DeleteObjects(IObjectStore objects, IS3XmlReader reader, I
             return http.Map(err);
 
         var bypass = ctx.BypassGovernanceRetention();
-        var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
+        var items = new List<Storage.BatchDeleteItem>(request.Keys.Count);
         foreach (var k in request.Keys)
-        {
-            var result = string.IsNullOrEmpty(k.VersionId)
-                ? objects.Delete(bucket, k.Key, bypass)
-                : objects.DeleteVersion(bucket, k.Key, k.VersionId, bypass);
-            outcomes.Add(result is Result<Storage.DeleteOutcome>.Failure df
-                ? new BatchDeleteOutcome(k.Key, k.VersionId, df.Error)
-                : new BatchDeleteOutcome(k.Key, k.VersionId, null));
-        }
+            items.Add(new Storage.BatchDeleteItem(k.Key, string.IsNullOrEmpty(k.VersionId) ? null : k.VersionId, bypass));
+
+        var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
+        if (objects.DeleteBatch(bucket, items).TryGetValue(out var results, out var batchErr))
+            for (var i = 0; i < request.Keys.Count; i++)
+                outcomes.Add(results[i] is Result<Storage.DeleteOutcome>.Failure df
+                    ? new BatchDeleteOutcome(request.Keys[i].Key, request.Keys[i].VersionId, df.Error)
+                    : new BatchDeleteOutcome(request.Keys[i].Key, request.Keys[i].VersionId, null));
+        else
+            foreach (var k in request.Keys)
+                outcomes.Add(new BatchDeleteOutcome(k.Key, k.VersionId, batchErr));
 
         ctx.Response.ContentType = "application/xml";
         return Results.Stream(

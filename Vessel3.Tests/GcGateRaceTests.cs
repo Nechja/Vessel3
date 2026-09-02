@@ -37,7 +37,7 @@ public class GcGateRaceTests : IDisposable
     {
         var multipart = new MultipartStore(
             new MultipartStoreOptions(Path.Combine(root, "uploads")), seen, blobs, durable, gate);
-        return new GarbageCollector(blobs, seen, multipart, gate, new GcOptions(GcMaxWait));
+        return new GarbageCollector(blobs, seen, multipart, gate, new GcOptions(GcMaxWait, Path.Combine(root, "gc-tmp")));
     }
 
     [Fact]
@@ -151,7 +151,8 @@ public class GcGateRaceTests : IDisposable
         public Result<Stream> Open(string sha) => inner.Open(sha);
         public bool Exists(string sha) => inner.Exists(sha);
         public Result<bool> Delete(string sha) => inner.Delete(sha);
-        public IEnumerable<string> EnumerateAll() => inner.EnumerateAll();
+        public IEnumerable<string> EnumerateShards() => inner.EnumerateShards();
+        public IEnumerable<string> Enumerate(string shard) => inner.Enumerate(shard);
         public DateTime? GetLastWriteUtc(string sha) => inner.GetLastWriteUtc(sha);
     }
 
@@ -180,6 +181,7 @@ public class GcGateRaceTests : IDisposable
         public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) => inner.GetVersion(bucket, key, versionId);
         public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) => inner.AppendDelete(bucket, key, bypassGovernance);
         public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) => inner.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
+        public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) => inner.DeleteBatch(bucket, items);
         public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) => inner.ListCurrent(bucket, prefix, startAfter);
         public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit) => inner.ListAllVersions(bucket, prefix, keyMarker, limit);
         public Result<VersioningStatus> GetVersioning(string bucket) => inner.GetVersioning(bucket);

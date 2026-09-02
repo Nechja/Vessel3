@@ -34,6 +34,9 @@ var summary = scenario switch
     "get"       => await Scenarios.Get(s3, opts),
     "multipart" => await Scenarios.Multipart(s3, opts),
     "mixed"     => await Scenarios.Mixed(s3, opts),
+    "list"      => await Scenarios.List(s3, opts),
+    "bulk-delete" => await Scenarios.BulkDelete(s3, opts),
+    "loki"      => await Scenarios.Loki(s3, opts),
     _           => throw new ArgumentException($"unknown scenario: {scenario}"),
 };
 
@@ -142,6 +145,9 @@ static void PrintUsage()
     Console.WriteLine("  get         GET against pre-seeded bucket");
     Console.WriteLine("  multipart   3-part 5 MB multipart upload");
     Console.WriteLine("  mixed       70% GET / 30% PUT");
+    Console.WriteLine("  list        prefix ListObjectsV2 against pre-seeded bucket");
+    Console.WriteLine("  bulk-delete seed then delete in 1000-key batches");
+    Console.WriteLine("  loki        40% GET / 40% 1.5 MB PUT / 20% LIST, bulk delete every 500 puts per worker");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");

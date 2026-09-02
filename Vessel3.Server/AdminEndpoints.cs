@@ -17,6 +17,15 @@ internal static class AdminEndpoints
         await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.GcReport, ctx.RequestAborted);
     }
 
+    public static async Task RunCompact(HttpContext ctx)
+    {
+        var compactor = ctx.RequestServices.GetRequiredService<ICompactor>();
+        var minBytes = ParseAgeQuery(ctx.Request.Query, "min-bytes", fallback: 0);
+        var report = compactor.Run(minBytes);
+        ctx.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.CompactionReport, ctx.RequestAborted);
+    }
+
     public static async Task RunLifecycle(HttpContext ctx)
     {
         var sweeper = ctx.RequestServices.GetRequiredService<ILifecycleSweeper>();

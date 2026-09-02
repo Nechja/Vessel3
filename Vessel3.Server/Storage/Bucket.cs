@@ -24,6 +24,15 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public void Open()
     {
+        var indexPath = Path.Combine(path, "index.db");
+        var snapshotPath = Path.Combine(path, "snapshot.db");
+        if (!File.Exists(indexPath) && File.Exists(snapshotPath))
+        {
+            if (File.Exists(indexPath + "-wal")) File.Delete(indexPath + "-wal");
+            if (File.Exists(indexPath + "-shm")) File.Delete(indexPath + "-shm");
+            File.Copy(snapshotPath, indexPath);
+        }
+
         Index.Open();
         CreatedAt = Directory.GetCreationTimeUtc(path);
         Versioning = ReadVersioning();
@@ -37,8 +46,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             ev.ApplyTo(Index);
             maxSeq = ev.Seq;
         }
+        Index.MarkApplied(maxSeq);
 
-        log.Open(maxSeq + 1);
+        log.Open(Math.Max(maxSeq, Index.AppliedSeq()) + 1);
     }
 
     public Result SetVersioning(VersioningStatus status)
@@ -150,6 +160,35 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
+    public long LogBytes()
+    {
+        var logPath = Path.Combine(path, "log");
+        return File.Exists(logPath) ? new FileInfo(logPath).Length : 0;
+    }
+
+    public Result<CompactionOutcome> Compact()
+    {
+        lock (writeGate)
+        {
+            if (sealedForDelete) return new NoSuchBucketError(Name);
+
+            var before = LogBytes();
+            var snapshotPath = Path.Combine(path, "snapshot.db");
+            var tmp = snapshotPath + ".tmp";
+            if (File.Exists(tmp)) File.Delete(tmp);
+            Index.SnapshotTo(tmp);
+            using (var fs = new FileStream(tmp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                if (fileSync.SyncData(fs) is Result.Failure sf) return sf.Error;
+            }
+            File.Move(tmp, snapshotPath, overwrite: true);
+            if (fileSync.SyncDirectory(path) is Result.Failure df) return df.Error;
+
+            log.Compact(Index.AppliedSeq());
+            return new CompactionOutcome(before, LogBytes());
+        }
+    }
+
     public bool TrySealForDelete()
     {
         lock (writeGate)
@@ -209,72 +248,119 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
-    public Result<DeleteOutcome> HardDeleteVersion(string key, string versionId, bool bypassGovernance)
+    public Result<DeleteOutcome> HardDeleteVersion(string key, string versionId, bool bypassGovernance) =>
+        AppendDeleteBatch([new BatchDeleteItem(key, versionId, bypassGovernance)])[0];
+
+    public Result<DeleteOutcome> AppendDelete(string key, bool bypassGovernance) =>
+        AppendDeleteBatch([new BatchDeleteItem(key, null, bypassGovernance)])[0];
+
+    public IReadOnlyList<Result<DeleteOutcome>> AppendDeleteBatch(IReadOnlyList<BatchDeleteItem> items)
     {
+        var results = new Result<DeleteOutcome>[items.Count];
         lock (writeGate)
         {
-            var (ret, hold) = Index.GetLock(key, versionId);
-            if (hold) return new AccessDeniedError($"legal hold on {key}@{versionId}");
-            if (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow)
+            if (sealedForDelete)
             {
-                if (ret.Mode is RetentionMode.Compliance)
-                    return new AccessDeniedError($"COMPLIANCE retention on {key}@{versionId} until {ret.RetainUntilDate:O}");
-                if (!bypassGovernance)
-                    return new AccessDeniedError($"GOVERNANCE retention on {key}@{versionId}; bypass header required");
+                for (var i = 0; i < items.Count; i++) results[i] = new NoSuchBucketError(Name);
+                return results;
             }
-            log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, versionId)).ApplyTo(Index);
-            return new DeleteOutcome(versionId, IsDeleteMarker: false, Found: true);
+
+            var pending = new List<(int Slot, IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (string.IsNullOrEmpty(item.Key))
+                {
+                    results[i] = new InvalidPathError($"{Name}/{item.Key}");
+                    continue;
+                }
+                if (!seen.Add(item.Key))
+                {
+                    FlushDeletes(pending, results);
+                    seen.Clear();
+                    seen.Add(item.Key);
+                }
+                var evaluated = item.VersionId is null
+                    ? EvaluateDelete(item.Key, item.BypassGovernance)
+                    : EvaluateHardDelete(item.Key, item.VersionId, item.BypassGovernance);
+                if (evaluated.TryGetValue(out var ok, out var err)) pending.Add((i, ok.Events, ok.Outcome));
+                else results[i] = err;
+            }
+            FlushDeletes(pending, results);
         }
+        return results;
     }
 
-    public Result<DeleteOutcome> AppendDelete(string key, bool bypassGovernance)
+    private void FlushDeletes(List<(int Slot, IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> pending, Result<DeleteOutcome>[] results)
     {
-        lock (writeGate)
+        var events = new List<VersionEvent>();
+        foreach (var (_, evs, _) in pending) events.AddRange(evs);
+        if (events.Count > 0)
         {
-            if (sealedForDelete) return new NoSuchBucketError(Name);
-            switch (Versioning)
+            var applied = log.Append(events);
+            using var tx = Index.BeginTransaction();
+            foreach (var op in applied) op.ApplyTo(Index);
+            tx.Commit();
+        }
+        foreach (var (slot, _, outcome) in pending) results[slot] = outcome;
+        pending.Clear();
+    }
+
+    private Result<(IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> EvaluateHardDelete(string key, string versionId, bool bypassGovernance)
+    {
+        var (ret, hold) = Index.GetLock(key, versionId);
+        if (hold) return new AccessDeniedError($"legal hold on {key}@{versionId}");
+        if (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow)
+        {
+            if (ret.Mode is RetentionMode.Compliance)
+                return new AccessDeniedError($"COMPLIANCE retention on {key}@{versionId} until {ret.RetainUntilDate:O}");
+            if (!bypassGovernance)
+                return new AccessDeniedError($"GOVERNANCE retention on {key}@{versionId}; bypass header required");
+        }
+        IReadOnlyList<VersionEvent> events = [new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, versionId)];
+        return (events, new DeleteOutcome(versionId, IsDeleteMarker: false, Found: true));
+    }
+
+    private Result<(IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> EvaluateDelete(string key, bool bypassGovernance)
+    {
+        switch (Versioning)
+        {
+            case VersioningStatus.Enabled:
             {
-                case VersioningStatus.Enabled:
+                var markerVersion = Ulid.NewUlid().ToString();
+                IReadOnlyList<VersionEvent> events = [new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, markerVersion)];
+                return (events, new DeleteOutcome(markerVersion, IsDeleteMarker: true, Found: true));
+            }
+
+            case VersioningStatus.Suspended:
+            {
+                HardDeleteEvent? hd = LatestVersionId(key) is "null"
+                    ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
+                    : null;
+                var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
+                IReadOnlyList<VersionEvent> events = hd is null ? [marker] : [hd, marker];
+                return (events, new DeleteOutcome("null", IsDeleteMarker: true, Found: true));
+            }
+
+            case VersioningStatus.Unversioned:
+            default:
+            {
+                if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old })
+                    return (Array.Empty<VersionEvent>(), new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false));
+
+                if (old.LegalHoldOn)
+                    return new AccessDeniedError($"legal hold on {key}");
+                if (old.Retention is { } r && r.RetainUntilDate > DateTimeOffset.UtcNow)
                 {
-                    var markerVersion = Ulid.NewUlid().ToString();
-                    log.Append(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, markerVersion)).ApplyTo(Index);
-                    return new DeleteOutcome(markerVersion, IsDeleteMarker: true, Found: true);
+                    if (r.Mode is RetentionMode.Compliance)
+                        return new AccessDeniedError($"COMPLIANCE retention on {key} until {r.RetainUntilDate:O}");
+                    if (!bypassGovernance)
+                        return new AccessDeniedError($"GOVERNANCE retention on {key}; bypass header required");
                 }
 
-                case VersioningStatus.Suspended:
-                {
-                    HardDeleteEvent? hd = LatestVersionId(key) is "null"
-                        ? new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null")
-                        : null;
-                    var marker = new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null");
-                    var applied = log.Append(hd is null ? [marker] : [hd, marker]);
-                    using (var tx = Index.BeginTransaction())
-                    {
-                        foreach (var op in applied) op.ApplyTo(Index);
-                        tx.Commit();
-                    }
-                    return new DeleteOutcome("null", IsDeleteMarker: true, Found: true);
-                }
-
-                case VersioningStatus.Unversioned:
-                default:
-                {
-                    if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old })
-                        return new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false);
-
-                    if (old.LegalHoldOn)
-                        return new AccessDeniedError($"legal hold on {key}");
-                    if (old.Retention is { } r && r.RetainUntilDate > DateTimeOffset.UtcNow)
-                    {
-                        if (r.Mode is RetentionMode.Compliance)
-                            return new AccessDeniedError($"COMPLIANCE retention on {key} until {r.RetainUntilDate:O}");
-                        if (!bypassGovernance)
-                            return new AccessDeniedError($"GOVERNANCE retention on {key}; bypass header required");
-                    }
-
-                    log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, old.VersionId)).ApplyTo(Index);
-                    return new DeleteOutcome(old.VersionId, IsDeleteMarker: false, Found: true);
-                }
+                IReadOnlyList<VersionEvent> events = [new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, old.VersionId)];
+                return (events, new DeleteOutcome(old.VersionId, IsDeleteMarker: false, Found: true));
             }
         }
     }

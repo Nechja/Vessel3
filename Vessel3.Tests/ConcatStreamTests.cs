@@ -19,7 +19,8 @@ public class ConcatStreamTests
         public Task<Result<StoredBlob>> Write(Stream s, long? sz, ChecksumIntent intent, CancellationToken ct) => throw new NotImplementedException();
         public bool Exists(string sha) => map.ContainsKey(sha);
         public Result<bool> Delete(string sha) => map.Remove(sha);
-        public IEnumerable<string> EnumerateAll() => map.Keys;
+        public IEnumerable<string> EnumerateShards() => map.Keys.Select(k => k[..2]).Distinct(StringComparer.Ordinal);
+        public IEnumerable<string> Enumerate(string shard) => map.Keys.Where(k => k.StartsWith(shard, StringComparison.Ordinal));
         public DateTime? GetLastWriteUtc(string sha) => map.ContainsKey(sha) ? DateTime.UtcNow : null;
     }
 
