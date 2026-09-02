@@ -96,7 +96,7 @@ All via environment variables. No config file.
 | `VESSEL3_REGION` | `us-west-1` | Region string used for SigV4 verification. |
 | `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
 | `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
-| `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs larger than this get compacted by the sweep. `PUT /_admin/compact` compacts on demand regardless of size. |
+| `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs `PUT /_admin/compact` compacts |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
 
 The listen address comes from Kestrel's `--urls` flag in the usual ASP.NET way.
@@ -141,10 +141,10 @@ VESSEL3_DATA/
 
 ## High-churn workloads (Loki, backups with retention)
 
-Vessel3 works as a Loki object store out of the box. Two things matter at churn scale:
+Vessel3 works as a Loki object store out of the box, working to improve this as I do more testing in my home lab.
 
-- **Keep the bucket unversioned.** With versioning enabled, retention deletes leave markers and old versions are never freed, so storage grows without bound. Unversioned buckets hard-delete and GC reclaims the blobs.
-- Compaction keeps the event log proportional to recent activity instead of all-time history. The default sweep handles it; `PUT /_admin/compact` forces it.
+- **Keep the bucket unversioned.** With versioning enabled, retention deletes leave markers and old versions are never freedup. Unversioned buckets hard-delete gc goes and does bad things
+- Compaction keeps the event log proportional to recent activity instead of all-time history. The default sweep `PUT /_admin/compact` is fine
 
 Bulk deletes (`DeleteObjects`) commit each request as a single log record with one fsync, so 1000-key retention sweeps complete in one disk round-trip.
 
