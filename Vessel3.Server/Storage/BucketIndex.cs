@@ -98,6 +98,33 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    public void MarkApplied(long seq)
+    {
+        using var cmd = WriteCmd();
+        cmd.CommandText = """
+            INSERT INTO meta(key, value) VALUES('applied_seq', @seq)
+            ON CONFLICT(key) DO UPDATE SET value = max(value, excluded.value)
+            """;
+        cmd.Parameters.AddWithValue("@seq", seq);
+        cmd.ExecuteNonQuery();
+    }
+
+    public long AppliedSeq()
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT COALESCE((SELECT value FROM meta WHERE key = 'applied_seq'), 0)";
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public void SnapshotTo(string path)
+    {
+        using var cmd = writeConn!.CreateCommand();
+        cmd.CommandText = "VACUUM INTO @path";
+        cmd.Parameters.AddWithValue("@path", path);
+        cmd.ExecuteNonQuery();
+    }
+
     public void Insert(PutEvent ev)
     {
         using var cmd = WriteCmd();
@@ -480,6 +507,10 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
 

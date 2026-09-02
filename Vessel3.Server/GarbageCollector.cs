@@ -11,6 +11,7 @@ internal sealed record GcOptions(TimeSpan MaxWait);
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(GcReport))]
 [JsonSerializable(typeof(LifecycleReport))]
+[JsonSerializable(typeof(CompactionReport))]
 internal sealed partial class AdminJsonContext : JsonSerializerContext;
 
 internal interface IGarbageCollector

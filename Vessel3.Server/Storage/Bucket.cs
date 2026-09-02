@@ -24,6 +24,15 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public void Open()
     {
+        var indexPath = Path.Combine(path, "index.db");
+        var snapshotPath = Path.Combine(path, "snapshot.db");
+        if (!File.Exists(indexPath) && File.Exists(snapshotPath))
+        {
+            if (File.Exists(indexPath + "-wal")) File.Delete(indexPath + "-wal");
+            if (File.Exists(indexPath + "-shm")) File.Delete(indexPath + "-shm");
+            File.Copy(snapshotPath, indexPath);
+        }
+
         Index.Open();
         CreatedAt = Directory.GetCreationTimeUtc(path);
         Versioning = ReadVersioning();
@@ -37,8 +46,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             ev.ApplyTo(Index);
             maxSeq = ev.Seq;
         }
+        Index.MarkApplied(maxSeq);
 
-        log.Open(maxSeq + 1);
+        log.Open(Math.Max(maxSeq, Index.AppliedSeq()) + 1);
     }
 
     public Result SetVersioning(VersioningStatus status)
@@ -147,6 +157,35 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
             log.Append(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, markerVersionId)).ApplyTo(Index);
             return true;
+        }
+    }
+
+    public long LogBytes()
+    {
+        var logPath = Path.Combine(path, "log");
+        return File.Exists(logPath) ? new FileInfo(logPath).Length : 0;
+    }
+
+    public Result<CompactionOutcome> Compact()
+    {
+        lock (writeGate)
+        {
+            if (sealedForDelete) return new NoSuchBucketError(Name);
+
+            var before = LogBytes();
+            var snapshotPath = Path.Combine(path, "snapshot.db");
+            var tmp = snapshotPath + ".tmp";
+            if (File.Exists(tmp)) File.Delete(tmp);
+            Index.SnapshotTo(tmp);
+            using (var fs = new FileStream(tmp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                if (fileSync.SyncData(fs) is Result.Failure sf) return sf.Error;
+            }
+            File.Move(tmp, snapshotPath, overwrite: true);
+            if (fileSync.SyncDirectory(path) is Result.Failure df) return df.Error;
+
+            log.Compact(Index.AppliedSeq());
+            return new CompactionOutcome(before, LogBytes());
         }
     }
 
