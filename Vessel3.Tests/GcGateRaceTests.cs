@@ -180,6 +180,7 @@ public class GcGateRaceTests : IDisposable
         public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) => inner.GetVersion(bucket, key, versionId);
         public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) => inner.AppendDelete(bucket, key, bypassGovernance);
         public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) => inner.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
+        public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) => inner.DeleteBatch(bucket, items);
         public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) => inner.ListCurrent(bucket, prefix, startAfter);
         public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit) => inner.ListAllVersions(bucket, prefix, keyMarker, limit);
         public Result<VersioningStatus> GetVersioning(string bucket) => inner.GetVersioning(bucket);

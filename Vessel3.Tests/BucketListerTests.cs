@@ -30,6 +30,7 @@ public class BucketListerTests
         public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) => throw new NotImplementedException();
         public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) => throw new NotImplementedException();
         public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) => throw new NotImplementedException();
+        public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) => throw new NotImplementedException();
         public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit) => new VersionsPage([], false);
         public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) => throw new NotImplementedException();
         public VersionKind? GetCurrentKind(string bucket, string key) => null;
