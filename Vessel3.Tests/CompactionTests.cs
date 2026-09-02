@@ -51,7 +51,7 @@ public sealed class CompactionTests : IDisposable
 
         using (var b = OpenBucket())
         {
-            var live = b.Index.ListCurrent(prefix: null, startAfter: null);
+            var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             Assert.Equal(10, live.Count);
         }
     }
@@ -69,7 +69,7 @@ public sealed class CompactionTests : IDisposable
 
         using (var b = OpenBucket())
         {
-            var live = b.Index.ListCurrent(prefix: null, startAfter: null);
+            var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             Assert.Equal(5, live.Count);
         }
     }
@@ -90,7 +90,7 @@ public sealed class CompactionTests : IDisposable
 
         using (var b = OpenBucket())
         {
-            var live = b.Index.ListCurrent(prefix: null, startAfter: null);
+            var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             Assert.Equal(5, live.Count);
             var late = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("late")).Value!;
             Assert.Equal(lateVersion, late.VersionId);
@@ -112,7 +112,7 @@ public sealed class CompactionTests : IDisposable
 
         using (var b = OpenBucket())
         {
-            var live = b.Index.ListCurrent(prefix: null, startAfter: null);
+            var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             Assert.Equal(6, live.Count);
         }
     }
@@ -172,7 +172,7 @@ public sealed class CompactionTests : IDisposable
 
         using (var b = OpenBucket())
         {
-            var live = b.Index.ListCurrent(prefix: null, startAfter: null);
+            var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             var entry = Assert.Single(live);
             Assert.Equal("new", entry.Key);
         }

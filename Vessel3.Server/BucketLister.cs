@@ -38,51 +38,57 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
         var startKey = continuationToken is not null
             ? Encoding.UTF8.GetString(Convert.FromBase64String(continuationToken))
             : req.StartAfter;
+        KeyBound? from = startKey is null ? null : Resume(req, startKey);
 
-        return registry.ListCurrent(req.Bucket, req.Prefix, startKey).Match<Result<ListPage>>(
-            entries => Page(req, entries),
-            err => err);
-    }
-
-    private ListPage Page(ListRequest req, IEnumerable<VersionListEntry> entries)
-    {
         var emitted = new List<ListEntry>();
-        string? lastEmittedKey = null;
         string? lastCommonPrefix = null;
-        var truncated = false;
-
-        foreach (var entry in entries)
+        while (true)
         {
-            if (emitted.Count >= req.MaxKeys)
-            {
-                truncated = true;
-                break;
-            }
+            if (!registry.ListCurrent(req.Bucket, req.Prefix, from, req.MaxKeys - emitted.Count).TryGetValue(out var batch, out var err))
+                return err;
 
-            if (req.Delimiter is "/")
+            foreach (var row in batch.Entries)
             {
-                var prefixLen = req.Prefix?.Length ?? 0;
-                var rest = entry.Key.AsSpan(prefixLen);
-                var slash = rest.IndexOf('/');
-                if (slash >= 0)
+                if (CommonPrefixOf(req, row.Key) is { } commonPrefix)
                 {
-                    var commonPrefix = (req.Prefix ?? string.Empty) + new string(rest[..(slash + 1)]);
                     if (commonPrefix == lastCommonPrefix) continue;
                     emitted.Add(new ListEntry.CommonPrefix(commonPrefix));
                     lastCommonPrefix = commonPrefix;
-                    lastEmittedKey = entry.Key;
-                    continue;
+                }
+                else
+                {
+                    emitted.Add(new ListEntry.Contents(row.Key, row.Size, row.At, row.WireEtag));
                 }
             }
 
-            emitted.Add(new ListEntry.Contents(entry.Key, entry.Size, entry.At, entry.WireEtag));
-            lastEmittedKey = entry.Key;
+            if (!batch.IsTruncated) return Page(emitted, truncated: false);
+            if (batch.Entries.Count is 0) return Page(emitted, truncated: true);
+            if (emitted.Count == req.MaxKeys && emitted[^1] is ListEntry.Contents) return Page(emitted, truncated: true);
+            from = Resume(req, emitted[^1].Key);
         }
-
-        var nextToken = truncated && lastEmittedKey is not null
-            ? Convert.ToBase64String(Encoding.UTF8.GetBytes(lastEmittedKey))
-            : null;
-
-        return new ListPage(emitted, truncated, nextToken, lastEmittedKey, emitted.Count);
     }
+
+    private static ListPage Page(List<ListEntry> emitted, bool truncated)
+    {
+        var lastKey = emitted.Count is 0 ? null : emitted[^1].Key;
+        var nextToken = truncated && lastKey is not null
+            ? Convert.ToBase64String(Encoding.UTF8.GetBytes(lastKey))
+            : null;
+        return new ListPage(emitted, truncated, nextToken, lastKey, emitted.Count);
+    }
+
+    private static KeyBound Resume(ListRequest req, string key) =>
+        CommonPrefixOf(req, key) == key ? KeyBound.From(NextAfterPrefix(key)) : KeyBound.After(key);
+
+    private static string? CommonPrefixOf(ListRequest req, string key)
+    {
+        if (req.Delimiter is not "/") return null;
+        var prefix = req.Prefix ?? string.Empty;
+        if (!key.StartsWith(prefix, StringComparison.Ordinal)) return null;
+        var slash = key.AsSpan(prefix.Length).IndexOf('/');
+        return slash < 0 ? null : key[..(prefix.Length + slash + 1)];
+    }
+
+    private static string NextAfterPrefix(string prefix) =>
+        prefix[..^1] + (char)(prefix[^1] + 1);
 }

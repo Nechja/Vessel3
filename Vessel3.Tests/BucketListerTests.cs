@@ -12,12 +12,16 @@ public class BucketListerTests
         private readonly List<VersionListEntry> entries;
         public StubRegistry(IEnumerable<VersionListEntry> e) => entries = e.ToList();
 
-        public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter)
+        public Result<CurrentPage> ListCurrent(string bucket, string? prefix, KeyBound? from, int limit)
         {
             IEnumerable<VersionListEntry> q = entries;
             if (prefix is not null) q = q.Where(v => v.Key.StartsWith(prefix, StringComparison.Ordinal));
-            if (startAfter is not null) q = q.Where(v => StringComparer.Ordinal.Compare(v.Key, startAfter) > 0);
-            return q.OrderBy(v => v.Key, StringComparer.Ordinal).ToList();
+            if (from is { } f)
+                q = q.Where(v => f.Inclusive
+                    ? StringComparer.Ordinal.Compare(v.Key, f.Key) >= 0
+                    : StringComparer.Ordinal.Compare(v.Key, f.Key) > 0);
+            var page = q.OrderBy(v => v.Key, StringComparer.Ordinal).Take(limit + 1).ToList();
+            return new CurrentPage(page.Take(limit).ToList(), page.Count > limit);
         }
 
         public bool IsValidName(string bucket) => true;
@@ -52,9 +56,7 @@ public class BucketListerTests
     }
 
     private static VersionListEntry V(string key) => new(
-        Key: key, VersionId: "v1", At: DateTimeOffset.UtcNow,
-        BlobSha: "", Md5: "00", Size: 1, ContentType: "application/octet-stream",
-        Metadata: new Dictionary<string, string>());
+        Key: key, At: DateTimeOffset.UtcNow, Md5: "00", Size: 1, PartCount: 0);
 
     [Fact]
     public void Lists_AllUnderLimit()
