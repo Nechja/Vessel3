@@ -7,6 +7,7 @@ namespace Vessel3.Server;
 internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt);
 internal sealed record BucketRegistryOptions(string Root);
 internal sealed record VersionsPage(IReadOnlyList<AllVersionsEntry> Entries, bool IsTruncated);
+internal sealed record CurrentPage(IReadOnlyList<VersionListEntry> Entries, bool IsTruncated);
 
 internal interface IBucketRegistry : IDisposable
 {
@@ -23,7 +24,7 @@ internal interface IBucketRegistry : IDisposable
     Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance);
     Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance);
     Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items);
-    Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter);
+    Result<CurrentPage> ListCurrent(string bucket, string? prefix, KeyBound? from, int limit);
     Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit);
     Result<VersioningStatus> GetVersioning(string bucket);
     Result SetVersioning(string bucket, VersioningStatus status);
@@ -168,8 +169,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return h;
         });
 
-    public Result<List<VersionListEntry>> ListCurrent(string bucket, string? prefix, string? startAfter) =>
-        OnBucket<List<VersionListEntry>>(bucket, b => b.Index.ListCurrent(prefix, startAfter));
+    public Result<CurrentPage> ListCurrent(string bucket, string? prefix, KeyBound? from, int limit) =>
+        OnBucketRaw(bucket, b =>
+        {
+            var (entries, truncated) = b.Index.ListCurrent(prefix, from, limit);
+            return new CurrentPage(entries, truncated);
+        });
 
     private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body) =>
         !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
