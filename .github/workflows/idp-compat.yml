@@ -30,8 +30,15 @@ jobs:
       matrix:
         idp: [mynt0, dex, keycloak]
     name: idp compat (${{ matrix.idp }})
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        if: matrix.idp == 'mynt0'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - uses: actions/setup-dotnet@v5
         with:
