@@ -23,7 +23,7 @@ Built for (my) homelab and single app use. This isn't built for multi-tenant set
 ## What it isn't
 
 - Not a cluster.
-- Not multi-tenant. One access key. No IAM, no policies. ACL endpoints return a bucket-owner stub.
+- Not multi-tenant. One static access key, plus short-lived session credentials from an OIDC exchange. No IAM, no policies. ACL endpoints return a bucket-owner stub.
 - Not a webserver. It serves bytes well. Put Caddy or nginx in front for HTML, TLS, and rate-limiting.
 - Not tuned for thousands of concurrent uploaders.
 - Not something made to be the best thing you've ever used.
@@ -98,6 +98,10 @@ All via environment variables. No config file.
 | `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
 | `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs `PUT /_admin/compact` compacts |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
+| `VESSEL3_OIDC_ISSUER` | unset | OIDC issuer URL. Setting it enables the web identity exchange below. |
+| `VESSEL3_OIDC_CLIENT_ID` | unset | Client id tokens must be issued for. Required with the issuer. |
+| `VESSEL3_OIDC_AUDIENCE` | unset | Extra audience accepted alongside the client id. |
+| `VESSEL3_OIDC_REQUIRE_CLAIM` | unset | `name=value`. Tokens must carry that claim, as a string or an array member, or the exchange is refused. |
 
 The listen address comes from Kestrel's `--urls` flag in the usual ASP.NET way.
 
@@ -111,6 +115,18 @@ export AWS_SECRET_ACCESS_KEY=...
 aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://photos
 aws --endpoint-url http://127.0.0.1:9000 s3 cp ./cat.jpg s3://photos/
 ```
+
+## OIDC
+
+With `VESSEL3_OIDC_ISSUER` and `VESSEL3_OIDC_CLIENT_ID` set, an ID token or JWT access token from that issuer can be traded for short-lived S3 credentials using the STS `AssumeRoleWithWebIdentity` shape. Any AWS SDK's web identity provider works against it; `RoleArn` is accepted and ignored.
+
+```sh
+aws --endpoint-url http://127.0.0.1:9000 sts assume-role-with-web-identity \
+  --role-arn arn:aws:iam::0:role/vessel3 --role-session-name me \
+  --web-identity-token "$TOKEN" --duration-seconds 3600
+```
+
+Sessions default to one hour, range 15 minutes to 12 hours, and live in memory, so a restart ends them. Tokens are verified against the issuer's JWKS (ES256 and RS256), with the key set refetched when an unknown `kid` appears. The static access key stays valid alongside sessions, and auth is enforced when either is configured.
 
 ## Durability
 

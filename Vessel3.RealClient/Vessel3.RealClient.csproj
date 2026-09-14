@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="$(AwsSdkVersion)" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="$(AwsSdkVersion)" />
     <PackageReference Include="System.IO.Hashing" Version="*" />
   </ItemGroup>
 
