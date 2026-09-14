@@ -77,6 +77,22 @@ internal sealed record RequestTimeTooSkewedError()
     : Error("RequestTimeTooSkewed", "The request timestamp is outside the allowed skew window")
 { public override int Status => 403; }
 
+internal sealed record InvalidTokenError(string Detail)
+    : Error("InvalidToken", Detail)
+{ public override int Status => 400; }
+
+internal sealed record ExpiredTokenError()
+    : Error("ExpiredToken", "The provided session token has expired")
+{ public override int Status => 400; }
+
+internal sealed record InvalidIdentityTokenError(string Detail)
+    : Error("InvalidIdentityToken", Detail)
+{ public override int Status => 400; }
+
+internal sealed record ExpiredIdentityTokenError()
+    : Error("ExpiredTokenException", "The web identity token has expired")
+{ public override int Status => 400; }
+
 internal sealed record NoSuchUploadError(string UploadId)
     : Error("NoSuchUpload", $"Upload {UploadId} not found")
 { public override int Status => 404; }

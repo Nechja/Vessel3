@@ -11,8 +11,6 @@ internal sealed record SignatureContext(
     string AmzDate,
     string Scope);
 
-internal sealed record SigV4Options(string AccessKey, string Secret, string Region);
-
 internal interface ISigV4Verifier
 {
     Result<SignatureContext> Verify(HttpRequest req);
@@ -24,7 +22,7 @@ internal sealed class AlwaysPassVerifier : ISigV4Verifier
     public Result<SignatureContext> Verify(HttpRequest req) => Empty;
 }
 
-internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
+internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion region, TimeProvider clock) : ISigV4Verifier
 {
     private const string AlgorithmPrefix = "AWS4-HMAC-SHA256 ";
     private const string Service = "s3";
@@ -60,12 +58,14 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (!ConstantTimeEquals(ak, options.AccessKey))
+        if (credentials.Find(ak) is not { } cred)
             return new InvalidAccessKeyIdError(ak);
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
-        if (reg != options.Region)
+        if (reg != region.Value)
             return new AuthorizationHeaderMalformedError($"Unexpected region {reg}");
+        if (CheckToken(cred, req.Query["X-Amz-Security-Token"].ToString(), signed: true) is Result.Failure tokenFailure)
+            return tokenFailure.Error;
         if (amzDate.Length < 8 || amzDate[..8] != date)
             return new AuthorizationHeaderMalformedError("Credential date mismatches X-Amz-Date");
 
@@ -77,7 +77,7 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
             || expiresSec <= 0)
             return new AuthorizationHeaderMalformedError("Bad X-Amz-Expires");
 
-        if (DateTime.UtcNow > requestTime.AddSeconds(expiresSec))
+        if (clock.GetUtcNow().UtcDateTime > requestTime.AddSeconds(expiresSec))
             return new RequestTimeTooSkewedError();
 
         var signedHeaderList = signedHeaders.Split(';');
@@ -87,7 +87,7 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
 
-        var signingKey = DeriveSigningKey(options.Secret, date, reg);
+        var signingKey = DeriveSigningKey(cred.Secret, date, reg);
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
@@ -116,13 +116,13 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (!ConstantTimeEquals(ak, options.AccessKey))
+        if (credentials.Find(ak) is not { } cred)
             return new InvalidAccessKeyIdError(ak);
 
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
 
-        if (reg != options.Region)
+        if (reg != region.Value)
             return new AuthorizationHeaderMalformedError($"Unexpected region {reg}");
 
         var amzDate = req.Headers["x-amz-date"].ToString();
@@ -136,7 +136,7 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var requestTime))
             return new AuthorizationHeaderMalformedError("Bad x-amz-date format");
 
-        if ((DateTime.UtcNow - requestTime).Duration() > SkewAllowance)
+        if ((clock.GetUtcNow().UtcDateTime - requestTime).Duration() > SkewAllowance)
             return new RequestTimeTooSkewedError();
 
         var contentSha = req.Headers["x-amz-content-sha256"].ToString();
@@ -144,19 +144,32 @@ internal sealed class SigV4Verifier(SigV4Options options) : ISigV4Verifier
             return new MissingSecurityHeaderError("x-amz-content-sha256");
 
         var signedHeaderList = signedHeaders.Split(';');
+        if (CheckToken(cred, req.Headers["x-amz-security-token"].ToString(), signed: signedHeaderList.Contains("x-amz-security-token")) is Result.Failure tokenFailure)
+            return tokenFailure.Error;
+
         var canonical = BuildCanonicalRequest(req, signedHeaderList, contentSha, excludeQueryKey: null);
         var canonicalHash = Sha256Hex(Encoding.UTF8.GetBytes(canonical));
 
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
 
-        var signingKey = DeriveSigningKey(options.Secret, date, reg);
+        var signingKey = DeriveSigningKey(cred.Secret, date, reg);
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
             ? new SignatureContext(signature, signingKey, amzDate, scope)
             : (Result<SignatureContext>)new SignatureDoesNotMatchError();
     }
+
+    private Result CheckToken(Credential cred, string presented, bool signed) => cred.SessionToken switch
+    {
+        null when presented.Length is 0 => Result.Ok,
+        null => new InvalidTokenError("Access key does not use a session token"),
+        var token when presented.Length is 0 || !signed || !ConstantTimeEquals(presented, token)
+            => new InvalidTokenError("Session token missing or does not match"),
+        _ when cred.ExpiresAt is { } exp && clock.GetUtcNow() >= exp => new ExpiredTokenError(),
+        _ => Result.Ok,
+    };
 
     private bool TryParseAuth(string body, out string credential, out string signedHeaders, out string signature)
     {

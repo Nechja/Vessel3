@@ -1,0 +1,51 @@
+name: idp compat
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.editorconfig'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  idp:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        idp: [mynt0, dex, keycloak]
+    name: idp compat (${{ matrix.idp }})
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        if: matrix.idp == 'mynt0'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build server
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Exchange and round trip
+        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile -- idp ${{ matrix.idp }}

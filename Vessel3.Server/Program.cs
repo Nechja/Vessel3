@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using Vessel3.Server;
 using Vessel3.Server.Lifecycle;
+using Vessel3.Server.Oidc;
 using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
 #if VESSEL3_UI
@@ -93,9 +94,25 @@ builder.Services.AddSingleton<IS3XmlReader, S3XmlReader>();
 builder.Services.AddS3BucketActions();
 builder.Services.AddS3KeyActions();
 
-if (accessKey is not null && secretKey is not null)
+var rootCredential = accessKey is not null && secretKey is not null
+    ? new Credential(accessKey, secretKey, SessionToken: null, ExpiresAt: null)
+    : null;
+if (!OidcOptions.FromEnvironment().TryGetValue(out var oidc, out var oidcErr))
 {
-    builder.Services.AddSingleton(new SigV4Options(accessKey, secretKey, region));
+    Console.Error.WriteLine(oidcErr.Message);
+    return 1;
+}
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ICredentialStore>(sp => new CredentialStore(rootCredential, sp.GetRequiredService<TimeProvider>()));
+if (oidc is not null)
+{
+    builder.Services.AddSingleton(oidc);
+    builder.Services.AddSingleton<ISigningKeys>(sp => new JwksSigningKeys(
+        oidc, new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, sp.GetRequiredService<TimeProvider>()));
+    builder.Services.AddSingleton<ITokenVerifier, TokenVerifier>();
+}
+if (rootCredential is not null || oidc is not null)
+{
     builder.Services.AddSingleton<ISigV4Verifier, SigV4Verifier>();
 }
 else
@@ -146,6 +163,15 @@ app.Use(async (ctx, next) =>
 #if VESSEL3_UI
 app.UseVessel3Ui(accessKey, secretKey, region);
 #endif
+
+if (oidc is not null)
+{
+    app.Use(async (ctx, next) =>
+    {
+        if (StsEndpoint.Matches(ctx.Request)) await StsEndpoint.Handle(ctx);
+        else await next(ctx);
+    });
+}
 
 app.UseMiddleware<SigV4Middleware>();
 

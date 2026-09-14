@@ -36,6 +36,7 @@ if (args.Length > 0)
         case "anon": return await AnonScenarios.RunAll(
             Environment.GetEnvironmentVariable("VESSEL3_ANON_ENDPOINT") ?? "http://127.0.0.1:9101");
         case "smoke": return await Smoke.Run(s3);
+        case "idp": return await IdpCompat.Run(args.Length > 1 ? args[1] : null);
         default:
             Console.Error.WriteLine($"unknown phase: {args[0]}");
             return 2;
