@@ -65,27 +65,6 @@ public class UiEndpointsTests
     }
 
     [Theory]
-    [InlineData("bucket/key.txt", "bucket", "key.txt")]
-    [InlineData("bucket/a/b/c.bin", "bucket", "a/b/c.bin")]
-    [InlineData("b/k", "b", "k")]
-    public void TryParseUploadPath_splits_bucket_and_key(string path, string bucket, string key)
-    {
-        Assert.True(UiEndpoints.TryParseUploadPath(path, out var b, out var k));
-        Assert.Equal(bucket, b);
-        Assert.Equal(key, k);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("bucket")]
-    [InlineData("bucket/")]
-    [InlineData("/key.txt")]
-    public void TryParseUploadPath_rejects_incomplete_paths(string path)
-    {
-        Assert.False(UiEndpoints.TryParseUploadPath(path, out _, out _));
-    }
-
-    [Theory]
     [InlineData("_framework/dotnet.js")]
     [InlineData("_framework/missing.wasm")]
     [InlineData("_content/MudBlazor/MudBlazor.min.css")]

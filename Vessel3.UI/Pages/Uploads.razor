@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.Components.Forms
 @inject IAmazonS3 S3
 @inject HttpClient Http
+@inject ObjectUrls Urls
 @inject ISnackbar Snackbar
 
 <div class="v3-page-head">
@@ -137,8 +138,7 @@
                 string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
             content.Headers.ContentLength = file.Size;
 
-            var url = $"upload/{Uri.EscapeDataString(bucket)}/{string.Join('/', file.Name.Split('/').Select(Uri.EscapeDataString))}";
-            using var resp = await Http.PutAsync(url, content);
+            using var resp = await Http.PutAsync(Urls.ForUpload(bucket, file.Name), content);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync();
