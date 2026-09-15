@@ -108,6 +108,66 @@ public class JwksSigningKeysTests : IDisposable
         Assert.Null(await keys.Find(idp.EcKid, CancellationToken.None));
     }
 
+    private sealed class FlakyDiscoveryHandler(Func<bool> discoveryUp, Func<string> jwks) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
+            {
+                if (!discoveryUp()) throw new HttpRequestException("down");
+                var body = """{"issuer":"https://id.example.test","jwks_uri":"https://id.example.test/.well-known/jwks.json"}""";
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(jwks(), Encoding.UTF8, "application/json") });
+        }
+    }
+
+    [Fact]
+    public async Task Discovery_outage_does_not_hold_the_refresh_window()
+    {
+        var up = false;
+        var clock = new TestClock(T0);
+        using var keys = Keys(new FlakyDiscoveryHandler(() => up, idp.Jwks), clock);
+
+        Assert.Null(await keys.Find(idp.EcKid, CancellationToken.None));
+
+        up = true;
+        clock.Now = T0 + TimeSpan.FromSeconds(15);
+
+        Assert.NotNull(await keys.Find(idp.EcKid, CancellationToken.None));
+    }
+
+    private sealed class GatedDiscoveryHandler(Task release, Func<string> jwks) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            if (url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal))
+            {
+                await release;
+                var body = """{"issuer":"https://id.example.test","jwks_uri":"https://id.example.test/.well-known/jwks.json"}""";
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(jwks(), Encoding.UTF8, "application/json") };
+        }
+    }
+
+    [Fact]
+    public async Task Aborted_lookup_does_not_hold_the_refresh_window()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var keys = Keys(new GatedDiscoveryHandler(release.Task, idp.Jwks), new TestClock(T0));
+        using var cts = new CancellationTokenSource();
+
+        var aborted = keys.Find(idp.EcKid, cts.Token);
+        cts.Cancel();
+        Assert.Null(await aborted);
+
+        release.SetResult();
+        Assert.NotNull(await keys.Find(idp.EcKid, CancellationToken.None));
+    }
+
     [Fact]
     public void ParseJwks_skips_unusable_entries()
     {

@@ -143,16 +143,18 @@ internal sealed class JwksSigningKeys(IOidcDiscovery discovery, HttpClient http,
         await refreshLock.WaitAsync(ct);
         try
         {
-            var now = clock.GetUtcNow();
-            if (now - lastRefresh < MinRefreshInterval) return;
-            lastRefresh = now;
-
+            if (clock.GetUtcNow() - lastRefresh < MinRefreshInterval) return;
             if ((await discovery.Get(ct))?.JwksUri is not { Length: > 0 } url) return;
-            var fetched = SigningKey.ParseJwks(await http.GetByteArrayAsync(url, ct));
+            var fetched = SigningKey.ParseJwks(await http.GetByteArrayAsync(url, CancellationToken.None));
             keys = fetched.ToDictionary(k => k.Kid, StringComparer.Ordinal);
+            lastRefresh = clock.GetUtcNow();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
         {
+            lastRefresh = clock.GetUtcNow();
         }
         finally
         {

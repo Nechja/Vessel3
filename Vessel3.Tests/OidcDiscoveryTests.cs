@@ -33,7 +33,7 @@ public class OidcDiscoveryTests
     public async Task Returns_endpoints_and_caches_them()
     {
         var handler = new StubHandler(() => Json(Document));
-        using var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
 
         var doc = await discovery.Get(CancellationToken.None);
         await discovery.Get(CancellationToken.None);
@@ -51,7 +51,7 @@ public class OidcDiscoveryTests
     {
         var handler = new StubHandler(() => Json(Document));
         var clock = new TestClock(T0);
-        using var discovery = new OidcDiscovery(Options(), new HttpClient(handler), clock);
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), clock);
 
         await discovery.Get(CancellationToken.None);
         clock.Now = T0 + TimeSpan.FromHours(2);
@@ -66,7 +66,7 @@ public class OidcDiscoveryTests
         var up = false;
         var handler = new StubHandler(() => up ? Json(Document) : throw new HttpRequestException("down"));
         var clock = new TestClock(T0);
-        using var discovery = new OidcDiscovery(Options(), new HttpClient(handler), clock);
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), clock);
 
         Assert.Null(await discovery.Get(CancellationToken.None));
         Assert.Null(await discovery.Get(CancellationToken.None));
@@ -77,11 +77,58 @@ public class OidcDiscoveryTests
         Assert.NotNull(await discovery.Get(CancellationToken.None));
     }
 
+    private sealed class GatedHandler(Task release) : HttpMessageHandler
+    {
+        public int Hits { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Hits++;
+            await release;
+            return Json(Document);
+        }
+    }
+
+    [Fact]
+    public async Task Abandoned_caller_does_not_poison_the_shared_fetch()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GatedHandler(release.Task);
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
+        using var cts = new CancellationTokenSource();
+
+        var abandoned = discovery.Get(cts.Token);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => abandoned);
+
+        release.SetResult();
+        var doc = await discovery.Get(CancellationToken.None);
+
+        Assert.NotNull(doc);
+        Assert.Equal("https://id.example.test/token", doc.TokenEndpoint);
+        Assert.Equal(1, handler.Hits);
+    }
+
+    [Fact]
+    public async Task Concurrent_callers_share_one_fetch()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GatedHandler(release.Task);
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
+
+        var first = discovery.Get(CancellationToken.None);
+        var second = discovery.Get(CancellationToken.None);
+        release.SetResult();
+
+        Assert.NotNull(await first);
+        Assert.NotNull(await second);
+        Assert.Equal(1, handler.Hits);
+    }
+
     [Fact]
     public async Task Missing_optional_endpoints_are_null()
     {
         var handler = new StubHandler(() => Json("""{"issuer":"https://id.example.test","jwks_uri":"https://id.example.test/jwks"}"""));
-        using var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
+        var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
         var doc = await discovery.Get(CancellationToken.None);
         Assert.NotNull(doc);
         Assert.Null(doc.AuthorizationEndpoint);

@@ -9,47 +9,49 @@ internal interface IOidcDiscovery
     Task<DiscoveryDocument?> Get(CancellationToken ct);
 }
 
-internal sealed class OidcDiscovery(OidcOptions options, HttpClient http, TimeProvider clock) : IOidcDiscovery, IDisposable
+internal sealed class OidcDiscovery(OidcOptions options, HttpClient http, TimeProvider clock) : IOidcDiscovery
 {
     private static readonly TimeSpan MaxAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(10);
-    private readonly SemaphoreSlim fetchLock = new(1, 1);
+    private readonly Lock gate = new();
     private DiscoveryDocument? cached;
-    private DateTimeOffset fetchedAt = DateTimeOffset.MinValue;
-    private DateTimeOffset lastAttempt = DateTimeOffset.MinValue;
+    private DateTimeOffset refreshAfter = DateTimeOffset.MinValue;
+    private Task<DiscoveryDocument?>? inflight;
 
-    public async Task<DiscoveryDocument?> Get(CancellationToken ct)
+    public Task<DiscoveryDocument?> Get(CancellationToken ct)
     {
-        var now = clock.GetUtcNow();
-        if (cached is not null && now - fetchedAt < MaxAge) return cached;
-        await fetchLock.WaitAsync(ct);
+        lock (gate)
+        {
+            if (clock.GetUtcNow() < refreshAfter) return Task.FromResult(cached);
+            inflight = inflight is { IsCompleted: false } running ? running : Fetch();
+            return inflight.WaitAsync(ct);
+        }
+    }
+
+    private async Task<DiscoveryDocument?> Fetch()
+    {
+        DiscoveryDocument? fetched = null;
         try
         {
-            now = clock.GetUtcNow();
-            if (cached is not null && now - fetchedAt < MaxAge) return cached;
-            if (now - lastAttempt < RetryInterval) return cached;
-            lastAttempt = now;
-            using var doc = JsonDocument.Parse(await http.GetByteArrayAsync(options.DiscoveryUrl, ct));
+            using var doc = JsonDocument.Parse(await http.GetByteArrayAsync(options.DiscoveryUrl, CancellationToken.None));
             var root = doc.RootElement;
-            cached = new DiscoveryDocument(
+            fetched = new DiscoveryDocument(
                 Str(root, "authorization_endpoint"),
                 Str(root, "token_endpoint"),
                 Str(root, "jwks_uri"),
                 Str(root, "end_session_endpoint"));
-            fetchedAt = now;
-            return cached;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
         {
+        }
+
+        lock (gate)
+        {
+            if (fetched is not null) cached = fetched;
+            refreshAfter = clock.GetUtcNow() + (fetched is null ? RetryInterval : MaxAge);
             return cached;
         }
-        finally
-        {
-            fetchLock.Release();
-        }
     }
-
-    public void Dispose() => fetchLock.Dispose();
 
     private static string? Str(JsonElement el, string name) =>
         el.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.String ? v.GetString() : null;

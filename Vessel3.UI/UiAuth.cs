@@ -14,6 +14,7 @@ internal sealed class UiAuth
     public AWSCredentials Credentials { get; private set; }
     public UiSession? Session { get; private set; }
     public string? Error { get; set; }
+    public bool SignedOut { get; set; }
     public bool Anonymous => Credentials is AnonymousAWSCredentials;
 
     public void SignIn(UiSession session)

@@ -30,13 +30,21 @@
     </MudDrawer>
     <MudMainContent Class="v3-main">
         <MudContainer MaxWidth="MaxWidth.Large" Class="pa-6">
-            @if (Auth.Error is { } error)
+            @if (Auth.SignedOut)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => Login.Begin(prompt: true))">sign in</MudButton>
+            }
+            else if (Auth.Error is { } error)
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                    @error <MudLink OnClick="@(() => Login.SignOut(null))" Class="ml-2">sign in again</MudLink>
+                    @error <MudLink OnClick="@(() => Login.Retry())" Class="ml-2">sign in again</MudLink>
                 </MudAlert>
+                @Body
             }
-            @Body
+            else
+            {
+                @Body
+            }
         </MudContainer>
     </MudMainContent>
 </MudLayout>

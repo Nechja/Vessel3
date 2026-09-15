@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Vessel3.Server.Oidc;
 using Vessel3.Server.S3;
-using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.Ui;
 
@@ -19,6 +18,8 @@ internal static class UiEndpoints
         var contentTypes = new FileExtensionContentTypeProvider();
         var etag = $"\"{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId:N}\"";
         var basicGate = oidc is null && accessKey is not null && secretKey is not null;
+        var verifier = app.Services.GetRequiredService<ISigV4Verifier>();
+        var results = app.Services.GetRequiredService<IHttpResultMapper>();
 
         app.Use(async (ctx, next) =>
         {
@@ -37,26 +38,50 @@ internal static class UiEndpoints
 
             var rel = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
 
-            if (oidc is not null && IsPrivatePath(rel))
+            if (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
             {
-                var store = ctx.RequestServices.GetRequiredService<ICredentialStore>();
-                var now = ctx.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
-                if (!SessionBearerOk(ctx.Request.Headers.Authorization.ToString(), store, now))
+                if (rel == "config.json")
                 {
-                    ctx.Response.StatusCode = 401;
-                    ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\"vessel3\"";
+                    var config = oidc is null
+                        ? new UiConfig(accessKey ?? "", secretKey ?? "", region, null)
+                        : await OidcConfig(ctx, oidc, region);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.Headers.CacheControl = "no-store";
+                    await JsonSerializer.SerializeAsync(ctx.Response.Body, config, UiJsonContext.Default.UiConfig, ctx.RequestAborted);
                     return;
                 }
+
+                if (string.IsNullOrEmpty(rel)) rel = "index.html";
+                var info = assets.GetFileInfo(rel);
+                if (!info.Exists || info.IsDirectory)
+                {
+                    if (IsAssetPath(rel))
+                    {
+                        ctx.Response.StatusCode = 404;
+                        return;
+                    }
+                    info = assets.GetFileInfo("index.html");
+                }
+
+                ctx.Response.Headers.ETag = etag;
+                ctx.Response.Headers.CacheControl = "no-cache";
+                if (ctx.Request.Headers.IfNoneMatch.ToString() == etag)
+                {
+                    ctx.Response.StatusCode = 304;
+                    return;
+                }
+
+                ctx.Response.ContentType = contentTypes.TryGetContentType(info.Name, out var ct) ? ct : "application/octet-stream";
+                ctx.Response.ContentLength = info.Length;
+                if (HttpMethods.IsHead(ctx.Request.Method)) return;
+                await using var stream = info.CreateReadStream();
+                await stream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+                return;
             }
 
-            if (rel == "config.json")
+            if (oidc is not null && !verifier.Verify(ctx.Request).TryGetValue(out _, out var err))
             {
-                var config = oidc is null
-                    ? new UiConfig(accessKey ?? "", secretKey ?? "", region, null)
-                    : await OidcConfig(ctx, oidc, region);
-                ctx.Response.ContentType = "application/json";
-                ctx.Response.Headers.CacheControl = "no-store";
-                await JsonSerializer.SerializeAsync(ctx.Response.Body, config, UiJsonContext.Default.UiConfig, ctx.RequestAborted);
+                await results.Map(err).ExecuteAsync(ctx);
                 return;
             }
 
@@ -72,72 +97,8 @@ internal static class UiEndpoints
                 return;
             }
 
-            if (rel.StartsWith("upload/", StringComparison.Ordinal) && HttpMethods.IsPut(ctx.Request.Method))
-            {
-                await HandleUpload(ctx, rel["upload/".Length..]);
-                return;
-            }
-
-            if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method))
-            {
-                ctx.Response.StatusCode = 405;
-                return;
-            }
-
-            if (string.IsNullOrEmpty(rel)) rel = "index.html";
-            var info = assets.GetFileInfo(rel);
-            if (!info.Exists || info.IsDirectory)
-            {
-                if (IsAssetPath(rel))
-                {
-                    ctx.Response.StatusCode = 404;
-                    return;
-                }
-                info = assets.GetFileInfo("index.html");
-            }
-
-            ctx.Response.Headers.ETag = etag;
-            ctx.Response.Headers.CacheControl = "no-cache";
-            if (ctx.Request.Headers.IfNoneMatch.ToString() == etag)
-            {
-                ctx.Response.StatusCode = 304;
-                return;
-            }
-
-            ctx.Response.ContentType = contentTypes.TryGetContentType(info.Name, out var ct) ? ct : "application/octet-stream";
-            ctx.Response.ContentLength = info.Length;
-            if (HttpMethods.IsHead(ctx.Request.Method)) return;
-            await using var stream = info.CreateReadStream();
-            await stream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+            ctx.Response.StatusCode = 405;
         });
-    }
-
-    private static async Task HandleUpload(HttpContext ctx, string path)
-    {
-        if (!TryParseUploadPath(path, out var bucket, out var key))
-        {
-            ctx.Response.StatusCode = 400;
-            await ctx.Response.WriteAsync("upload path: /_ui/upload/{bucket}/{key}", ctx.RequestAborted);
-            return;
-        }
-
-        var objects = ctx.RequestServices.GetRequiredService<IObjectStore>();
-        var contentType = ctx.Request.ContentType ?? "application/octet-stream";
-        var put = await objects.Put(bucket, key, ctx.Request.Body, ctx.Request.ContentLength, contentType,
-            declaredSha256: null, declaredMd5Base64: null,
-            metadata: new Dictionary<string, string>(),
-            tags: new Dictionary<string, string>(),
-            declaredChecksums: ChecksumSet.Empty,
-            ct: ctx.RequestAborted);
-        if (!put.TryGetValue(out var outcome, out var err))
-        {
-            ctx.Response.StatusCode = err.Status;
-            await ctx.Response.WriteAsync(err.Message, ctx.RequestAborted);
-            return;
-        }
-        ctx.Response.Headers.ETag = $"\"{outcome.Etag}\"";
-        if (!string.IsNullOrEmpty(outcome.VersionId)) ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
-        ctx.Response.StatusCode = 200;
     }
 
     private static async Task<UiConfig> OidcConfig(HttpContext ctx, OidcOptions oidc, string region)
@@ -145,22 +106,6 @@ internal static class UiEndpoints
         var discovered = await ctx.RequestServices.GetRequiredService<IOidcDiscovery>().Get(ctx.RequestAborted);
         return new UiConfig("", "", region,
             new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint));
-    }
-
-    public static bool IsPrivatePath(string rel) =>
-        rel.StartsWith("admin/", StringComparison.Ordinal) || rel.StartsWith("upload/", StringComparison.Ordinal);
-
-    public static bool SessionBearerOk(string authorization, ICredentialStore store, DateTimeOffset now)
-    {
-        const string scheme = "Bearer ";
-        if (!authorization.StartsWith(scheme, StringComparison.Ordinal)) return false;
-        var colon = authorization.IndexOf(':', StringComparison.Ordinal);
-        if (colon < 0) return false;
-        var presented = authorization[(colon + 1)..];
-        return store.Find(authorization[scheme.Length..colon]) is { SessionToken: { } token, ExpiresAt: { } expires }
-            && expires > now
-            && presented.Length == token.Length
-            && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(token));
     }
 
     public static bool BasicAuthOk(string authorization, string accessKey, string secretKey)
@@ -182,17 +127,6 @@ internal static class UiEndpoints
         {
             return false;
         }
-    }
-
-    public static bool TryParseUploadPath(string path, out string bucket, out string key)
-    {
-        bucket = string.Empty;
-        key = string.Empty;
-        var slash = path.IndexOf('/', StringComparison.Ordinal);
-        if (slash <= 0 || slash == path.Length - 1) return false;
-        bucket = path[..slash];
-        key = path[(slash + 1)..];
-        return true;
     }
 
     // SPA routes never live under the framework dirs and never put a dot in a
