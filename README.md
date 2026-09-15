@@ -126,6 +126,8 @@ aws --endpoint-url http://127.0.0.1:9000 sts assume-role-with-web-identity \
   --web-identity-token "$TOKEN" --duration-seconds 3600
 ```
 
+With the `-ui` build, the web has a UI signs in through the issuer using authorization code with PKCE, trades the ID token at the same exchange, and signs its S3 calls with the session. Register a public client at the issuer with `<origin>/_ui/` as its redirect URI, and the same URI as a post-logout redirect.
+
 Sessions default to one hour, range 15 minutes to 12 hours, and live in memory, so a restart ends them. Tokens are verified against the issuer's JWKS (ES256 and RS256), with the key set refetched when an unknown `kid` appears. The static access key stays valid alongside sessions, and auth is enforced when either is configured.
 
 ## Durability
