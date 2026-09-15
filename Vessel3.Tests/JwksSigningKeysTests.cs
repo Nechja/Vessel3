@@ -36,11 +36,17 @@ public class JwksSigningKeysTests : IDisposable
     private static OidcOptions Options() =>
         OidcOptions.From("https://id.example.test", "vessel3", null, null).Match(o => o!, e => throw new InvalidOperationException(e.Message));
 
+    private static JwksSigningKeys Keys(HttpMessageHandler handler, TimeProvider clock)
+    {
+        var http = new HttpClient(handler);
+        return new JwksSigningKeys(new OidcDiscovery(Options(), http, clock), http, clock);
+    }
+
     [Fact]
     public async Task Fetches_discovery_then_jwks_on_first_lookup()
     {
         var handler = new StubHandler(idp.Jwks);
-        using var keys = new JwksSigningKeys(Options(), new HttpClient(handler), new TestClock(T0));
+        using var keys = Keys(handler, new TestClock(T0));
 
         var key = await keys.Find(idp.EcKid, CancellationToken.None);
 
@@ -54,7 +60,7 @@ public class JwksSigningKeysTests : IDisposable
     [Fact]
     public async Task Parses_rsa_keys_too()
     {
-        using var keys = new JwksSigningKeys(Options(), new HttpClient(new StubHandler(idp.Jwks)), new TestClock(T0));
+        using var keys = Keys(new StubHandler(idp.Jwks), new TestClock(T0));
         var key = await keys.Find(idp.RsaKid, CancellationToken.None);
         Assert.NotNull(key);
         Assert.True(key.Supports("RS256"));
@@ -66,7 +72,7 @@ public class JwksSigningKeysTests : IDisposable
     public async Task Cached_key_does_not_refetch()
     {
         var handler = new StubHandler(idp.Jwks);
-        using var keys = new JwksSigningKeys(Options(), new HttpClient(handler), new TestClock(T0));
+        using var keys = Keys(handler, new TestClock(T0));
 
         await keys.Find(idp.EcKid, CancellationToken.None);
         await keys.Find(idp.EcKid, CancellationToken.None);
@@ -80,7 +86,7 @@ public class JwksSigningKeysTests : IDisposable
         var published = idp.Jwks();
         var handler = new StubHandler(() => published);
         var clock = new TestClock(T0);
-        using var keys = new JwksSigningKeys(Options(), new HttpClient(handler), clock);
+        using var keys = Keys(handler, clock);
 
         Assert.NotNull(await keys.Find(idp.EcKid, CancellationToken.None));
         Assert.Null(await keys.Find("rotated", CancellationToken.None));
@@ -98,7 +104,7 @@ public class JwksSigningKeysTests : IDisposable
     public async Task Idp_outage_yields_no_key_rather_than_throwing()
     {
         var handler = new StubHandler(() => throw new HttpRequestException("down"));
-        using var keys = new JwksSigningKeys(Options(), new HttpClient(handler), new TestClock(T0));
+        using var keys = Keys(handler, new TestClock(T0));
         Assert.Null(await keys.Find(idp.EcKid, CancellationToken.None));
     }
 

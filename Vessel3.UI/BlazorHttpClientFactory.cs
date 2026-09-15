@@ -3,10 +3,10 @@ using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
 namespace Vessel3.UI;
 
-internal sealed class BlazorHttpClientFactory : HttpClientFactory
+internal sealed class BlazorHttpClientFactory(UiAuth auth, Login login) : HttpClientFactory
 {
     public override HttpClient CreateHttpClient(IClientConfig clientConfig) =>
-        new(new BrowserStreamingHandler { InnerHandler = new HttpClientHandler() });
+        new(new SessionGuardHandler(auth, login) { InnerHandler = new BrowserStreamingHandler { InnerHandler = new HttpClientHandler() } });
 
     public override bool UseSDKHttpClientCaching(IClientConfig clientConfig) => true;
     public override bool DisposeHttpClientsAfterUse(IClientConfig clientConfig) => false;

@@ -1,5 +1,7 @@
 @inherits LayoutComponentBase
 @inject UiConfig Config
+@inject UiAuth Auth
+@inject Login Login
 
 <MudThemeProvider Theme="Vessel3Theme.Dark" IsDarkMode="true" />
 <MudPopoverProvider />
@@ -9,6 +11,11 @@
 <MudLayout>
     <MudAppBar Elevation="0" Dense="true" Class="v3-appbar">
         <MudSpacer />
+        @if (Auth.Session is { } session)
+        {
+            <span class="v3-mono v3-muted mr-3">@session.Subject</span>
+            <MudIconButton Icon="@Icons.Material.Outlined.Logout" Size="Size.Small" Color="Color.Inherit" OnClick="@(() => Login.SignOut(session))" />
+        }
         <span class="v3-region">@Config.Region</span>
     </MudAppBar>
     <MudDrawer Open="true" Variant="DrawerVariant.Persistent" Elevation="0" Class="v3-drawer">
@@ -23,6 +30,12 @@
     </MudDrawer>
     <MudMainContent Class="v3-main">
         <MudContainer MaxWidth="MaxWidth.Large" Class="pa-6">
+            @if (Auth.Error is { } error)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @error <MudLink OnClick="@(() => Login.SignOut(null))" Class="ml-2">sign in again</MudLink>
+                </MudAlert>
+            }
             @Body
         </MudContainer>
     </MudMainContent>

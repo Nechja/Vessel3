@@ -122,7 +122,7 @@ internal interface ISigningKeys
     Task<SigningKey?> Find(string kid, CancellationToken ct);
 }
 
-internal sealed class JwksSigningKeys(OidcOptions options, HttpClient http, TimeProvider clock) : ISigningKeys, IDisposable
+internal sealed class JwksSigningKeys(IOidcDiscovery discovery, HttpClient http, TimeProvider clock) : ISigningKeys, IDisposable
 {
     private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromMinutes(1);
     private readonly SemaphoreSlim refreshLock = new(1, 1);
@@ -136,11 +136,7 @@ internal sealed class JwksSigningKeys(OidcOptions options, HttpClient http, Time
         return keys.TryGetValue(kid, out key) ? key : null;
     }
 
-    public void Dispose()
-    {
-        refreshLock.Dispose();
-        http.Dispose();
-    }
+    public void Dispose() => refreshLock.Dispose();
 
     private async Task Refresh(CancellationToken ct)
     {
@@ -151,8 +147,7 @@ internal sealed class JwksSigningKeys(OidcOptions options, HttpClient http, Time
             if (now - lastRefresh < MinRefreshInterval) return;
             lastRefresh = now;
 
-            using var discovery = JsonDocument.Parse(await http.GetByteArrayAsync(options.DiscoveryUrl, ct));
-            if (!discovery.RootElement.TryGetProperty("jwks_uri", out var jwksUri) || jwksUri.GetString() is not { Length: > 0 } url) return;
+            if ((await discovery.Get(ct))?.JwksUri is not { Length: > 0 } url) return;
             var fetched = SigningKey.ParseJwks(await http.GetByteArrayAsync(url, ct));
             keys = fetched.ToDictionary(k => k.Kid, StringComparer.Ordinal);
         }

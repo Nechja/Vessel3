@@ -5,18 +5,20 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
+using Vessel3.Server.Oidc;
+using Vessel3.Server.S3;
 using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.Ui;
 
 internal static class UiEndpoints
 {
-    public static void UseVessel3Ui(this WebApplication app, string? accessKey, string? secretKey, string region)
+    public static void UseVessel3Ui(this WebApplication app, string? accessKey, string? secretKey, string region, OidcOptions? oidc)
     {
         var assets = new ManifestEmbeddedFileProvider(Assembly.GetExecutingAssembly(), "wwwroot");
         var contentTypes = new FileExtensionContentTypeProvider();
-        var config = new UiConfig(accessKey ?? "", secretKey ?? "", region);
         var etag = $"\"{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId:N}\"";
+        var basicGate = oidc is null && accessKey is not null && secretKey is not null;
 
         app.Use(async (ctx, next) =>
         {
@@ -26,8 +28,7 @@ internal static class UiEndpoints
                 return;
             }
 
-            if (accessKey is not null && secretKey is not null
-                && !BasicAuthOk(ctx.Request.Headers.Authorization.ToString(), accessKey, secretKey))
+            if (basicGate && !BasicAuthOk(ctx.Request.Headers.Authorization.ToString(), accessKey!, secretKey!))
             {
                 ctx.Response.StatusCode = 401;
                 ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
@@ -36,8 +37,23 @@ internal static class UiEndpoints
 
             var rel = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
 
+            if (oidc is not null && IsPrivatePath(rel))
+            {
+                var store = ctx.RequestServices.GetRequiredService<ICredentialStore>();
+                var now = ctx.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+                if (!SessionBearerOk(ctx.Request.Headers.Authorization.ToString(), store, now))
+                {
+                    ctx.Response.StatusCode = 401;
+                    ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\"vessel3\"";
+                    return;
+                }
+            }
+
             if (rel == "config.json")
             {
+                var config = oidc is null
+                    ? new UiConfig(accessKey ?? "", secretKey ?? "", region, null)
+                    : await OidcConfig(ctx, oidc, region);
                 ctx.Response.ContentType = "application/json";
                 ctx.Response.Headers.CacheControl = "no-store";
                 await JsonSerializer.SerializeAsync(ctx.Response.Body, config, UiJsonContext.Default.UiConfig, ctx.RequestAborted);
@@ -122,6 +138,29 @@ internal static class UiEndpoints
         ctx.Response.Headers.ETag = $"\"{outcome.Etag}\"";
         if (!string.IsNullOrEmpty(outcome.VersionId)) ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
         ctx.Response.StatusCode = 200;
+    }
+
+    private static async Task<UiConfig> OidcConfig(HttpContext ctx, OidcOptions oidc, string region)
+    {
+        var discovered = await ctx.RequestServices.GetRequiredService<IOidcDiscovery>().Get(ctx.RequestAborted);
+        return new UiConfig("", "", region,
+            new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint));
+    }
+
+    public static bool IsPrivatePath(string rel) =>
+        rel.StartsWith("admin/", StringComparison.Ordinal) || rel.StartsWith("upload/", StringComparison.Ordinal);
+
+    public static bool SessionBearerOk(string authorization, ICredentialStore store, DateTimeOffset now)
+    {
+        const string scheme = "Bearer ";
+        if (!authorization.StartsWith(scheme, StringComparison.Ordinal)) return false;
+        var colon = authorization.IndexOf(':', StringComparison.Ordinal);
+        if (colon < 0) return false;
+        var presented = authorization[(colon + 1)..];
+        return store.Find(authorization[scheme.Length..colon]) is { SessionToken: { } token, ExpiresAt: { } expires }
+            && expires > now
+            && presented.Length == token.Length
+            && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(token));
     }
 
     public static bool BasicAuthOk(string authorization, string accessKey, string secretKey)

@@ -107,8 +107,9 @@ builder.Services.AddSingleton<ICredentialStore>(sp => new CredentialStore(rootCr
 if (oidc is not null)
 {
     builder.Services.AddSingleton(oidc);
-    builder.Services.AddSingleton<ISigningKeys>(sp => new JwksSigningKeys(
-        oidc, new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, sp.GetRequiredService<TimeProvider>()));
+    builder.Services.AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
+    builder.Services.AddSingleton<IOidcDiscovery, OidcDiscovery>();
+    builder.Services.AddSingleton<ISigningKeys, JwksSigningKeys>();
     builder.Services.AddSingleton<ITokenVerifier, TokenVerifier>();
 }
 if (rootCredential is not null || oidc is not null)
@@ -161,7 +162,7 @@ app.Use(async (ctx, next) =>
 });
 
 #if VESSEL3_UI
-app.UseVessel3Ui(accessKey, secretKey, region);
+app.UseVessel3Ui(accessKey, secretKey, region, oidc);
 #endif
 
 if (oidc is not null)

@@ -106,3 +106,62 @@ public class UiEndpointsTests
         Assert.False(UiEndpoints.IsAssetPath(rel));
     }
 }
+
+public class UiSessionBearerTests
+{
+    private static readonly DateTimeOffset T0 = new(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
+
+    private static (Vessel3.Server.S3.CredentialStore Store, Vessel3.Server.S3.Credential Session) Issued()
+    {
+        var store = new Vessel3.Server.S3.CredentialStore(new Vessel3.Server.S3.Credential("AKIAROOT", "secret", null, null), new TestClock(T0));
+        return (store, store.IssueSession("acct_kayla", TimeSpan.FromHours(1)));
+    }
+
+    [Fact]
+    public void Accepts_live_session()
+    {
+        var (store, session) = Issued();
+        Assert.True(UiEndpoints.SessionBearerOk($"Bearer {session.AccessKey}:{session.SessionToken}", store, T0));
+    }
+
+    [Fact]
+    public void Rejects_expired_session()
+    {
+        var (store, session) = Issued();
+        Assert.False(UiEndpoints.SessionBearerOk($"Bearer {session.AccessKey}:{session.SessionToken}", store, T0 + TimeSpan.FromHours(1)));
+    }
+
+    [Fact]
+    public void Rejects_wrong_token()
+    {
+        var (store, session) = Issued();
+        Assert.False(UiEndpoints.SessionBearerOk($"Bearer {session.AccessKey}:nope", store, T0));
+    }
+
+    [Fact]
+    public void Rejects_root_key_even_with_secret()
+    {
+        var (store, _) = Issued();
+        Assert.False(UiEndpoints.SessionBearerOk("Bearer AKIAROOT:secret", store, T0));
+    }
+
+    [Fact]
+    public void Rejects_unknown_key_and_malformed_headers()
+    {
+        var (store, session) = Issued();
+        Assert.False(UiEndpoints.SessionBearerOk("Bearer ASIANOPE:x", store, T0));
+        Assert.False(UiEndpoints.SessionBearerOk($"Bearer {session.AccessKey}", store, T0));
+        Assert.False(UiEndpoints.SessionBearerOk($"Basic {session.AccessKey}:{session.SessionToken}", store, T0));
+        Assert.False(UiEndpoints.SessionBearerOk("", store, T0));
+    }
+
+    [Fact]
+    public void Private_paths_are_upload_and_admin()
+    {
+        Assert.True(UiEndpoints.IsPrivatePath("upload/b/k"));
+        Assert.True(UiEndpoints.IsPrivatePath("admin/gc"));
+        Assert.False(UiEndpoints.IsPrivatePath("config.json"));
+        Assert.False(UiEndpoints.IsPrivatePath("index.html"));
+        Assert.False(UiEndpoints.IsPrivatePath("_framework/blazor.webassembly.js"));
+    }
+}
