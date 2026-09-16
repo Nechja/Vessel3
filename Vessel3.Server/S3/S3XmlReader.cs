@@ -114,7 +114,7 @@ internal sealed class S3XmlReader : IS3XmlReader
                         currentField = r.LocalName;
                         break;
                     case XmlNodeType.Text:
-                        if (currentField is "Status") statusValue = r.Value;
+                        if (currentField is "Status") statusValue = await r.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement:
                         currentField = null;
@@ -169,8 +169,8 @@ internal sealed class S3XmlReader : IS3XmlReader
                     currentField = sub.LocalName;
                     break;
                 case XmlNodeType.Text or XmlNodeType.CDATA:
-                    if (currentField is "Key") key = sub.Value;
-                    else if (currentField is "Value") value = sub.Value;
+                    if (currentField is "Key") key = await sub.GetValueAsync();
+                    else if (currentField is "Value") value = await sub.GetValueAsync();
                     break;
                 case XmlNodeType.EndElement:
                     currentField = null;
@@ -198,13 +198,13 @@ internal sealed class S3XmlReader : IS3XmlReader
                     switch (currentField)
                     {
                         case "PartNumber":
-                            if (int.TryParse(sub.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) number = n;
+                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) number = n;
                             break;
-                        case "ETag": etag = sub.Value.Trim('"'); break;
-                        case "ChecksumCRC32":   c32 = ChecksumAlgorithms.Base64ToHex(sub.Value); break;
-                        case "ChecksumCRC32C":  c32c = ChecksumAlgorithms.Base64ToHex(sub.Value); break;
-                        case "ChecksumSHA1":    s1 = ChecksumAlgorithms.Base64ToHex(sub.Value); break;
-                        case "ChecksumSHA256":  s256 = ChecksumAlgorithms.Base64ToHex(sub.Value); break;
+                        case "ETag": etag = (await sub.GetValueAsync()).Trim('"'); break;
+                        case "ChecksumCRC32":   c32 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
+                        case "ChecksumCRC32C":  c32c = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
+                        case "ChecksumSHA1":    s1 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
+                        case "ChecksumSHA256":  s256 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
                     }
                     break;
                 case XmlNodeType.EndElement:
@@ -238,13 +238,13 @@ internal sealed class S3XmlReader : IS3XmlReader
                     case XmlNodeType.Text or XmlNodeType.CDATA:
                         switch (current)
                         {
-                            case "ObjectLockEnabled": enabled = r.Value; break;
-                            case "Mode": mode = r.Value; break;
+                            case "ObjectLockEnabled": enabled = await r.GetValueAsync(); break;
+                            case "Mode": mode = await r.GetValueAsync(); break;
                             case "Days":
-                                if (int.TryParse(r.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
+                                if (int.TryParse(await r.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
                                 break;
                             case "Years":
-                                if (int.TryParse(r.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var y)) years = y;
+                                if (int.TryParse(await r.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var y)) years = y;
                                 break;
                         }
                         break;
@@ -330,14 +330,14 @@ internal sealed class S3XmlReader : IS3XmlReader
                 case XmlNodeType.Text or XmlNodeType.CDATA:
                     switch (currentField)
                     {
-                        case "ID": id = sub.Value; break;
-                        case "Status": status = sub.Value; break;
-                        case "Prefix": prefix = sub.Value; break;
+                        case "ID": id = await sub.GetValueAsync(); break;
+                        case "Status": status = await sub.GetValueAsync(); break;
+                        case "Prefix": prefix = await sub.GetValueAsync(); break;
                         case "Days" when section is "Expiration":
-                            if (int.TryParse(sub.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
+                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
                             break;
                         case "ExpiredObjectDeleteMarker":
-                            expiredMarker = sub.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
+                            expiredMarker = (await sub.GetValueAsync()).Equals("true", StringComparison.OrdinalIgnoreCase);
                             break;
                     }
                     break;
@@ -380,8 +380,8 @@ internal sealed class S3XmlReader : IS3XmlReader
                 {
                     case XmlNodeType.Element: current = r.LocalName; break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
-                        if (current is "Mode") mode = r.Value;
-                        else if (current is "RetainUntilDate") until = r.Value;
+                        if (current is "Mode") mode = await r.GetValueAsync();
+                        else if (current is "RetainUntilDate") until = await r.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement: current = null; break;
                 }
@@ -414,7 +414,7 @@ internal sealed class S3XmlReader : IS3XmlReader
                 {
                     case XmlNodeType.Element: current = r.LocalName; break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
-                        if (current is "Status") status = r.Value;
+                        if (current is "Status") status = await r.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement: current = null; break;
                 }
