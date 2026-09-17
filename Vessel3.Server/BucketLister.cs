@@ -78,7 +78,7 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
     }
 
     private static KeyBound Resume(ListRequest req, string key) =>
-        CommonPrefixOf(req, key) == key ? KeyBound.From(NextAfterPrefix(key)) : KeyBound.After(key);
+        CommonPrefixOf(req, key) == key && KeyRange.Successor(key) is { } next ? KeyBound.From(next) : KeyBound.After(key);
 
     private static string? CommonPrefixOf(ListRequest req, string key)
     {
@@ -88,7 +88,4 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
         var slash = key.AsSpan(prefix.Length).IndexOf('/');
         return slash < 0 ? null : key[..(prefix.Length + slash + 1)];
     }
-
-    private static string NextAfterPrefix(string prefix) =>
-        prefix[..^1] + (char)(prefix[^1] + 1);
 }

@@ -335,29 +335,30 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     private static bool ReadLegalHold(Microsoft.Data.Sqlite.SqliteDataReader r, int col) =>
         !r.IsDBNull(col) && r.GetInt64(col) is 1;
 
-    public (List<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit)
+    internal static string ListAllVersionsSql(string? prefix, string? hi, string? keyMarker)
     {
-        using var rh = ReadCmd();
-        var cmd = rh.Cmd;
         var sql = """
             SELECT key, version_id, kind, md5, size, at_ms, parts_json
               FROM versions
             """;
         var clauses = new List<string>();
-        if (prefix is not null)
-        {
-            clauses.Add("key LIKE $p ESCAPE '\\'");
-            cmd.Parameters.AddWithValue("$p", EscapeLike(prefix) + "%");
-        }
-        if (keyMarker is not null)
-        {
-            clauses.Add("key > $km");
-            cmd.Parameters.AddWithValue("$km", keyMarker);
-        }
+        if (prefix is not null) clauses.Add("key >= $lo");
+        if (hi is not null) clauses.Add("key < $hi");
+        if (keyMarker is not null) clauses.Add("key > $km");
         if (clauses.Count > 0) sql += " WHERE " + string.Join(" AND ", clauses);
-        sql += " ORDER BY key ASC, seq DESC LIMIT $lim";
+        return sql + " ORDER BY key ASC, seq DESC LIMIT $lim";
+    }
+
+    public (List<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit)
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        var hi = prefix is null ? null : KeyRange.Successor(prefix);
+        cmd.CommandText = ListAllVersionsSql(prefix, hi, keyMarker);
+        if (prefix is not null) cmd.Parameters.AddWithValue("$lo", prefix);
+        if (hi is not null) cmd.Parameters.AddWithValue("$hi", hi);
+        if (keyMarker is not null) cmd.Parameters.AddWithValue("$km", keyMarker);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
-        cmd.CommandText = sql;
 
         var results = new List<AllVersionsEntry>(limit);
         using var r = cmd.ExecuteReader();
@@ -380,10 +381,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return (results, truncated);
     }
 
-    public (List<VersionListEntry> Entries, bool IsTruncated) ListCurrent(string? prefix, KeyBound? from, int limit)
+    internal static string ListCurrentSql(string? prefix, string? hi, KeyBound? from)
     {
-        using var rh = ReadCmd();
-        var cmd = rh.Cmd;
         var sql = """
             SELECT v1.key, v1.md5, v1.size, v1.at_ms,
                    CASE WHEN v1.parts_json = '' THEN 0 ELSE json_array_length(v1.parts_json) END
@@ -391,20 +390,23 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
              WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
                AND v1.kind = $kp
             """;
+        if (prefix is not null) sql += " AND v1.key >= $lo ";
+        if (hi is not null) sql += " AND v1.key < $hi ";
+        if (from is { } f) sql += f.Inclusive ? " AND v1.key >= $from " : " AND v1.key > $from ";
+        return sql + " ORDER BY v1.key LIMIT $lim";
+    }
+
+    public (List<VersionListEntry> Entries, bool IsTruncated) ListCurrent(string? prefix, KeyBound? from, int limit)
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        var hi = prefix is null ? null : KeyRange.Successor(prefix);
+        cmd.CommandText = ListCurrentSql(prefix, hi, from);
         cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
-        if (prefix is not null)
-        {
-            sql += " AND v1.key LIKE $p ESCAPE '\\' ";
-            cmd.Parameters.AddWithValue("$p", EscapeLike(prefix) + "%");
-        }
-        if (from is { } f)
-        {
-            sql += f.Inclusive ? " AND v1.key >= $from " : " AND v1.key > $from ";
-            cmd.Parameters.AddWithValue("$from", f.Key);
-        }
-        sql += " ORDER BY v1.key LIMIT $lim";
+        if (prefix is not null) cmd.Parameters.AddWithValue("$lo", prefix);
+        if (hi is not null) cmd.Parameters.AddWithValue("$hi", hi);
+        if (from is { } f) cmd.Parameters.AddWithValue("$from", f.Key);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
-        cmd.CommandText = sql;
 
         var results = new List<VersionListEntry>(limit);
         using var r = cmd.ExecuteReader();
@@ -483,11 +485,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             if (rows < pageSize) yield break;
         }
     }
-
-    private string EscapeLike(string s) =>
-        s.Replace("\\", "\\\\", StringComparison.Ordinal)
-         .Replace("%", "\\%", StringComparison.Ordinal)
-         .Replace("_", "\\_", StringComparison.Ordinal);
 
     private void EnsureSchema()
     {
