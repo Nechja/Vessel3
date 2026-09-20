@@ -9,7 +9,9 @@ internal interface IS3KeyActionDispatcher
 
 internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IHttpResultMapper http) : IS3KeyActionDispatcher
 {
-    private readonly FrozenDictionary<S3KeyRoute, IS3KeyAction> table = actions.ToFrozenDictionary(a => a.Route);
+    private readonly FrozenDictionary<S3KeyRoute, Entry> table = actions.ToFrozenDictionary(a => a.Route, a => new Entry(a, a.GetType().Name));
+
+    private readonly record struct Entry(IS3KeyAction Action, string Name);
 
     public Task<IResult> Dispatch(string method, string bucket, string key, HttpContext ctx)
     {
@@ -18,8 +20,22 @@ internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, I
             ? S3KeyHeaderFlag.CopySource
             : S3KeyHeaderFlag.None;
 
-        return table.TryGetValue(new S3KeyRoute(method, sub, headerFlag), out var action) ? action.Invoke(bucket, key, ctx)
-            : sub is not S3KeySubresource.None && table.TryGetValue(new S3KeyRoute(method, S3KeySubresource.None, headerFlag), out var fallback) ? fallback.Invoke(bucket, key, ctx)
+        return table.TryGetValue(new S3KeyRoute(method, sub, headerFlag), out var entry) ? Invoke(entry, bucket, key, ctx)
+            : sub is not S3KeySubresource.None && table.TryGetValue(new S3KeyRoute(method, S3KeySubresource.None, headerFlag), out var fallback) ? Invoke(fallback, bucket, key, ctx)
             : Task.FromResult(http.Map(new MethodNotAllowedError($"{method} on key with subresource {sub} headerFlag {headerFlag}")));
+    }
+
+    private static async Task<IResult> Invoke(Entry entry, string bucket, string key, HttpContext ctx)
+    {
+        var trace = RequestTrace.Current;
+        if (trace is not null)
+        {
+            trace.Action = entry.Name;
+            trace.Bucket = bucket;
+            trace.Key = key;
+        }
+        var result = await entry.Action.Invoke(bucket, key, ctx);
+        trace?.MarkHandled();
+        return result;
     }
 }

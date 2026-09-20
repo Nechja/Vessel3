@@ -61,6 +61,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
             try
             {
+                using var sync = RequestTrace.Time(Stage.LogSync);
                 writer.Write(Frame(payload, crc));
                 if (fileSync.SyncData(writer) is Result.Failure f) throw new IOException(f.Error.Message);
             }

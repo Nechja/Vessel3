@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Vessel3.Server;
 using Vessel3.Server.Lifecycle;
@@ -201,8 +202,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public PutEntry AppendPut(string key, PutRequest req)
     {
+        var waited = Stopwatch.GetTimestamp();
         lock (writeGate)
         {
+            RequestTrace.Since(Stage.WriteLock, waited);
             if (sealedForDelete) throw new InvalidOperationException($"bucket {Name} is being deleted");
             var versionId = Versioning is VersioningStatus.Suspended ? "null" : Ulid.NewUlid().ToString();
             var putEvent = new PutEvent(
@@ -226,6 +229,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             var applied = log.Append(hardDelete is null ? [putEvent] : [hardDelete, putEvent]);
             var assignedPut = (PutEvent)applied[^1];
 
+            using (RequestTrace.Time(Stage.IndexCommit))
             using (var tx = Index.BeginTransaction())
             {
                 foreach (var op in applied) op.ApplyTo(Index);
@@ -241,8 +245,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public PutTaggingOutcome AppendPutTagging(string key, string versionId, IReadOnlyDictionary<string, string> tags)
     {
+        var waited = Stopwatch.GetTimestamp();
         lock (writeGate)
         {
+            RequestTrace.Since(Stage.WriteLock, waited);
             log.Append(new PutTaggingEvent(0, DateTimeOffset.UtcNow, key, versionId, tags)).ApplyTo(Index);
             return new PutTaggingOutcome(versionId);
         }
@@ -257,8 +263,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public IReadOnlyList<Result<DeleteOutcome>> AppendDeleteBatch(IReadOnlyList<BatchDeleteItem> items)
     {
         var results = new Result<DeleteOutcome>[items.Count];
+        var waited = Stopwatch.GetTimestamp();
         lock (writeGate)
         {
+            RequestTrace.Since(Stage.WriteLock, waited);
             if (sealedForDelete)
             {
                 for (var i = 0; i < items.Count; i++) results[i] = new NoSuchBucketError(Name);
@@ -299,6 +307,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         if (events.Count > 0)
         {
             var applied = log.Append(events);
+            using var commit = RequestTrace.Time(Stage.IndexCommit);
             using var tx = Index.BeginTransaction();
             foreach (var op in applied) op.ApplyTo(Index);
             tx.Commit();
@@ -369,8 +378,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public Result PutRetention(string key, string versionId, Retention next, bool bypassGovernance)
     {
+        var waited = Stopwatch.GetTimestamp();
         lock (writeGate)
         {
+            RequestTrace.Since(Stage.WriteLock, waited);
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
                 return new NoSuchVersionError(key, versionId);
 
@@ -392,8 +403,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public Result PutLegalHold(string key, string versionId, bool on)
     {
+        var waited = Stopwatch.GetTimestamp();
         lock (writeGate)
         {
+            RequestTrace.Since(Stage.WriteLock, waited);
             if (Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
                 return new NoSuchVersionError(key, versionId);
             log.Append(new PutLegalHoldEvent(0, DateTimeOffset.UtcNow, key, versionId, on)).ApplyTo(Index);

@@ -35,7 +35,7 @@ internal sealed class GcGate : IGcGate, IDisposable
 
     private async Task<IDisposable> WaitForWriteTurn(TaskCompletionSource queued)
     {
-        await queued.Task;
+        using (RequestTrace.Time(Stage.GateWait)) await queued.Task;
         return new WriteLease(this);
     }
 

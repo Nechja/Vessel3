@@ -144,14 +144,16 @@ app.Use(async (ctx, next) =>
         return;
     }
 
-    var start = Stopwatch.GetTimestamp();
+    var trace = new RequestTrace();
+    RequestTrace.Current = trace;
     try
     {
         await next(ctx);
     }
     finally
     {
-        var elapsed = Stopwatch.GetTimestamp() - start;
+        RequestTrace.Current = null;
+        var elapsed = Stopwatch.GetTimestamp() - trace.StartedAt;
         var methodIdx = Metrics.MethodIndex(ctx.Request.Method);
         var statusIdx = Metrics.StatusIndex(ctx.Response.StatusCode);
         Metrics.RecordRequest(
