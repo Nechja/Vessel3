@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -76,7 +77,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     private ReadHandle ReadCmd()
     {
         var connection = readConn ?? throw new ObjectDisposedException(nameof(BucketIndex));
+        var start = Stopwatch.GetTimestamp();
         Monitor.Enter(readGate);
+        RequestTrace.Since(Stage.ReadLock, start);
         try
         {
             return new ReadHandle(connection.CreateCommand(), readGate);
@@ -92,8 +95,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         public SqliteCommand Cmd { get; } = cmd;
         private readonly object gate = gate;
+        private readonly long start = Stopwatch.GetTimestamp();
 
-        public void Dispose() { Cmd.Dispose(); Monitor.Exit(gate); }
+        public void Dispose()
+        {
+            RequestTrace.Since(Stage.Query, start);
+            Cmd.Dispose();
+            Monitor.Exit(gate);
+        }
     }
 
     public long MaxSeq()
