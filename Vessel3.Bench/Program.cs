@@ -188,8 +188,8 @@ static void PrintUsage()
     Console.WriteLine("  list        prefix ListObjectsV2 against pre-seeded bucket");
     Console.WriteLine("  bulk-delete seed then delete in 1000-key batches");
     Console.WriteLine("  loki        40% GET / 40% 1.5 MB PUT / 20% LIST, bulk delete every 500 puts per worker");
-    Console.WriteLine("  loki-single same mix, but deletes one key per request once 500 are pending (what Loki does)");
-    Console.WriteLine("  list-growth seed in doubling steps up to --seed-keys (min 16000); first-page LIST latency at each size");
+    Console.WriteLine("  loki-single same mix, but deletes one key per request once 100 are pending (what Loki does)");
+    Console.WriteLine("  list-growth seed in doubling steps up to --seed-keys (min 16000); 100-key LIST latency at each size");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");

@@ -143,7 +143,7 @@ internal static class Scenarios
     {
         var listed = await s3.ListObjectsV2Async(new ListObjectsV2Request
         {
-            BucketName = opts.Bucket, Prefix = prefix, MaxKeys = 1000,
+            BucketName = opts.Bucket, Prefix = prefix, MaxKeys = 100,
         }, ct);
         return listed.KeyCount ?? 0;
     }
@@ -200,7 +200,7 @@ internal static class Scenarios
 
         return await RunWorkload(opts, async (wid, ct) =>
         {
-            if (pending[wid].Count >= 500)
+            if (pending[wid].Count >= (batchDelete ? 500 : 100))
             {
                 if (!batchDelete)
                 {
