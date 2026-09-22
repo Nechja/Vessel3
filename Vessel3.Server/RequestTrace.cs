@@ -18,6 +18,10 @@ internal sealed class RequestTrace
     public long HandledTicks { get; private set; }
 
     public void MarkHandled() => HandledTicks = Stopwatch.GetTimestamp() - StartedAt;
+    public static void SetAction(string action)
+    {
+        if (current.Value is { } trace) trace.Action = action;
+    }
     public long Ticks(Stage stage) => Interlocked.Read(ref ticks[(int)stage]);
     public void Add(Stage stage, long elapsed) => Interlocked.Add(ref ticks[(int)stage], elapsed);
 
