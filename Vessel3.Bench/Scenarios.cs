@@ -12,6 +12,8 @@ internal sealed record BenchOptions(
     int ObjectSize,
     int SeedKeys);
 
+internal sealed record GrowthStep(int Keys, LatencySummary ListEnd, LatencySummary ListMiss);
+
 internal static class Scenarios
 {
     public static async Task<LatencySummary> PutSmall(AmazonS3Client s3, BenchOptions opts)
@@ -119,6 +121,33 @@ internal static class Scenarios
         });
     }
 
+    public static async Task<IReadOnlyList<GrowthStep>> ListGrowth(AmazonS3Client s3, BenchOptions opts)
+    {
+        await EnsureBucket(s3, opts);
+        var target = Math.Max(opts.SeedKeys, 16_000);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
+        var steps = new List<GrowthStep>();
+        var seeded = 0;
+        for (var n = 1000; ; n = Math.Min(n * 2, target))
+        {
+            await SeedPrefixed(s3, opts, size, ChunkKey, seeded, n - seeded);
+            seeded = n;
+            var end = await RunWorkload(opts, (_, ct) => ListFirstPage(s3, opts, "chunks/f/", ct));
+            var miss = await RunWorkload(opts, (_, ct) => ListFirstPage(s3, opts, "index/", ct));
+            steps.Add(new GrowthStep(n, end, miss));
+            if (n >= target) return steps;
+        }
+    }
+
+    private static async Task<long> ListFirstPage(AmazonS3Client s3, BenchOptions opts, string prefix, CancellationToken ct)
+    {
+        var listed = await s3.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = opts.Bucket, Prefix = prefix, MaxKeys = 100,
+        }, ct);
+        return listed.KeyCount ?? 0;
+    }
+
     public static async Task<LatencySummary> BulkDelete(AmazonS3Client s3, BenchOptions opts)
     {
         await EnsureBucket(s3, opts);
@@ -149,7 +178,11 @@ internal static class Scenarios
         return recorder.Summarize(sw.Elapsed);
     }
 
-    public static async Task<LatencySummary> Loki(AmazonS3Client s3, BenchOptions opts)
+    public static Task<LatencySummary> Loki(AmazonS3Client s3, BenchOptions opts) => RunLoki(s3, opts, batchDelete: true);
+
+    public static Task<LatencySummary> LokiSingleDelete(AmazonS3Client s3, BenchOptions opts) => RunLoki(s3, opts, batchDelete: false);
+
+    private static async Task<LatencySummary> RunLoki(AmazonS3Client s3, BenchOptions opts, bool batchDelete)
     {
         await EnsureBucket(s3, opts);
         var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1536 * 1024;
@@ -167,8 +200,15 @@ internal static class Scenarios
 
         return await RunWorkload(opts, async (wid, ct) =>
         {
-            if (pending[wid].Count >= 500)
+            if (pending[wid].Count >= (batchDelete ? 500 : 100))
             {
+                if (!batchDelete)
+                {
+                    var single = pending[wid][0];
+                    pending[wid].RemoveAt(0);
+                    await s3.DeleteObjectAsync(opts.Bucket, single, ct);
+                    return 1;
+                }
                 var batch = pending[wid].Select(k => new KeyVersion { Key = k }).ToList();
                 pending[wid].Clear();
                 await s3.DeleteObjectsAsync(new DeleteObjectsRequest
@@ -211,11 +251,14 @@ internal static class Scenarios
 
     private static string ChunkKey(int i) => $"chunks/{i % 16:x}/{i / 1000:D5}/{i:D7}";
 
-    private static async Task<string[]> SeedPrefixed(AmazonS3Client s3, BenchOptions opts, int size, Func<int, string> keyFor)
+    private static Task<string[]> SeedPrefixed(AmazonS3Client s3, BenchOptions opts, int size, Func<int, string> keyFor) =>
+        SeedPrefixed(s3, opts, size, keyFor, 0, opts.SeedKeys);
+
+    private static async Task<string[]> SeedPrefixed(AmazonS3Client s3, BenchOptions opts, int size, Func<int, string> keyFor, int from, int count)
     {
         var payload = new byte[size];
         Random.Shared.NextBytes(payload);
-        var keys = new string[opts.SeedKeys];
+        var keys = new string[count];
         var next = -1;
 
         async Task Worker()
@@ -224,7 +267,7 @@ internal static class Scenarios
             {
                 var i = Interlocked.Increment(ref next);
                 if (i >= keys.Length) return;
-                keys[i] = keyFor(i);
+                keys[i] = keyFor(from + i);
                 using var ms = new MemoryStream(payload);
                 await s3.PutObjectAsync(new PutObjectRequest
                 {
