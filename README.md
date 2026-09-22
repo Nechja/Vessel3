@@ -98,6 +98,7 @@ All via environment variables. No config file.
 | `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
 | `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs `PUT /_admin/compact` compacts |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
+| `VESSEL3_SLOW_REQUEST_MS` | `1000` | Logs requests exceeding this threshold with per-stage timing. |
 | `VESSEL3_OIDC_ISSUER` | unset | OIDC issuer URL. Setting it enables the web identity exchange below. |
 | `VESSEL3_OIDC_CLIENT_ID` | unset | Client id tokens must be issued for. Required with the issuer. |
 | `VESSEL3_OIDC_AUDIENCE` | unset | Extra audience accepted alongside the client id. |

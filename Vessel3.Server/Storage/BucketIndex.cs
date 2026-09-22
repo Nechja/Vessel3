@@ -207,6 +207,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return r.Read() ? (VersionKind)r.GetInt32(0) : (VersionKind?)null;
     }
 
+    public long VersionCount()
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT COUNT(*) FROM versions";
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
     public int CountVersions(string key)
     {
         using var rh = ReadCmd();

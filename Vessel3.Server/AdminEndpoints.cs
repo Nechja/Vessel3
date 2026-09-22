@@ -9,6 +9,7 @@ internal static class AdminEndpoints
 {
     public static async Task RunGc(HttpContext ctx)
     {
+        RequestTrace.SetAction("AdminGc");
         var gc = ctx.RequestServices.GetRequiredService<IGarbageCollector>();
         var blobAgeSec = ParseAgeQuery(ctx.Request.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
         var uploadAgeSec = ParseAgeQuery(ctx.Request.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
@@ -19,6 +20,7 @@ internal static class AdminEndpoints
 
     public static async Task RunCompact(HttpContext ctx)
     {
+        RequestTrace.SetAction("AdminCompact");
         var compactor = ctx.RequestServices.GetRequiredService<ICompactor>();
         var minBytes = ParseAgeQuery(ctx.Request.Query, "min-bytes", fallback: 0);
         var report = compactor.Run(minBytes);
@@ -28,6 +30,7 @@ internal static class AdminEndpoints
 
     public static async Task RunLifecycle(HttpContext ctx)
     {
+        RequestTrace.SetAction("AdminLifecycle");
         var sweeper = ctx.RequestServices.GetRequiredService<ILifecycleSweeper>();
         var now = DateTimeOffset.UtcNow;
         if (ctx.Request.Query.TryGetValue("now", out var nowRaw)

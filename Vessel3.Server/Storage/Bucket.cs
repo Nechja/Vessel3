@@ -161,11 +161,16 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
-    public long LogBytes()
-    {
-        var logPath = Path.Combine(path, "log");
-        return File.Exists(logPath) ? new FileInfo(logPath).Length : 0;
-    }
+    public long LogBytes() => FileBytes(Path.Combine(path, "log"));
+
+    public BucketStats Stats() => new(
+        Name,
+        Index.VersionCount(),
+        FileBytes(Path.Combine(path, "index.db")),
+        FileBytes(Path.Combine(path, "index.db-wal")),
+        LogBytes());
+
+    private static long FileBytes(string file) => File.Exists(file) ? new FileInfo(file).Length : 0;
 
     public Result<CompactionOutcome> Compact()
     {

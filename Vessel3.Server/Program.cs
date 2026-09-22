@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Vessel3.Server;
@@ -122,6 +121,15 @@ else
 }
 builder.Services.AddSingleton<SigV4Middleware>();
 
+var slowRequestMs = long.TryParse(
+    Environment.GetEnvironmentVariable("VESSEL3_SLOW_REQUEST_MS"),
+    NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSlowMs)
+    ? parsedSlowMs : 1000;
+builder.Services.AddSingleton(new RequestTelemetryOptions(TimeSpan.FromMilliseconds(slowRequestMs)));
+builder.Services.AddSingleton<RequestTelemetry>();
+builder.Services.AddSingleton(sp => new BucketStatsCache(
+    sp.GetRequiredService<IBucketRegistry>(), sp.GetRequiredService<TimeProvider>(), TimeSpan.FromSeconds(60)));
+
 var metricsToken = Environment.GetEnvironmentVariable("VESSEL3_METRICS_TOKEN");
 var metricsAllowAnonymous = (Environment.GetEnvironmentVariable("VESSEL3_METRICS_ALLOW_ANONYMOUS") ?? "")
     .Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -138,30 +146,16 @@ app.Use(async (ctx, next) =>
             return;
         }
         var sb = new StringBuilder(4096);
-        Metrics.Render(sb);
+        Metrics.Render(sb, ctx.RequestServices.GetRequiredService<BucketStatsCache>().Get());
         ctx.Response.ContentType = Metrics.ContentType;
         await ctx.Response.WriteAsync(sb.ToString(), ctx.RequestAborted);
         return;
     }
 
-    var trace = new RequestTrace();
-    RequestTrace.Current = trace;
-    try
-    {
-        await next(ctx);
-    }
-    finally
-    {
-        RequestTrace.Current = null;
-        var elapsed = Stopwatch.GetTimestamp() - trace.StartedAt;
-        var methodIdx = Metrics.MethodIndex(ctx.Request.Method);
-        var statusIdx = Metrics.StatusIndex(ctx.Response.StatusCode);
-        Metrics.RecordRequest(
-            methodIdx, statusIdx, elapsed,
-            ctx.Request.ContentLength ?? 0,
-            ctx.Response.ContentLength ?? 0);
-    }
+    await next(ctx);
 });
+
+app.UseMiddleware<RequestTelemetry>();
 
 #if VESSEL3_UI
 app.UseVessel3Ui(accessKey, secretKey, region, oidc);
@@ -180,6 +174,7 @@ app.UseMiddleware<SigV4Middleware>();
 
 app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
 {
+    RequestTrace.SetAction("ListBuckets");
     res.ContentType = "application/xml";
     await xml.WriteListBuckets(res.Body, registry.List(), ct);
 });
