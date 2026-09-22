@@ -27,6 +27,14 @@ var scenario = args[0];
 var opts = ParseOptions(args[1..]);
 var json = args.Contains("--json");
 
+if (scenario is "list-growth")
+{
+    var steps = await Scenarios.ListGrowth(s3, opts);
+    if (json) PrintGrowthJson(opts, steps);
+    else PrintGrowthTable(opts, steps);
+    return 0;
+}
+
 var summary = scenario switch
 {
     "put-small" => await Scenarios.PutSmall(s3, opts),
@@ -37,6 +45,7 @@ var summary = scenario switch
     "list"      => await Scenarios.List(s3, opts),
     "bulk-delete" => await Scenarios.BulkDelete(s3, opts),
     "loki"      => await Scenarios.Loki(s3, opts),
+    "loki-single" => await Scenarios.LokiSingleDelete(s3, opts),
     _           => throw new ArgumentException($"unknown scenario: {scenario}"),
 };
 
@@ -99,6 +108,37 @@ static void PrintTable(string scenario, BenchOptions opts, LatencySummary s)
     Console.WriteLine($"  latency ms:  avg={s.AvgMs:F2}  p50={s.P50Ms:F2}  p95={s.P95Ms:F2}  p99={s.P99Ms:F2}  p999={s.P999Ms:F2}  max={s.MaxMs:F2}");
 }
 
+static void PrintGrowthTable(BenchOptions opts, IReadOnlyList<GrowthStep> steps)
+{
+    Console.WriteLine("== list-growth ==");
+    Console.WriteLine($"  bucket:      {opts.Bucket}");
+    Console.WriteLine($"  concurrency: {opts.Concurrency}");
+    Console.WriteLine($"  per step:    {opts.Duration.TotalSeconds:F2}s each for end-of-keyspace and no-match prefixes");
+    Console.WriteLine($"  {"keys",8}  {"end p50",9} {"end p99",9}  {"miss p50",9} {"miss p99",9}");
+    foreach (var s in steps)
+        Console.WriteLine($"  {s.Keys,8:N0}  {s.ListEnd.P50Ms,9:F2} {s.ListEnd.P99Ms,9:F2}  {s.ListMiss.P50Ms,9:F2} {s.ListMiss.P99Ms,9:F2}");
+}
+
+static void PrintGrowthJson(BenchOptions opts, IReadOnlyList<GrowthStep> steps)
+{
+    var payload = new Dictionary<string, object?>
+    {
+        ["scenario"] = "list-growth",
+        ["bucket"] = opts.Bucket,
+        ["concurrency"] = opts.Concurrency,
+        ["step_duration_s"] = Math.Round(opts.Duration.TotalSeconds, 3),
+        ["steps"] = steps.Select(s => new Dictionary<string, object?>
+        {
+            ["keys"] = s.Keys,
+            ["end_p50_ms"] = Math.Round(s.ListEnd.P50Ms, 3),
+            ["end_p99_ms"] = Math.Round(s.ListEnd.P99Ms, 3),
+            ["miss_p50_ms"] = Math.Round(s.ListMiss.P50Ms, 3),
+            ["miss_p99_ms"] = Math.Round(s.ListMiss.P99Ms, 3),
+        }).ToList(),
+    };
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
+}
+
 static void PrintJson(string scenario, BenchOptions opts, LatencySummary s)
 {
     var payload = new Dictionary<string, object?>
@@ -148,6 +188,8 @@ static void PrintUsage()
     Console.WriteLine("  list        prefix ListObjectsV2 against pre-seeded bucket");
     Console.WriteLine("  bulk-delete seed then delete in 1000-key batches");
     Console.WriteLine("  loki        40% GET / 40% 1.5 MB PUT / 20% LIST, bulk delete every 500 puts per worker");
+    Console.WriteLine("  loki-single same mix, but deletes one key per request once 500 are pending (what Loki does)");
+    Console.WriteLine("  list-growth seed in doubling steps up to --seed-keys (min 16000); first-page LIST latency at each size");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");
