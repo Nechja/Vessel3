@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -17,11 +16,9 @@ internal readonly record struct KeyBound(string Key, bool Inclusive)
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
-    private const int MaxPoolSize = 16;
-    private readonly ConcurrentBag<SqliteConnection> readPool = [];
+    private readonly SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
     private SqliteConnection? writeConn;
     private SqliteTransaction? currentTx;
-    private bool disposed;
 
     public void Open()
     {
@@ -34,15 +31,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             pragma.ExecuteNonQuery();
         }
         EnsureSchema();
-
-        readPool.Add(CreateReadConnection());
     }
 
     public void Dispose()
     {
-        disposed = true;
-        while (readPool.TryTake(out var conn))
-            conn.Dispose();
+        readers.Dispose();
         writeConn?.Dispose();
         writeConn = null;
     }
@@ -79,67 +72,66 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     internal ReadHandle ReadCmd()
     {
         var start = Stopwatch.GetTimestamp();
-        ObjectDisposedException.ThrowIf(disposed, nameof(BucketIndex));
-
-        if (!readPool.TryTake(out var conn))
-            conn = CreateReadConnection();
-
+        var conn = readers.Rent();
         RequestTrace.Since(Stage.ReadLock, start);
-        try
-        {
-            return new ReadHandle(this, conn.CreateCommand(), conn);
-        }
-        catch
-        {
-            ReturnConnection(conn);
-            throw;
-        }
+        return new ReadHandle(readers, conn.CreateCommand(), conn);
     }
 
-    private SqliteConnection CreateReadConnection()
-    {
-        ObjectDisposedException.ThrowIf(disposed, nameof(BucketIndex));
-        var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
-        conn.Open();
-        return conn;
-    }
-
-    internal void ReturnConnection(SqliteConnection conn)
-    {
-        if (disposed || readPool.Count >= MaxPoolSize)
-        {
-            conn.Dispose();
-            return;
-        }
-
-        try
-        {
-            if (conn.State == System.Data.ConnectionState.Open)
-            {
-                readPool.Add(conn);
-                return;
-            }
-        }
-        catch
-        {
-            // Faulted connection
-        }
-
-        conn.Dispose();
-    }
-
-    internal readonly struct ReadHandle(BucketIndex owner, SqliteCommand cmd, SqliteConnection conn) : IDisposable
+    internal readonly struct ReadHandle(SqliteReaderPool pool, SqliteCommand cmd, SqliteConnection conn) : IDisposable
     {
         public SqliteCommand Cmd { get; } = cmd;
-        private readonly BucketIndex owner = owner;
-        private readonly SqliteConnection conn = conn;
         private readonly long start = Stopwatch.GetTimestamp();
 
         public void Dispose()
         {
             RequestTrace.Since(Stage.Query, start);
             Cmd.Dispose();
-            owner.ReturnConnection(conn);
+            pool.Return(conn);
+        }
+    }
+
+    internal sealed class SqliteReaderPool(string connectionString, int maxCapacity = 16) : IDisposable
+    {
+        private readonly Lock gate = new();
+        private readonly Stack<SqliteConnection> connections = [];
+        private bool disposed;
+
+        public SqliteConnection Rent()
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            lock (gate)
+            {
+                if (connections.TryPop(out var pooled))
+                    return pooled;
+            }
+
+            var conn = new SqliteConnection(connectionString);
+            conn.Open();
+            return conn;
+        }
+
+        public void Return(SqliteConnection conn)
+        {
+            lock (gate)
+            {
+                if (!disposed && connections.Count < maxCapacity && conn.State == System.Data.ConnectionState.Open)
+                {
+                    connections.Push(conn);
+                    return;
+                }
+            }
+
+            conn.Dispose();
+        }
+
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                disposed = true;
+                while (connections.TryPop(out var conn))
+                    conn.Dispose();
+            }
         }
     }
 
