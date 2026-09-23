@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -16,10 +17,11 @@ internal readonly record struct KeyBound(string Key, bool Inclusive)
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
+    private const int MaxPoolSize = 16;
+    private readonly ConcurrentBag<SqliteConnection> readPool = [];
     private SqliteConnection? writeConn;
-    private SqliteConnection? readConn;
     private SqliteTransaction? currentTx;
-    private readonly object readGate = new();
+    private bool disposed;
 
     public void Open()
     {
@@ -33,14 +35,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         }
         EnsureSchema();
 
-        readConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
-        readConn.Open();
+        readPool.Add(CreateReadConnection());
     }
 
     public void Dispose()
     {
-        readConn?.Dispose();
-        readConn = null;
+        disposed = true;
+        while (readPool.TryTake(out var conn))
+            conn.Dispose();
         writeConn?.Dispose();
         writeConn = null;
     }
@@ -74,34 +76,70 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return c;
     }
 
-    private ReadHandle ReadCmd()
+    internal ReadHandle ReadCmd()
     {
-        var connection = readConn ?? throw new ObjectDisposedException(nameof(BucketIndex));
         var start = Stopwatch.GetTimestamp();
-        Monitor.Enter(readGate);
+        ObjectDisposedException.ThrowIf(disposed, nameof(BucketIndex));
+
+        if (!readPool.TryTake(out var conn))
+            conn = CreateReadConnection();
+
         RequestTrace.Since(Stage.ReadLock, start);
         try
         {
-            return new ReadHandle(connection.CreateCommand(), readGate);
+            return new ReadHandle(this, conn.CreateCommand(), conn);
         }
         catch
         {
-            Monitor.Exit(readGate);
+            ReturnConnection(conn);
             throw;
         }
     }
 
-    internal readonly struct ReadHandle(SqliteCommand cmd, object gate) : IDisposable
+    private SqliteConnection CreateReadConnection()
+    {
+        ObjectDisposedException.ThrowIf(disposed, nameof(BucketIndex));
+        var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
+        conn.Open();
+        return conn;
+    }
+
+    internal void ReturnConnection(SqliteConnection conn)
+    {
+        if (disposed || readPool.Count >= MaxPoolSize)
+        {
+            conn.Dispose();
+            return;
+        }
+
+        try
+        {
+            if (conn.State == System.Data.ConnectionState.Open)
+            {
+                readPool.Add(conn);
+                return;
+            }
+        }
+        catch
+        {
+            // Faulted connection
+        }
+
+        conn.Dispose();
+    }
+
+    internal readonly struct ReadHandle(BucketIndex owner, SqliteCommand cmd, SqliteConnection conn) : IDisposable
     {
         public SqliteCommand Cmd { get; } = cmd;
-        private readonly object gate = gate;
+        private readonly BucketIndex owner = owner;
+        private readonly SqliteConnection conn = conn;
         private readonly long start = Stopwatch.GetTimestamp();
 
         public void Dispose()
         {
             RequestTrace.Since(Stage.Query, start);
             Cmd.Dispose();
-            Monitor.Exit(gate);
+            owner.ReturnConnection(conn);
         }
     }
 
