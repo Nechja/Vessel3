@@ -40,7 +40,7 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
             : req.StartAfter;
         KeyBound? from = startKey is null ? null : Resume(req, startKey);
 
-        var emitted = new List<ListEntry>();
+        List<ListEntry> emitted = [];
         string? lastCommonPrefix = null;
         while (true)
         {

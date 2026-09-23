@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using Vessel3.Server.Lifecycle;
 using Vessel3.Server.Storage;
@@ -50,18 +51,16 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
     private readonly Lock createDeleteGate = new();
 
-    public bool IsValidName(string bucket)
-    {
-        if (string.IsNullOrEmpty(bucket) || bucket.Length is < 3 or > 63) return false;
-        if (bucket[0] is '-' or '.' || bucket[^1] is '-' or '.') return false;
-        if (bucket.Contains("..", StringComparison.Ordinal)) return false;
-        foreach (var c in bucket)
-        {
-            var ok = c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-' or '.';
-            if (!ok) return false;
-        }
-        return true;
-    }
+    private static readonly SearchValues<char> ValidBucketChars =
+        SearchValues.Create("abcdefghijklmnopqrstuvwxyz0123456789-.");
+
+    public bool IsValidName(string bucket) =>
+        !string.IsNullOrEmpty(bucket)
+        && bucket.Length is >= 3 and <= 63
+        && bucket[0] is not ('-' or '.')
+        && bucket[^1] is not ('-' or '.')
+        && !bucket.Contains("..", StringComparison.Ordinal)
+        && !bucket.AsSpan().ContainsAnyExcept(ValidBucketChars);
 
     public Result<bool> Create(string bucket)
     {
