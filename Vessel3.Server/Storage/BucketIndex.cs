@@ -16,10 +16,9 @@ internal readonly record struct KeyBound(string Key, bool Inclusive)
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
+    private readonly SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
     private SqliteConnection? writeConn;
-    private SqliteConnection? readConn;
     private SqliteTransaction? currentTx;
-    private readonly object readGate = new();
 
     public void Open()
     {
@@ -32,15 +31,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             pragma.ExecuteNonQuery();
         }
         EnsureSchema();
-
-        readConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
-        readConn.Open();
     }
 
     public void Dispose()
     {
-        readConn?.Dispose();
-        readConn = null;
+        readers.Dispose();
         writeConn?.Dispose();
         writeConn = null;
     }
@@ -74,34 +69,69 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return c;
     }
 
-    private ReadHandle ReadCmd()
+    internal ReadHandle ReadCmd()
     {
-        var connection = readConn ?? throw new ObjectDisposedException(nameof(BucketIndex));
         var start = Stopwatch.GetTimestamp();
-        Monitor.Enter(readGate);
+        var conn = readers.Rent();
         RequestTrace.Since(Stage.ReadLock, start);
-        try
-        {
-            return new ReadHandle(connection.CreateCommand(), readGate);
-        }
-        catch
-        {
-            Monitor.Exit(readGate);
-            throw;
-        }
+        return new ReadHandle(readers, conn.CreateCommand(), conn);
     }
 
-    internal readonly struct ReadHandle(SqliteCommand cmd, object gate) : IDisposable
+    internal readonly struct ReadHandle(SqliteReaderPool pool, SqliteCommand cmd, SqliteConnection conn) : IDisposable
     {
         public SqliteCommand Cmd { get; } = cmd;
-        private readonly object gate = gate;
         private readonly long start = Stopwatch.GetTimestamp();
 
         public void Dispose()
         {
             RequestTrace.Since(Stage.Query, start);
             Cmd.Dispose();
-            Monitor.Exit(gate);
+            pool.Return(conn);
+        }
+    }
+
+    internal sealed class SqliteReaderPool(string connectionString, int maxCapacity = 16) : IDisposable
+    {
+        private readonly Lock gate = new();
+        private readonly Stack<SqliteConnection> connections = [];
+        private bool disposed;
+
+        public SqliteConnection Rent()
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            lock (gate)
+            {
+                if (connections.TryPop(out var pooled))
+                    return pooled;
+            }
+
+            var conn = new SqliteConnection(connectionString);
+            conn.Open();
+            return conn;
+        }
+
+        public void Return(SqliteConnection conn)
+        {
+            lock (gate)
+            {
+                if (!disposed && connections.Count < maxCapacity && conn.State == System.Data.ConnectionState.Open)
+                {
+                    connections.Push(conn);
+                    return;
+                }
+            }
+
+            conn.Dispose();
+        }
+
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                disposed = true;
+                while (connections.TryPop(out var conn))
+                    conn.Dispose();
+            }
         }
     }
 
