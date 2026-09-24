@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace Vessel3.Server;
 
 internal static class TagSet
@@ -24,31 +26,23 @@ internal static class TagSet
             if (dict.Count > MaxTags)
                 return new InvalidTagError($"tag set exceeds {MaxTags} entries");
         }
-        return new Result<IReadOnlyDictionary<string, string>>.Success(dict);
+        return dict;
     }
 
     public static Result<IReadOnlyDictionary<string, string>> ParseHeader(string? raw)
     {
         if (string.IsNullOrEmpty(raw))
-            return new Result<IReadOnlyDictionary<string, string>>.Success(new Dictionary<string, string>());
+            return FrozenDictionary<string, string>.Empty;
 
-        var pairs = new List<KeyValuePair<string, string>>();
+        List<KeyValuePair<string, string>> pairs = [];
         foreach (var segment in raw.Split('&'))
         {
             if (segment.Length is 0) continue;
             var eq = segment.IndexOf('=', StringComparison.Ordinal);
-            string k, v;
-            if (eq < 0)
-            {
-                k = Uri.UnescapeDataString(segment);
-                v = string.Empty;
-            }
-            else
-            {
-                k = Uri.UnescapeDataString(segment[..eq]);
-                v = Uri.UnescapeDataString(segment[(eq + 1)..]);
-            }
-            pairs.Add(new KeyValuePair<string, string>(k, v));
+            var (k, v) = eq < 0
+                ? (Uri.UnescapeDataString(segment), string.Empty)
+                : (Uri.UnescapeDataString(segment[..eq]), Uri.UnescapeDataString(segment[(eq + 1)..]));
+            pairs.Add(new(k, v));
         }
         return Validate(pairs);
     }

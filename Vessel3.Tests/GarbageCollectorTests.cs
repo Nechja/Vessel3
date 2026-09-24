@@ -127,4 +127,26 @@ public class GarbageCollectorTests : IDisposable
         Assert.All(kept, sha => Assert.True(blobs.Exists(sha)));
         Assert.All(orphaned, sha => Assert.False(blobs.Exists(sha)));
     }
+
+    [Fact]
+    public async Task Gc_Reaps_Abandoned_Temp_Blobs_But_Keeps_Recent_Ones()
+    {
+        var tmpDir = Path.Combine(blobsRoot, "tmp");
+        Directory.CreateDirectory(tmpDir);
+
+        var oldAbandoned = Path.Combine(tmpDir, Guid.NewGuid().ToString("N"));
+        var recentActive = Path.Combine(tmpDir, Guid.NewGuid().ToString("N"));
+
+        File.WriteAllText(oldAbandoned, "abandoned-partially-written-data");
+        File.WriteAllText(recentActive, "active-upload-data");
+
+        File.SetLastWriteTimeUtc(oldAbandoned, DateTime.UtcNow - TimeSpan.FromHours(3));
+        File.SetLastWriteTimeUtc(recentActive, DateTime.UtcNow - TimeSpan.FromMinutes(5));
+
+        var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
+
+        Assert.Equal(1, report.TempBlobsReaped);
+        Assert.False(File.Exists(oldAbandoned));
+        Assert.True(File.Exists(recentActive));
+    }
 }

@@ -301,11 +301,15 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
     private static MultipartPart? DeserializePartFile(string path) =>
         JsonSerializer.Deserialize(File.ReadAllText(path), MultipartJsonContext.Default.MultipartPart);
 
-    private static string ComputeCompositeMd5(IReadOnlyList<MultipartPart> parts)
+    internal static string ComputeCompositeMd5(IReadOnlyList<MultipartPart> parts)
     {
         using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+        Span<byte> partMd5 = stackalloc byte[16];
         foreach (var p in parts)
-            md5.AppendData(Convert.FromHexString(p.Md5));
+        {
+            Convert.FromHexString(p.Md5, partMd5, out _, out _);
+            md5.AppendData(partMd5);
+        }
         return Convert.ToHexStringLower(md5.GetHashAndReset());
     }
 

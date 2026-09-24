@@ -10,11 +10,11 @@ internal sealed class DeleteObjects(IObjectStore objects, IS3XmlReader reader, I
             return http.Map(err);
 
         var bypass = ctx.BypassGovernanceRetention();
-        var items = new List<Storage.BatchDeleteItem>(request.Keys.Count);
+        List<Storage.BatchDeleteItem> items = new(request.Keys.Count);
         foreach (var k in request.Keys)
             items.Add(new Storage.BatchDeleteItem(k.Key, string.IsNullOrEmpty(k.VersionId) ? null : k.VersionId, bypass));
 
-        var outcomes = new List<BatchDeleteOutcome>(request.Keys.Count);
+        List<BatchDeleteOutcome> outcomes = new(request.Keys.Count);
         if (objects.DeleteBatch(bucket, items).TryGetValue(out var results, out var batchErr))
             for (var i = 0; i < request.Keys.Count; i++)
                 outcomes.Add(results[i] is Result<Storage.DeleteOutcome>.Failure df

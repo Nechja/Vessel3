@@ -22,6 +22,7 @@ public class ConcatStreamTests
         public IEnumerable<string> EnumerateShards() => map.Keys.Select(k => k[..2]).Distinct(StringComparer.Ordinal);
         public IEnumerable<string> Enumerate(string shard) => map.Keys.Where(k => k.StartsWith(shard, StringComparison.Ordinal));
         public DateTime? GetLastWriteUtc(string sha) => map.ContainsKey(sha) ? DateTime.UtcNow : null;
+        public int ReapAbandonedTempFiles(DateTime cutoffUtc) => 0;
     }
 
     private static (List<MultipartPart>, FakeBlobs) Setup(params byte[][] payloads)

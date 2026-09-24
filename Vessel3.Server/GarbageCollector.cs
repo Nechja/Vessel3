@@ -4,7 +4,7 @@ using Vessel3.Server.Storage;
 
 namespace Vessel3.Server;
 
-internal sealed record GcReport(int BlobsDeleted, int UploadsReaped, bool TimedOut = false);
+internal sealed record GcReport(int BlobsDeleted, int UploadsReaped, bool TimedOut = false, int TempBlobsReaped = 0);
 
 internal sealed record GcOptions(TimeSpan MaxWait, string ScratchRoot);
 
@@ -50,13 +50,19 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
             }
 
             var reaped = multipart.ReapAbandonedUploads(uploadCutoff);
-            return new GcReport(deleted, reaped);
+            var tempBlobsReaped = blobs.ReapAbandonedTempFiles(blobCutoff);
+            return new GcReport(deleted, reaped, TimedOut: false, TempBlobsReaped: tempBlobsReaped);
         }
         finally
         {
-            try { Directory.Delete(scratch, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            try
+            {
+                if (Directory.Exists(scratch)) Directory.Delete(scratch, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort scratch cleanup
+            }
         }
     }
 

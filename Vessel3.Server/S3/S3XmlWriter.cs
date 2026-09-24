@@ -485,12 +485,21 @@ internal sealed class S3XmlWriter : IS3XmlWriter
             await w.WriteElementStringAsync(null, "Prefix", null, rule.Prefix);
             await w.WriteEndElementAsync();
             await w.WriteElementStringAsync(null, "Status", null, rule.Enabled ? "Enabled" : "Disabled");
-            await w.WriteStartElementAsync(null, "Expiration", null);
-            if (rule.ExpirationDays is { } d)
-                await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
-            if (rule.ExpiredObjectDeleteMarker)
-                await w.WriteElementStringAsync(null, "ExpiredObjectDeleteMarker", null, "true");
-            await w.WriteEndElementAsync();
+            if (rule.ExpirationDays is not null || rule.ExpiredObjectDeleteMarker)
+            {
+                await w.WriteStartElementAsync(null, "Expiration", null);
+                if (rule.ExpirationDays is { } d)
+                    await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
+                if (rule.ExpiredObjectDeleteMarker)
+                    await w.WriteElementStringAsync(null, "ExpiredObjectDeleteMarker", null, "true");
+                await w.WriteEndElementAsync();
+            }
+            if (rule.NoncurrentDays is { } nd)
+            {
+                await w.WriteStartElementAsync(null, "NoncurrentVersionExpiration", null);
+                await w.WriteElementStringAsync(null, "NoncurrentDays", null, nd.ToString(CultureInfo.InvariantCulture));
+                await w.WriteEndElementAsync();
+            }
             await w.WriteEndElementAsync();
         }
         await w.WriteEndElementAsync();

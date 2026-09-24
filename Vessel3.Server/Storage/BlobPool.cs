@@ -22,6 +22,7 @@ internal interface IBlobPool
     IEnumerable<string> EnumerateShards();
     IEnumerable<string> Enumerate(string shard);
     DateTime? GetLastWriteUtc(string sha);
+    int ReapAbandonedTempFiles(DateTime cutoffUtc);
 }
 
 internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IBlobPool
@@ -125,7 +126,37 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
 
     private static void TryDelete(string path)
     {
-        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup on failure/dedup; abandoned files are subsequently reaped by ReapAbandonedTempFiles.
+        }
+    }
+
+    public int ReapAbandonedTempFiles(DateTime cutoffUtc)
+    {
+        var tmpDir = Path.Combine(options.Root, "tmp");
+        if (!Directory.Exists(tmpDir)) return 0;
+        var reaped = 0;
+        foreach (var file in Directory.EnumerateFiles(tmpDir))
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoffUtc)
+                {
+                    File.Delete(file);
+                    reaped++;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort cleanup during sweep
+            }
+        }
+        return reaped;
     }
 
     public Result<Stream> Open(string sha)

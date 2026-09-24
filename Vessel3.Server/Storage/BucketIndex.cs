@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -190,7 +191,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$mj", SerializeMetadata(ev.Metadata));
         cmd.Parameters.AddWithValue("$pj", SerializeParts(ev.Parts));
-        cmd.Parameters.AddWithValue("$tj", SerializeMetadata(ev.Tags ?? new Dictionary<string, string>()));
+        cmd.Parameters.AddWithValue("$tj", SerializeMetadata(ev.Tags ?? FrozenDictionary<string, string>.Empty));
         cmd.Parameters.AddWithValue("$c32", (object?)ev.Crc32 ?? "");
         cmd.Parameters.AddWithValue("$c32c", (object?)ev.Crc32C ?? "");
         cmd.Parameters.AddWithValue("$s1", (object?)ev.Sha1 ?? "");
@@ -199,7 +200,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$ru",
             (object?)ev.RetainUntilUnixSeconds ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lh", ev.LegalHoldOn ? 1 : 0);
-        cmd.Parameters.AddWithValue("$sh", SerializeMetadata(ev.SystemHeaders ?? new Dictionary<string, string>()));
+        cmd.Parameters.AddWithValue("$sh", SerializeMetadata(ev.SystemHeaders ?? FrozenDictionary<string, string>.Empty));
         cmd.ExecuteNonQuery();
     }
 
@@ -581,7 +582,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             alter.CommandText = "ALTER TABLE versions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'";
             alter.ExecuteNonQuery();
         }
-        foreach (var col in new[] { "crc32", "crc32c", "sha1" })
+        foreach (var col in (string[])["crc32", "crc32c", "sha1"])
         {
             if (HasColumn("versions", col)) continue;
             using var add = writeConn!.CreateCommand();

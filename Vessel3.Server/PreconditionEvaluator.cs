@@ -95,7 +95,7 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
         return false;
     }
 
-    private bool TryParseHttpDate(string s, out DateTimeOffset dt)
+    private static bool TryParseHttpDate(string s, out DateTimeOffset dt)
     {
         if (HeaderUtilities.TryParseDate(s, out dt)) return true;
         var afterDay = s.IndexOf(", ", StringComparison.Ordinal);
@@ -108,7 +108,7 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
                 out dt);
     }
 
-    private DateTimeOffset TruncateToSecond(DateTimeOffset value)
+    private static DateTimeOffset TruncateToSecond(DateTimeOffset value)
     {
         var ticks = value.UtcTicks - (value.UtcTicks % TimeSpan.TicksPerSecond);
         return new DateTimeOffset(ticks, TimeSpan.Zero);

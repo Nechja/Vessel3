@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -259,11 +260,10 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         return sb.ToString();
     }
 
-    private bool IsUnreserved(byte b) =>
-        b is (>= (byte)'A' and <= (byte)'Z')
-            or (>= (byte)'a' and <= (byte)'z')
-            or (>= (byte)'0' and <= (byte)'9')
-            or (byte)'-' or (byte)'_' or (byte)'.' or (byte)'~';
+    internal static readonly SearchValues<byte> UnreservedBytes =
+        SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"u8);
+
+    internal static bool IsUnreserved(byte b) => UnreservedBytes.Contains(b);
 
     private byte[] DeriveSigningKey(string secretKey, string date, string reg)
     {
@@ -282,9 +282,13 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
     private string Sha256Hex(byte[] data) =>
         Convert.ToHexStringLower(SHA256.HashData(data));
 
-    private bool ConstantTimeEquals(string a, string b) =>
-        a.Length == b.Length
-        && CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(a),
-            Encoding.ASCII.GetBytes(b));
+    internal static bool ConstantTimeEquals(string a, string b)
+    {
+        if (a.Length != b.Length) return false;
+        Span<byte> aBytes = stackalloc byte[a.Length];
+        Span<byte> bBytes = stackalloc byte[b.Length];
+        Encoding.ASCII.GetBytes(a, aBytes);
+        Encoding.ASCII.GetBytes(b, bBytes);
+        return CryptographicOperations.FixedTimeEquals(aBytes, bBytes);
+    }
 }

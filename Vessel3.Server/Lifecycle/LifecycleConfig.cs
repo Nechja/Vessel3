@@ -9,7 +9,8 @@ internal sealed record LifecycleRule(
     bool Enabled,
     string Prefix,
     int? ExpirationDays,
-    bool ExpiredObjectDeleteMarker);
+    bool ExpiredObjectDeleteMarker,
+    int? NoncurrentDays = null);
 
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(LifecycleConfig))]
