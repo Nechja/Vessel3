@@ -35,7 +35,7 @@ internal sealed class S3XmlReader : IS3XmlReader
 
     public async Task<Result<BatchDeleteRequest>> ReadBatchDeleteRequest(Stream input, CancellationToken ct)
     {
-        var keys = new List<BatchDeleteKey>();
+        List<BatchDeleteKey> keys = [];
         var quiet = false;
 
         try
@@ -75,7 +75,7 @@ internal sealed class S3XmlReader : IS3XmlReader
 
     public async Task<Result<IReadOnlyList<CompletedPart>>> ReadCompleteMultipartUploadRequest(Stream input, CancellationToken ct)
     {
-        var parts = new List<CompletedPart>();
+        List<CompletedPart> parts = [];
 
         try
         {
@@ -135,7 +135,7 @@ internal sealed class S3XmlReader : IS3XmlReader
 
     public async Task<Result<IReadOnlyDictionary<string, string>>> ReadTagging(Stream input, CancellationToken ct)
     {
-        var pairs = new List<KeyValuePair<string, string>>();
+        List<KeyValuePair<string, string>> pairs = [];
         try
         {
             using var r = XmlReader.Create(input, settings);
@@ -273,7 +273,7 @@ internal sealed class S3XmlReader : IS3XmlReader
 
     public async Task<Result<LifecycleConfig>> ReadLifecycleConfiguration(Stream input, CancellationToken ct)
     {
-        var rules = new List<LifecycleRule>();
+        List<LifecycleRule> rules = [];
         try
         {
             using var r = XmlReader.Create(input, settings);
@@ -300,6 +300,7 @@ internal sealed class S3XmlReader : IS3XmlReader
         string? status = null;
         string prefix = string.Empty;
         int? days = null;
+        int? noncurrentDays = null;
         var expiredMarker = false;
         var sawExpiration = false;
         var sawTransition = false;
@@ -320,7 +321,7 @@ internal sealed class S3XmlReader : IS3XmlReader
                     currentField = sub.LocalName;
                     if (currentField is "Expiration") { sawExpiration = true; section = "Expiration"; }
                     else if (currentField is "Transition" or "NoncurrentVersionTransition") sawTransition = true;
-                    else if (currentField is "NoncurrentVersionExpiration") sawNoncurrent = true;
+                    else if (currentField is "NoncurrentVersionExpiration") { sawNoncurrent = true; section = "NoncurrentVersionExpiration"; }
                     else if (currentField is "AbortIncompleteMultipartUpload") sawAbortMultipart = true;
                     else if (currentField is "Filter") section = "Filter";
                     else if (section is "Filter" && currentField is "Tag") sawFilterTag = true;
@@ -335,6 +336,9 @@ internal sealed class S3XmlReader : IS3XmlReader
                         case "Prefix": prefix = await sub.GetValueAsync(); break;
                         case "Days" when section is "Expiration":
                             if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
+                            break;
+                        case "NoncurrentDays" when section is "NoncurrentVersionExpiration":
+                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var nd)) noncurrentDays = nd;
                             break;
                         case "ExpiredObjectDeleteMarker":
                             expiredMarker = (await sub.GetValueAsync()).Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -351,18 +355,19 @@ internal sealed class S3XmlReader : IS3XmlReader
 
         Error? err =
             sawTransition ? new InvalidArgumentError("Transitions are not supported")
-            : sawNoncurrent ? new InvalidArgumentError("NoncurrentVersionExpiration is not supported in this version")
             : sawAbortMultipart ? new InvalidArgumentError("AbortIncompleteMultipartUpload is not supported in this version")
             : sawFilterTag ? new InvalidArgumentError("Tag filters are not supported in this version")
             : sawFilterAnd ? new InvalidArgumentError("Compound Filter (And) is not supported in this version")
             : status is not ("Enabled" or "Disabled") ? new MalformedXmlError($"Rule Status must be Enabled or Disabled, got '{status}'")
-            : !sawExpiration ? new MalformedXmlError("Rule requires an Expiration element")
-            : days is null && !expiredMarker ? new MalformedXmlError("Expiration requires Days or ExpiredObjectDeleteMarker")
+            : !sawExpiration && !sawNoncurrent ? new MalformedXmlError("Rule requires an Expiration or NoncurrentVersionExpiration element")
+            : sawExpiration && days is null && !expiredMarker ? new MalformedXmlError("Expiration requires Days or ExpiredObjectDeleteMarker")
             : days is { } dd && dd < 1 ? new InvalidArgumentError("Expiration.Days must be >= 1")
+            : sawNoncurrent && noncurrentDays is null ? new MalformedXmlError("NoncurrentVersionExpiration requires NoncurrentDays")
+            : noncurrentDays is { } ndd && ndd < 1 ? new InvalidArgumentError("NoncurrentVersionExpiration.NoncurrentDays must be >= 1")
             : (Error?)null;
         return err is not null
             ? err
-            : (Result<LifecycleRule>)new LifecycleRule(id ?? string.Empty, status is "Enabled", prefix, days, expiredMarker);
+            : (Result<LifecycleRule>)new LifecycleRule(id ?? string.Empty, status is "Enabled", prefix, days, expiredMarker, noncurrentDays);
     }
 
     public async Task<Result<Retention>> ReadRetention(Stream input, CancellationToken ct)

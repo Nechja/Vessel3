@@ -236,7 +236,6 @@ public sealed class LifecycleTests : IDisposable
     [InlineData("<AbortIncompleteMultipartUpload><DaysAfterInitiation>7</DaysAfterInitiation></AbortIncompleteMultipartUpload>")]
     [InlineData("<Filter><Tag><Key>x</Key><Value>y</Value></Tag></Filter>")]
     [InlineData("<Filter><And><Prefix>p/</Prefix><Tag><Key>x</Key><Value>y</Value></Tag></And></Filter>")]
-    [InlineData("<NoncurrentVersionExpiration><NoncurrentDays>30</NoncurrentDays></NoncurrentVersionExpiration>")]
     public async System.Threading.Tasks.Task Unsupported_rule_elements_are_rejected(string extra)
     {
         var input = $"""
@@ -254,6 +253,93 @@ public sealed class LifecycleTests : IDisposable
         var parsed = await reader.ReadLifecycleConfiguration(new MemoryStream(Encoding.UTF8.GetBytes(input)), CancellationToken.None);
         var err = Assert.IsType<Result<LifecycleConfig>.Failure>(parsed).Error;
         Assert.IsType<InvalidArgumentError>(err);
+    }
+
+    [Fact]
+    public void Expires_noncurrent_version_on_versioned_bucket_after_noncurrent_days()
+    {
+        const string b = "lc-noncurrent";
+        registry.Create(b);
+        registry.SetVersioning(b, VersioningStatus.Enabled);
+        registry.SetLifecycle(b, new LifecycleConfig([
+            new LifecycleRule("prune-old", true, "data/", null, false, NoncurrentDays: 30),
+        ]));
+
+        var v1 = Assert.IsType<Result<PutEntry>.Success>(registry.AppendPut(b, "data/item.txt", MakePut("version1")));
+        var v2 = Assert.IsType<Result<PutEntry>.Success>(registry.AppendPut(b, "data/item.txt", MakePut("version2")));
+
+        var versionsBefore = Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, "data/", null, 10)).Value;
+        Assert.Equal(2, versionsBefore.Entries.Count);
+
+        // 10 days after v2 was created: v1 is not yet 30 days noncurrent
+        var t10 = v2.Value.At + TimeSpan.FromDays(10);
+        var report1 = sweeper.Run(t10);
+        Assert.Equal(0, report1.NoncurrentExpired);
+        Assert.Equal(2, Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, "data/", null, 10)).Value.Entries.Count);
+
+        // 31 days after v2 was created: v1 has been noncurrent for 31 days
+        var t31 = v2.Value.At + TimeSpan.FromDays(31);
+        var report2 = sweeper.Run(t31);
+        Assert.Equal(1, report2.NoncurrentExpired);
+
+        var versionsAfter = Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, "data/", null, 10)).Value.Entries;
+        Assert.Single(versionsAfter);
+        Assert.Equal(v2.Value.VersionId, versionsAfter[0].VersionId);
+    }
+
+    [Fact]
+    public void Noncurrent_version_expiration_respects_legal_hold()
+    {
+        const string b = "lc-noncurrent-hold";
+        registry.Create(b);
+        registry.SetVersioning(b, VersioningStatus.Enabled);
+        registry.SetObjectLock(b, new ObjectLockConfig(Enabled: true, Default: null));
+        registry.SetLifecycle(b, new LifecycleConfig([
+            new LifecycleRule("prune-old", true, "", null, false, NoncurrentDays: 30),
+        ]));
+
+        var v1 = Assert.IsType<Result<PutEntry>.Success>(registry.AppendPut(b, "k", MakePut("v1")));
+        registry.PutLegalHold(b, "k", v1.Value.VersionId, on: true);
+        var v2 = Assert.IsType<Result<PutEntry>.Success>(registry.AppendPut(b, "k", MakePut("v2")));
+
+        var report = sweeper.Run(v2.Value.At + TimeSpan.FromDays(35));
+        Assert.Equal(0, report.NoncurrentExpired);
+        Assert.Equal(2, Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, null, null, 10)).Value.Entries.Count);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Noncurrent_version_xml_round_trips()
+    {
+        var input = """
+            <LifecycleConfiguration>
+              <Rule>
+                <ID>nc-rule</ID>
+                <Filter><Prefix>backups/</Prefix></Filter>
+                <Status>Enabled</Status>
+                <NoncurrentVersionExpiration>
+                  <NoncurrentDays>30</NoncurrentDays>
+                </NoncurrentVersionExpiration>
+              </Rule>
+            </LifecycleConfiguration>
+            """;
+
+        var reader = new S3XmlReader();
+        var parsed = await reader.ReadLifecycleConfiguration(new MemoryStream(Encoding.UTF8.GetBytes(input)), CancellationToken.None);
+        var cfg = Assert.IsType<Result<LifecycleConfig>.Success>(parsed).Value;
+        Assert.Single(cfg.Rules);
+        Assert.Equal("backups/", cfg.Rules[0].Prefix);
+        Assert.Equal(30, cfg.Rules[0].NoncurrentDays);
+
+        var writer = new S3XmlWriter();
+        var sink = new MemoryStream();
+        await writer.WriteLifecycleConfiguration(sink, cfg, CancellationToken.None);
+        sink.Position = 0;
+
+        var roundTripped = await reader.ReadLifecycleConfiguration(sink, CancellationToken.None);
+        var cfg2 = Assert.IsType<Result<LifecycleConfig>.Success>(roundTripped).Value;
+        Assert.Single(cfg2.Rules);
+        Assert.Equal("backups/", cfg2.Rules[0].Prefix);
+        Assert.Equal(30, cfg2.Rules[0].NoncurrentDays);
     }
 
     [Fact]

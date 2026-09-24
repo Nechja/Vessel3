@@ -278,7 +278,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 return results;
             }
 
-            var pending = new List<(int Slot, IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)>();
+            List<(int Slot, IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> pending = [];
             var seen = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < items.Count; i++)
             {
@@ -307,7 +307,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     private void FlushDeletes(List<(int Slot, IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> pending, Result<DeleteOutcome>[] results)
     {
-        var events = new List<VersionEvent>();
+        List<VersionEvent> events = [];
         foreach (var (_, evs, _) in pending) events.AddRange(evs);
         if (events.Count > 0)
         {

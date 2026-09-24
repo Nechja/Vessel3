@@ -154,6 +154,7 @@ public class GcGateRaceTests : IDisposable
         public IEnumerable<string> EnumerateShards() => inner.EnumerateShards();
         public IEnumerable<string> Enumerate(string shard) => inner.Enumerate(shard);
         public DateTime? GetLastWriteUtc(string sha) => inner.GetLastWriteUtc(sha);
+        public int ReapAbandonedTempFiles(DateTime cutoffUtc) => inner.ReapAbandonedTempFiles(cutoffUtc);
     }
 
     private sealed class StallingRegistry(IBucketRegistry inner, TaskCompletionSource entered, Task resume) : IBucketRegistry
