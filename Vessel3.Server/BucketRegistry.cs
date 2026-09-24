@@ -60,7 +60,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         && bucket[0] is not ('-' or '.')
         && bucket[^1] is not ('-' or '.')
         && !bucket.Contains("..", StringComparison.Ordinal)
-        && !bucket.AsSpan().ContainsAnyExcept(ValidBucketChars);
+        && !bucket.ContainsAnyExcept(ValidBucketChars);
 
     public Result<bool> Create(string bucket)
     {
