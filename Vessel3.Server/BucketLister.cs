@@ -85,7 +85,7 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
         if (req.Delimiter is not "/") return null;
         var prefix = req.Prefix ?? string.Empty;
         if (!key.StartsWith(prefix, StringComparison.Ordinal)) return null;
-        var slash = key.AsSpan(prefix.Length).IndexOf('/');
-        return slash < 0 ? null : key[..(prefix.Length + slash + 1)];
+        var slash = key.IndexOf('/', prefix.Length);
+        return slash < 0 ? null : key[..(slash + 1)];
     }
 }
