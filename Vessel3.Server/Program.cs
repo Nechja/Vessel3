@@ -41,6 +41,12 @@ catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
 var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY");
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY");
 var region = Environment.GetEnvironmentVariable("VESSEL3_REGION") ?? "us-east-1";
+var domainRaw = Environment.GetEnvironmentVariable("VESSEL3_DOMAIN") ?? "";
+var baseDomains = domainRaw
+    .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(d => VirtualHostParser.StripPort(d).ToLowerInvariant())
+    .Distinct()
+    .ToArray();
 
 IS3XmlWriter xml = new S3XmlWriter();
 IHttpResultMapper http = new HttpResultMapper(xml);
@@ -48,6 +54,7 @@ IHttpResultMapper http = new HttpResultMapper(xml);
 builder.Services.AddSingleton(xml);
 builder.Services.AddSingleton(http);
 builder.Services.AddSingleton(new ServerRegion(region));
+builder.Services.AddSingleton(new VirtualHostOptions(baseDomains));
 builder.Services.AddSingleton(new BlobPoolOptions(Path.Combine(dataRoot, "blobs")));
 builder.Services.AddSingleton(new BucketRegistryOptions(dataRoot));
 builder.Services.AddSingleton(new MultipartStoreOptions(Path.Combine(dataRoot, "uploads")));
@@ -157,6 +164,21 @@ app.Use(async (ctx, next) =>
 
 app.UseMiddleware<RequestTelemetry>();
 
+app.Use(async (ctx, next) =>
+{
+    var vh = ctx.RequestServices.GetRequiredService<VirtualHostOptions>();
+    if (vh.BaseDomains.Count > 0 && VirtualHostParser.IsAdminHost(ctx.Request.Host.Value, vh.BaseDomains))
+    {
+        if (ctx.Request.Path == "/" || !ctx.Request.Path.StartsWithSegments("/_ui"))
+        {
+            var target = ctx.Request.Path == "/" ? "/_ui/" : $"/_ui{ctx.Request.Path}{ctx.Request.QueryString}";
+            ctx.Response.Redirect(target, permanent: false);
+            return;
+        }
+    }
+    await next(ctx);
+});
+
 #if VESSEL3_UI
 app.UseVessel3Ui(accessKey, secretKey, region, oidc);
 #endif
@@ -170,7 +192,74 @@ if (oidc is not null)
     });
 }
 
+app.Use(async (ctx, next) =>
+{
+    var vh = ctx.RequestServices.GetRequiredService<VirtualHostOptions>();
+    var reg = ctx.RequestServices.GetRequiredService<IBucketRegistry>();
+
+    if (VirtualHostParser.TryExtractBucket(ctx.Request.Host.Value, vh.BaseDomains, reg, out var vhBucket))
+    {
+        ctx.Items["VirtualHostBucket"] = vhBucket;
+
+        var hasAuth = ctx.Request.Headers.ContainsKey("Authorization")
+            || ctx.Request.Query.ContainsKey("X-Amz-Signature");
+
+        if (!hasAuth
+            && (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
+            && reg.GetWebsite(vhBucket) is Result<WebsiteConfig?>.Success { Value: not null })
+        {
+            RequestTrace.SetAction(HttpMethods.IsHead(ctx.Request.Method) ? "WebsiteHead" : "WebsiteGet");
+            var res = await WebsiteHandler.Serve(
+                vhBucket,
+                ctx.Request.Path.Value ?? "/",
+                ctx,
+                ctx.RequestServices.GetRequiredService<IObjectStore>(),
+                reg,
+                ctx.RequestServices.GetRequiredService<IPreconditionEvaluator>());
+            await res.ExecuteAsync(ctx);
+            return;
+        }
+    }
+
+    await next(ctx);
+});
+
 app.UseMiddleware<SigV4Middleware>();
+
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Items.TryGetValue("VirtualHostBucket", out var vhObj) && vhObj is string vhBucket)
+    {
+        if (ctx.Request.Path.StartsWithSegments("/_admin") ||
+            ctx.Request.Path.StartsWithSegments("/_ui") ||
+            ctx.Request.Path.Equals("/metrics", StringComparison.Ordinal))
+        {
+            await next(ctx);
+            return;
+        }
+
+        var method = ctx.Request.Method;
+        var path = ctx.Request.Path.Value ?? "/";
+
+        if (path is "/" or "")
+        {
+            var bucketDispatch = ctx.RequestServices.GetRequiredService<IS3BucketActionDispatcher>();
+            var actionResult = await bucketDispatch.Dispatch(method, vhBucket, ctx);
+            await actionResult.ExecuteAsync(ctx);
+            return;
+        }
+        else
+        {
+            var keyDispatch = ctx.RequestServices.GetRequiredService<IS3KeyActionDispatcher>();
+            var key = path.TrimStart('/');
+            var actionResult = await keyDispatch.Dispatch(method, vhBucket, key, ctx);
+            await actionResult.ExecuteAsync(ctx);
+            return;
+        }
+    }
+
+    await next(ctx);
+});
 
 app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
 {

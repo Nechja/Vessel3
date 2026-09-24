@@ -21,6 +21,7 @@ internal interface IS3XmlReader
     Task<Result<LifecycleConfig>> ReadLifecycleConfiguration(Stream input, CancellationToken ct);
     Task<Result<Retention>> ReadRetention(Stream input, CancellationToken ct);
     Task<Result<bool>> ReadLegalHold(Stream input, CancellationToken ct);
+    Task<Result<WebsiteConfig>> ReadWebsiteConfiguration(Stream input, CancellationToken ct);
 }
 
 internal sealed class S3XmlReader : IS3XmlReader
@@ -472,5 +473,44 @@ internal sealed class S3XmlReader : IS3XmlReader
             }
         }
         return key is not null ? new BatchDeleteKey(key, versionId) : null;
+    }
+
+    public async Task<Result<WebsiteConfig>> ReadWebsiteConfiguration(Stream input, CancellationToken ct)
+    {
+        try
+        {
+            using var r = XmlReader.Create(input, settings);
+            string? indexSuffix = null;
+            string? errorKey = null;
+            string? current = null;
+            while (await r.ReadAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                switch (r.NodeType)
+                {
+                    case XmlNodeType.Element:
+                        current = r.LocalName;
+                        break;
+                    case XmlNodeType.Text or XmlNodeType.CDATA:
+                        switch (current)
+                        {
+                            case "Suffix": indexSuffix = (await r.GetValueAsync()).Trim(); break;
+                            case "Key": errorKey = (await r.GetValueAsync()).Trim(); break;
+                        }
+                        break;
+                    case XmlNodeType.EndElement:
+                        current = null;
+                        break;
+                }
+            }
+
+            return string.IsNullOrEmpty(indexSuffix)
+                ? new MalformedXmlError("WebsiteConfiguration requires a non-empty IndexDocument Suffix")
+                : new WebsiteConfig(indexSuffix, string.IsNullOrEmpty(errorKey) ? null : errorKey);
+        }
+        catch (XmlException ex)
+        {
+            return new MalformedXmlError(ex.Message);
+        }
     }
 }

@@ -46,6 +46,9 @@ public class BucketListerTests
         public Result<LifecycleConfig?> GetLifecycle(string bucket) => (LifecycleConfig?)null;
         public Result SetLifecycle(string bucket, LifecycleConfig cfg) => Result.Ok;
         public Result RemoveLifecycle(string bucket) => Result.Ok;
+        public Result<WebsiteConfig?> GetWebsite(string bucket) => (WebsiteConfig?)null;
+        public Result SetWebsite(string bucket, WebsiteConfig cfg) => Result.Ok;
+        public Result RemoveWebsite(string bucket) => Result.Ok;
         public IEnumerable<Bucket> OpenBuckets() => [];
         public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => throw new NotImplementedException();
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => (Retention?)null;
