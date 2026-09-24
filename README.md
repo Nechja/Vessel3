@@ -15,7 +15,7 @@ Built for (my) homelab and single app use. This isn't built for multi-tenant set
 - Made with .NET 10, because why not.
 - The S3 wire protocol. AWS CLI, MinIO `mc`, boto3, and the AWS SDKs talk to it without code changes.
 - SigV4-signed requests, including the `STREAMING-UNSIGNED-PAYLOAD-TRAILER` mode boto3 uses by default.
-- Multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
+- Lifecycle rules (current expiration, noncurrent version expiration, expired delete marker pruning), multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
 - Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
 - Atomic overwrites. A reader looking up a key during a concurrent same-key overwrite sees the old value or the new value, never absence.
 - Cool.
@@ -93,10 +93,12 @@ All via environment variables. No config file.
 | `VESSEL3_DATA` | next to the binary | Data root (blobs, index, log). Persist this. |
 | `VESSEL3_ACCESS_KEY` | unset -> auth disabled | SigV4 access key id. |
 | `VESSEL3_SECRET_KEY` | unset -> auth disabled | SigV4 secret. |
-| `VESSEL3_REGION` | `us-west-1` | Region string used for SigV4 verification. |
+| `VESSEL3_REGION` | `us-east-1` | Region string used for SigV4 verification. |
 | `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
+| `VESSEL3_LIFECYCLE_INTERVAL_SECONDS` | `3600` | How often the lifecycle sweep runs. `0` disables it. |
 | `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
-| `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Event logs `PUT /_admin/compact` compacts |
+| `VESSEL3_COMPACT_THRESHOLD_BYTES` | `67108864` | Minimum event log size in bytes before `PUT /_admin/compact` compacts. |
+| `VESSEL3_GC_MAX_WAIT_SECONDS` | `120` | Max seconds GC waits for in-flight writes to complete before aborting sweep. |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | If `true`, `/metrics` is fully public. Overrides token and loopback restrictions. Don't enable on a public-facing box. |
 | `VESSEL3_SLOW_REQUEST_MS` | `1000` | Logs requests exceeding this threshold with per-stage timing. |
 | `VESSEL3_OIDC_ISSUER` | unset | OIDC issuer URL. Setting it enables the web identity exchange below. |
@@ -148,22 +150,26 @@ The kill-9 and replay paths are covered by automated tests. The "drive lies abou
 
 ```
 VESSEL3_DATA/
-  blobs/aa/bb/<sha256>          content-addressed object bytes
+  blobs/
+    aa/bb/<sha256>              content-addressed object bytes
+    tmp/<guid>                  in-flight writes prior to atomic rename
   buckets/<name>/
     log                         append-only event log, truncated by compaction
     index.db                    SQLite catalog (rebuildable from snapshot + log)
     snapshot.db                 checkpoint of the catalog, written by compaction
     versioning                  bucket versioning state
     object-lock.json            bucket object-lock config
+    lifecycle.json              bucket lifecycle configuration
   uploads/<upload-id>/          in-flight multipart parts
 ```
 
 ## High-churn workloads (Loki, backups with retention)
 
-Vessel3 works as a Loki object store out of the box, working to improve this as I do more testing in my home lab.
+Vessel3 works as a Loki object store out of the box.
 
-- **Keep the bucket unversioned.** With versioning enabled, retention deletes leave markers and old versions are never freedup. Unversioned buckets hard-delete gc goes and does bad things
-- Compaction keeps the event log proportional to recent activity instead of all-time history. The default sweep `PUT /_admin/compact` is fine
+- **Lifecycle expiration handles retention.** Both unversioned and versioned buckets support standard S3 lifecycle configurations. On versioned buckets, configure `<NoncurrentVersionExpiration>` and `<ExpiredObjectDeleteMarker>` to automatically prune older versions and lone delete markers. Unversioned buckets hard-delete expired objects during the lifecycle sweep.
+- **Compaction keeps the event log small.** Compaction keeps the event log proportional to recent activity instead of all-time history. The background compaction service runs automatically, or can be triggered via `PUT /_admin/compact`.
+- **Blob GC reclaims unreferenced data.** `PUT /_admin/gc` sweeps unreferenced blobs and abandoned temp files, respecting active writes and Object Lock retention.
 
 Bulk deletes (`DeleteObjects`) commit each request as a single log record with one fsync, so 1000-key retention sweeps complete in one disk round-trip.
 
