@@ -37,6 +37,9 @@ internal interface IBucketRegistry : IDisposable
     Result<LifecycleConfig?> GetLifecycle(string bucket);
     Result SetLifecycle(string bucket, LifecycleConfig cfg);
     Result RemoveLifecycle(string bucket);
+    Result<WebsiteConfig?> GetWebsite(string bucket);
+    Result SetWebsite(string bucket, WebsiteConfig cfg);
+    Result RemoveWebsite(string bucket);
     IEnumerable<Bucket> OpenBuckets();
     Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
@@ -141,6 +144,15 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     public Result RemoveLifecycle(string bucket) =>
         OnBucket(bucket, b => b.RemoveLifecycle());
+
+    public Result<WebsiteConfig?> GetWebsite(string bucket) =>
+        OnBucketRaw<WebsiteConfig?>(bucket, b => b.Website);
+
+    public Result SetWebsite(string bucket, WebsiteConfig cfg) =>
+        OnBucket(bucket, b => b.SetWebsite(cfg));
+
+    public Result RemoveWebsite(string bucket) =>
+        OnBucket(bucket, b => b.RemoveWebsite());
 
     public IEnumerable<Bucket> OpenBuckets()
     {

@@ -195,6 +195,9 @@ public class GcGateRaceTests : IDisposable
         public Result<LifecycleConfig?> GetLifecycle(string bucket) => inner.GetLifecycle(bucket);
         public Result SetLifecycle(string bucket, LifecycleConfig cfg) => inner.SetLifecycle(bucket, cfg);
         public Result RemoveLifecycle(string bucket) => inner.RemoveLifecycle(bucket);
+        public Result<WebsiteConfig?> GetWebsite(string bucket) => inner.GetWebsite(bucket);
+        public Result SetWebsite(string bucket, WebsiteConfig cfg) => inner.SetWebsite(bucket, cfg);
+        public Result RemoveWebsite(string bucket) => inner.RemoveWebsite(bucket);
         public IEnumerable<Bucket> OpenBuckets() => inner.OpenBuckets();
         public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => inner.PutRetention(bucket, key, versionId, retention, bypassGovernance);
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => inner.GetRetention(bucket, key, versionId);

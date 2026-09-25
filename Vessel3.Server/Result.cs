@@ -137,6 +137,10 @@ internal sealed record NoSuchLifecycleConfigurationError(string Bucket)
     : Error("NoSuchLifecycleConfiguration", $"The lifecycle configuration does not exist for {Bucket}")
 { public override int Status => 404; }
 
+internal sealed record NoSuchWebsiteConfigurationError(string Bucket)
+    : Error("NoSuchWebsiteConfiguration", $"The specified bucket does not have a website configuration: {Bucket}")
+{ public override int Status => 404; }
+
 internal sealed record InvalidArgumentError(string Detail)
     : Error("InvalidArgument", Detail)
 { public override int Status => 400; }

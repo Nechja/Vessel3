@@ -28,6 +28,7 @@ internal interface IS3XmlWriter
     Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct);
     Task WriteRetention(Stream output, Retention retention, CancellationToken ct);
     Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
+    Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct);
 }
 
 internal sealed record ObjectAttributesRequest(
@@ -528,6 +529,29 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteStartDocumentAsync();
         await w.WriteStartElementAsync(null, "LegalHold", S3Namespace);
         await w.WriteElementStringAsync(null, "Status", null, on ? "ON" : "OFF");
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "WebsiteConfiguration", S3Namespace);
+
+        await w.WriteStartElementAsync(null, "IndexDocument", null);
+        await w.WriteElementStringAsync(null, "Suffix", null, cfg.IndexDocument);
+        await w.WriteEndElementAsync();
+
+        if (!string.IsNullOrEmpty(cfg.ErrorDocument))
+        {
+            await w.WriteStartElementAsync(null, "ErrorDocument", null);
+            await w.WriteElementStringAsync(null, "Key", null, cfg.ErrorDocument);
+            await w.WriteEndElementAsync();
+        }
+
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();

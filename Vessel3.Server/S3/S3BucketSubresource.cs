@@ -10,6 +10,7 @@ internal enum S3BucketSubresource
     Lifecycle,
     Versions,
     Delete,
+    Website,
 }
 
 internal static class S3BucketSubresourceParser
@@ -22,5 +23,6 @@ internal static class S3BucketSubresourceParser
         : query.ContainsKey("lifecycle") ? S3BucketSubresource.Lifecycle
         : query.ContainsKey("versions") ? S3BucketSubresource.Versions
         : query.ContainsKey("delete") ? S3BucketSubresource.Delete
+        : query.ContainsKey("website") ? S3BucketSubresource.Website
         : S3BucketSubresource.None;
 }
