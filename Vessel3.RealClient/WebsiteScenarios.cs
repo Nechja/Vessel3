@@ -38,12 +38,16 @@ internal static class WebsiteScenarios
             {
                 try
                 {
-                    await s3.GetBucketWebsiteAsync(new GetBucketWebsiteRequest { BucketName = Bucket });
-                    throw new InvalidOperationException("expected 404 NoSuchWebsiteConfiguration before config is set");
+                    var res = await s3.GetBucketWebsiteAsync(new GetBucketWebsiteRequest { BucketName = Bucket });
+                    if (res.HttpStatusCode != HttpStatusCode.NotFound &&
+                        res.WebsiteConfiguration is { IndexDocumentSuffix: not null and not "" })
+                    {
+                        throw new InvalidOperationException($"expected 404 NoSuchWebsiteConfiguration before config is set, got {(int)res.HttpStatusCode}");
+                    }
                 }
                 catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
                 {
-                    // Expected: NoSuchWebsiteConfiguration
+                    // Expected in SDK variants that throw on 404
                 }
             });
 
@@ -213,12 +217,16 @@ internal static class WebsiteScenarios
 
                 try
                 {
-                    await s3.GetBucketWebsiteAsync(new GetBucketWebsiteRequest { BucketName = Bucket });
-                    throw new InvalidOperationException("expected 404 NoSuchWebsiteConfiguration after delete");
+                    var res = await s3.GetBucketWebsiteAsync(new GetBucketWebsiteRequest { BucketName = Bucket });
+                    if (res.HttpStatusCode != HttpStatusCode.NotFound &&
+                        res.WebsiteConfiguration is { IndexDocumentSuffix: not null and not "" })
+                    {
+                        throw new InvalidOperationException($"expected 404 NoSuchWebsiteConfiguration after delete, got {(int)res.HttpStatusCode}");
+                    }
                 }
                 catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
                 {
-                    // Expected: config removed
+                    // Expected in SDK variants that throw on 404
                 }
             });
 

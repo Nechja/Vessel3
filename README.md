@@ -15,7 +15,7 @@ Built for (my) homelab and single app use. This isn't built for multi-tenant set
 - Made with .NET 10, because why not.
 - The S3 wire protocol. AWS CLI, MinIO `mc`, boto3, and the AWS SDKs talk to it without code changes.
 - SigV4-signed requests, including the `STREAMING-UNSIGNED-PAYLOAD-TRAILER` mode boto3 uses by default.
-- Lifecycle rules (current expiration, noncurrent version expiration, expired delete marker pruning), multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
+- Virtual-host routing, static website hosting, lifecycle rules, multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
 - Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
 - Atomic overwrites. A reader looking up a key during a concurrent same-key overwrite sees the old value or the new value, never absence.
 - Cool.
@@ -24,7 +24,7 @@ Built for (my) homelab and single app use. This isn't built for multi-tenant set
 
 - Not a cluster.
 - Not multi-tenant. One static access key, plus short-lived session credentials from an OIDC exchange. No IAM, no policies. ACL endpoints return a bucket-owner stub.
-- Not a webserver. It serves bytes well. Put Caddy or nginx in front for HTML, TLS, and rate-limiting.
+- Not a full-blown webserver. It can host static sites out of a bucket (`index.html`, error docs, folder redirects), but it serves bytes. Put Caddy or nginx in front for TLS, certs, and rate-limiting.
 - Not tuned for thousands of concurrent uploaders.
 - Not something made to be the best thing you've ever used.
 
@@ -94,6 +94,7 @@ All via environment variables. No config file.
 | `VESSEL3_ACCESS_KEY` | unset -> auth disabled | SigV4 access key id. |
 | `VESSEL3_SECRET_KEY` | unset -> auth disabled | SigV4 secret. |
 | `VESSEL3_REGION` | `us-east-1` | Region string used for SigV4 verification. |
+| `VESSEL3_DOMAIN` | unset -> path-style only | Base domain(s) for virtual-host routing (e.g. `s3.local,localhost`). `admin.<domain>` routes to the UI. |
 | `VESSEL3_METRICS_TOKEN` | unset | If set, `/metrics` accepts requests from any IP that present `Authorization: Bearer <token>`. Loopback always works without the token. |
 | `VESSEL3_LIFECYCLE_INTERVAL_SECONDS` | `3600` | How often the lifecycle sweep runs. `0` disables it. |
 | `VESSEL3_COMPACT_INTERVAL_SECONDS` | `3600` | How often the compaction sweep runs. `0` disables it. |
@@ -117,6 +118,10 @@ export AWS_ACCESS_KEY_ID=AKIA...
 export AWS_SECRET_ACCESS_KEY=...
 aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://photos
 aws --endpoint-url http://127.0.0.1:9000 s3 cp ./cat.jpg s3://photos/
+
+# Static site hosting
+aws --endpoint-url http://127.0.0.1:9000 s3 website s3://photos --index-document index.html --error-document 404.html
+curl -H "Host: photos.localhost" http://127.0.0.1:9000/
 ```
 
 ## OIDC
@@ -160,6 +165,7 @@ VESSEL3_DATA/
     versioning                  bucket versioning state
     object-lock.json            bucket object-lock config
     lifecycle.json              bucket lifecycle configuration
+    website.json                bucket website config
   uploads/<upload-id>/          in-flight multipart parts
 ```
 
@@ -185,4 +191,4 @@ Apache 2.0. See [LICENSE](LICENSE).
 
 ## AI Use
 
-AI's did design a lot of the testing in this repo, and assist with the readme.
+AI's did design a lot/most of the testing in this repo, and assist with the readme.

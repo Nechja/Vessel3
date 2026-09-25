@@ -24,10 +24,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ ! -x "$SERVER_BIN" ]; then
-  echo "building server (Release)..."
-  dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
-fi
+echo "building server (Release)..."
+dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
 
 rm -rf "$DATA_DIR" "$SERVER_LOG"
 mkdir -p "$DATA_DIR"
