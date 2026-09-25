@@ -39,7 +39,7 @@ awscli() {
 mcclient() {
   docker run "${DOCKER_ARGS[@]}" \
     -e MC_HOST_v3="http://$AK:$SK@$HOST:$PORT" \
-    --entrypoint mc quay.io/minio/mc:latest "$@"
+    --entrypoint mc cgr.dev/chainguard/minio-client:latest "$@"
 }
 
 RCLONE_CONF="$WORK/rclone.conf"
