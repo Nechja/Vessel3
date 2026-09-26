@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text;
-using System.Xml;
 using Vessel3.Server.S3;
 
 namespace Vessel3.Server.Oidc;
@@ -11,14 +9,15 @@ internal interface ISecurityTokenService
     Task Handle(HttpContext ctx);
 }
 
-internal sealed class SecurityTokenService(ITokenVerifier verifier, ICredentialStore credentials) : ISecurityTokenService
+internal sealed class SecurityTokenService(
+    ITokenVerifier verifier,
+    ICredentialStore credentials,
+    ISecurityTokenXmlWriter xmlWriter) : ISecurityTokenService
 {
-    private const string Namespace = "https://sts.amazonaws.com/doc/2011-06-15/";
     private const string AssumeRoleWithWebIdentity = "AssumeRoleWithWebIdentity";
     private static readonly TimeSpan DefaultDuration = TimeSpan.FromHours(1);
     private static readonly TimeSpan MinDuration = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan MaxDuration = TimeSpan.FromHours(12);
-    private static readonly XmlWriterSettings Settings = new() { Async = true, OmitXmlDeclaration = false, Encoding = new UTF8Encoding(false) };
 
     public bool Matches(HttpRequest req) =>
         HttpMethods.IsPost(req.Method) && req.Path == "/";
@@ -31,14 +30,14 @@ internal sealed class SecurityTokenService(ITokenVerifier verifier, ICredentialS
 
         if (Param("Action") != AssumeRoleWithWebIdentity)
         {
-            await WriteError(ctx, 400, "InvalidAction", "Only AssumeRoleWithWebIdentity is supported", ct);
+            await RespondError(ctx, 400, "InvalidAction", "Only AssumeRoleWithWebIdentity is supported", ct);
             return;
         }
 
         var token = Param("WebIdentityToken");
         if (token.Length is 0)
         {
-            await WriteError(ctx, 400, "ValidationError", "WebIdentityToken is required", ct);
+            await RespondError(ctx, 400, "ValidationError", "WebIdentityToken is required", ct);
             return;
         }
 
@@ -49,7 +48,7 @@ internal sealed class SecurityTokenService(ITokenVerifier verifier, ICredentialS
             if (!int.TryParse(rawDuration, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
                 || seconds < MinDuration.TotalSeconds || seconds > MaxDuration.TotalSeconds)
             {
-                await WriteError(ctx, 400, "ValidationError", $"DurationSeconds must be between {MinDuration.TotalSeconds:0} and {MaxDuration.TotalSeconds:0}", ct);
+                await RespondError(ctx, 400, "ValidationError", $"DurationSeconds must be between {MinDuration.TotalSeconds:0} and {MaxDuration.TotalSeconds:0}", ct);
                 return;
             }
             duration = TimeSpan.FromSeconds(seconds);
@@ -57,61 +56,48 @@ internal sealed class SecurityTokenService(ITokenVerifier verifier, ICredentialS
 
         if (!(await verifier.Verify(token, ct)).TryGetValue(out var identity, out var err))
         {
-            await WriteError(ctx, err.Status, err.Code, err.Message, ct);
+            await RespondError(ctx, err.Status, err.Code, err.Message, ct);
             return;
         }
 
-        var session = credentials.IssueSession(identity.Subject, duration);
-        await WriteCredentials(ctx, identity, session, ct);
-    }
+        var roleArn = Param("RoleArn");
+        var roleSessionName = Param("RoleSessionName");
+        var (accountId, roleName) = ParseRoleArn(roleArn);
 
-    private static async Task WriteCredentials(HttpContext ctx, VerifiedIdentity identity, Credential session, CancellationToken ct)
-    {
+        var session = credentials.IssueSession(identity.Subject, duration, accountId);
+        var assumedSession = new AssumedRoleSession(
+            identity.Subject,
+            identity.Audiences,
+            session.AccessKey,
+            session.Secret,
+            session.SessionToken!,
+            session.ExpiresAt!.Value,
+            accountId,
+            roleName,
+            roleSessionName.Length > 0 ? roleSessionName : null);
+
         ctx.Response.StatusCode = 200;
         ctx.Response.ContentType = "text/xml";
-        await using var w = XmlWriter.Create(ctx.Response.Body, Settings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "AssumeRoleWithWebIdentityResponse", Namespace);
-        await w.WriteStartElementAsync(null, "AssumeRoleWithWebIdentityResult", null);
-        await w.WriteElementStringAsync(null, "SubjectFromWebIdentityToken", null, identity.Subject);
-        await w.WriteStartElementAsync(null, "Audiences", null);
-        foreach (var aud in identity.Audiences)
-            await w.WriteElementStringAsync(null, "member", null, aud);
-        await w.WriteEndElementAsync();
-        await w.WriteStartElementAsync(null, "AssumedRoleUser", null);
-        await w.WriteElementStringAsync(null, "Arn", null, $"arn:aws:sts:::assumed-role/vessel3/{identity.Subject}");
-        await w.WriteElementStringAsync(null, "AssumedRoleId", null, $"vessel3:{identity.Subject}");
-        await w.WriteEndElementAsync();
-        await w.WriteStartElementAsync(null, "Credentials", null);
-        await w.WriteElementStringAsync(null, "AccessKeyId", null, session.AccessKey);
-        await w.WriteElementStringAsync(null, "SecretAccessKey", null, session.Secret);
-        await w.WriteElementStringAsync(null, "SessionToken", null, session.SessionToken!);
-        await w.WriteElementStringAsync(null, "Expiration", null, session.ExpiresAt!.Value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
-        await w.WriteStartElementAsync(null, "ResponseMetadata", null);
-        await w.WriteElementStringAsync(null, "RequestId", null, Guid.NewGuid().ToString("N"));
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await xmlWriter.WriteAssumeRoleResponse(ctx.Response.Body, assumedSession, ct);
     }
 
-    private static async Task WriteError(HttpContext ctx, int status, string code, string message, CancellationToken ct)
+    private static (string? AccountId, string RoleName) ParseRoleArn(string roleArn)
+    {
+        if (string.IsNullOrEmpty(roleArn) || !roleArn.StartsWith("arn:aws:", StringComparison.Ordinal))
+            return (null, "vessel3");
+
+        var parts = roleArn.Split(':');
+        var accountId = parts.Length >= 5 && parts[4].Length > 0 ? parts[4] : null;
+        var roleName = parts.Length >= 6 && parts[5].StartsWith("role/", StringComparison.Ordinal)
+            ? parts[5]["role/".Length..]
+            : "vessel3";
+        return (accountId, roleName);
+    }
+
+    private async Task RespondError(HttpContext ctx, int status, string code, string message, CancellationToken ct)
     {
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "text/xml";
-        await using var w = XmlWriter.Create(ctx.Response.Body, Settings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ErrorResponse", Namespace);
-        await w.WriteStartElementAsync(null, "Error", null);
-        await w.WriteElementStringAsync(null, "Type", null, "Sender");
-        await w.WriteElementStringAsync(null, "Code", null, code);
-        await w.WriteElementStringAsync(null, "Message", null, message);
-        await w.WriteEndElementAsync();
-        await w.WriteElementStringAsync(null, "RequestId", null, Guid.NewGuid().ToString("N"));
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await xmlWriter.WriteErrorResponse(ctx.Response.Body, code, message, ct);
     }
 }

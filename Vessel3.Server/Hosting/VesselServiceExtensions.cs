@@ -60,7 +60,11 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselS3Protocol(this IServiceCollection services)
     {
-        services.AddSingleton<IS3XmlWriter, S3XmlWriter>();
+        services.AddSingleton<S3XmlWriter>();
+        services.AddSingleton<IS3XmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
+        services.AddSingleton<IBucketXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
+        services.AddSingleton<IObjectXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
+        services.AddSingleton<IS3ErrorXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
         services.AddSingleton<IS3XmlReader, S3XmlReader>();
         services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
         services.AddSingleton<IWebsiteService, WebsiteService>();
@@ -86,6 +90,7 @@ internal static class VesselServiceExtensions
             services.AddSingleton<IOidcDiscovery, OidcDiscovery>();
             services.AddSingleton<ISigningKeys, JwksSigningKeys>();
             services.AddSingleton<ITokenVerifier, TokenVerifier>();
+            services.AddSingleton<ISecurityTokenXmlWriter, SecurityTokenXmlWriter>();
             services.AddSingleton<ISecurityTokenService, SecurityTokenService>();
             services.AddSingleton<StsEndpointMiddleware>();
         }

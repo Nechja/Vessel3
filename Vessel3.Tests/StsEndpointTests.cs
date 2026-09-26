@@ -29,7 +29,7 @@ public class StsEndpointTests
     {
         var store = new CredentialStore(null, new TestClock(T0));
         var verifier = new FakeVerifier(outcome ?? new VerifiedIdentity("acct_kayla", ["vessel3"]));
-        var sts = new SecurityTokenService(verifier, store);
+        var sts = new SecurityTokenService(verifier, store, new SecurityTokenXmlWriter());
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "POST";
         ctx.Request.Path = "/";
@@ -52,7 +52,7 @@ public class StsEndpointTests
     [Fact]
     public void Matches_only_post_to_root()
     {
-        var sts = new SecurityTokenService(new FakeVerifier(new VerifiedIdentity("a", ["b"])), new CredentialStore(null, new TestClock(T0)));
+        var sts = new SecurityTokenService(new FakeVerifier(new VerifiedIdentity("a", ["b"])), new CredentialStore(null, new TestClock(T0)), new SecurityTokenXmlWriter());
         var post = new DefaultHttpContext().Request;
         post.Method = "POST";
         post.Path = "/";
