@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fast "is the wire intact?" check — boots a Release server on a random port,
 # runs a six-step CRUD probe, tears it down. Use this in tight edit loops; run
-# the full RealClient probe for any change that crosses the bucket boundary.
+# the full AWS compatibility probe for any change that crosses the bucket boundary.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,4 +44,4 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
-dotnet run --project "$ROOT/Vessel3.RealClient" -c Release --no-launch-profile -- smoke
+dotnet run --project "$ROOT/Vessel3.Tests.AwsCompatibility" -c Release --no-launch-profile -- smoke

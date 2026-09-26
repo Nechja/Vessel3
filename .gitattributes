@@ -7,6 +7,6 @@
 *.woff2 binary
 
 Vessel3.Tests/** linguist-detectable=false
-Vessel3.RealClient/** linguist-detectable=false
+Vessel3.Tests.AwsCompatibility/** linguist-detectable=false
 Vessel3.Bench/** linguist-detectable=false
 tests/** linguist-detectable=false

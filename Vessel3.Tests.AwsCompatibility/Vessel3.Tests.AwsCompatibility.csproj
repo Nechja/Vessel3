@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Vessel3.RealClient</RootNamespace>
-    <AssemblyName>vessel3-realclient</AssemblyName>
+    <RootNamespace>Vessel3.Tests.AwsCompatibility</RootNamespace>
+    <AssemblyName>vessel3-tests-aws</AssemblyName>
 
     <!-- AWSSDK is reflection-heavy; this is a JIT throwaway probe -->
     <IsAotCompatible>false</IsAotCompatible>

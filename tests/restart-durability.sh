@@ -7,7 +7,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ENDPOINT=${VESSEL3_ENDPOINT:-http://127.0.0.1:9000}
 DATA_DIR=${VESSEL3_DATA:-/tmp/vessel3-restart-data}
 SERVER_BIN=${SERVER_BIN:-$ROOT/Vessel3.Server/bin/Release/net10.0/vessel3}
-PROBE_PROJ=$ROOT/Vessel3.RealClient
+PROBE_PROJ=$ROOT/Vessel3.Tests.AwsCompatibility
 STATE=${VESSEL3_PROBE_STATE:-/tmp/vessel3-probe-state.json}
 SERVER_LOG=${VESSEL3_SERVER_LOG:-/tmp/vessel3-restart-server.log}
 
