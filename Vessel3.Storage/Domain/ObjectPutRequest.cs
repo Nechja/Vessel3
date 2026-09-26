@@ -10,7 +10,7 @@ internal sealed record ObjectPutRequest(
     string? DeclaredMd5Base64,
     IReadOnlyDictionary<string, string> Metadata,
     IReadOnlyDictionary<string, string> Tags,
-    ChecksumSet DeclaredChecksums,
+    DeclaredChecksums DeclaredChecksums,
     CancellationToken Ct,
     Retention? Retention = null,
     bool LegalHoldOn = false,

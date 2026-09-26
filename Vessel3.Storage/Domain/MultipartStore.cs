@@ -30,6 +30,7 @@ internal sealed partial class MultipartJsonContext : JsonSerializerContext;
 internal interface IMultipartStore
 {
     Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata);
+    Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct);
     Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct);
     Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag, CompletedPartChecksums? Sums)> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct);
     Result Abort(string uploadId);
@@ -48,7 +49,10 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
                 : CreateUpload(bucket, key, contentType, metadata),
             err => err);
 
-    public async Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct)
+    public Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct) =>
+        UploadPart(uploadId, partNumber, body, declaredSize, DeclaredChecksums.FromSet(declaredChecksums), ct);
+
+    public async Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct)
     {
         if (partNumber is < 1 or > 10000)
             return new InvalidPartError($"partNumber {partNumber} out of range [1, 10000]");
@@ -58,25 +62,17 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
         var dir = UploadDir(uploadId);
         if (!Directory.Exists(dir)) return new NoSuchUploadError(uploadId);
 
-        var written = await blobs.Write(body, declaredSize, ChecksumIntent.All, ct);
-        if (written is Result<StoredBlob>.Failure f) return f.Error;
-        var blob = ((Result<StoredBlob>.Success)written).Value;
+        var written = await blobs.Write(body, declaredSize, declaredChecksums.ToIntent(), ct);
+        if (!written.TryGetValue(out var blob, out var blobErr)) return blobErr;
 
-        declaredChecksums = ChecksumAlgorithms.MergeTrailers(declaredChecksums, body);
-        if (declaredChecksums.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
-            return new BadDigestError($"part {partNumber} crc32 mismatch");
-        if (declaredChecksums.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
-            return new BadDigestError($"part {partNumber} crc32c mismatch");
-        if (declaredChecksums.Sha1 is { } s1 && !string.Equals(s1, blob.Sha1, StringComparison.OrdinalIgnoreCase))
-            return new BadDigestError($"part {partNumber} sha1 mismatch");
-        if (declaredChecksums.Sha256 is { } s256 && !string.Equals(s256, blob.Sha, StringComparison.OrdinalIgnoreCase))
-            return new BadDigestError($"part {partNumber} sha256(checksum) mismatch");
+        if (!ChecksumValidator.Validate(blob, declaredChecksums, body, out var toStore, out var checksumErr))
+            return checksumErr;
 
         var part = new MultipartPart(partNumber, blob.Sha, blob.Md5, blob.Size,
             Crc32: blob.Crc32, Crc32C: blob.Crc32C, Sha1: blob.Sha1);
-        if (WritePartFile(dir, part) is Result.Failure wf) return wf.Error;
-        var sums = new ChecksumSet(blob.Crc32, blob.Crc32C, blob.Sha1, blob.Sha);
-        return new UploadPartOutcome(blob.Md5, blob.Sha, blob.Size, sums);
+        return WritePartFile(dir, part) is Result.Failure wf
+            ? wf.Error
+            : new UploadPartOutcome(blob.Md5, blob.Sha, blob.Size, toStore);
     }
 
     public async Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag, CompletedPartChecksums? Sums)> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct)
