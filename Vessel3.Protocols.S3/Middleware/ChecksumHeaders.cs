@@ -2,7 +2,7 @@ namespace Vessel3.Server.S3;
 
 internal static class ChecksumHeaders
 {
-    public const string Pending = "__PENDING__";
+    public const string Pending = ChecksumAlgorithms.Pending;
     private const string Malformed = "__MALFORMED__";
 
     public static ChecksumSet? ParseDeclared(IHeaderDictionary headers)

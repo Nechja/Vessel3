@@ -52,7 +52,7 @@ internal static class ChecksumAlgorithms
     public const string HeaderCrc32C = "x-amz-checksum-crc32c";
     public const string HeaderSha1   = "x-amz-checksum-sha1";
     public const string HeaderSha256 = "x-amz-checksum-sha256";
-    public const string Pending      = "PENDING";
+    public const string Pending      = "__PENDING__";
 
     public static string HeaderFor(ChecksumAlgorithm a) => a switch
     {
