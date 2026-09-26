@@ -72,7 +72,7 @@ internal static class Scenarios
                 var elapsed = Stopwatch.GetTimestamp() - t0;
                 recorder?.RecordBatch(elapsed, batchSize, totalBytes);
             }
-        }, ct);
+        }, CancellationToken.None);
 
         await Task.WhenAll(Enumerable.Range(0, concurrency).Select(RunWorker));
     }

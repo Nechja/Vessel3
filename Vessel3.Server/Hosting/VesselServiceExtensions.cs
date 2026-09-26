@@ -60,12 +60,21 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselS3Protocol(this IServiceCollection services)
     {
+        services.AddSingleton<BucketXmlWriter>();
+        services.AddSingleton<ObjectXmlWriter>();
+        services.AddSingleton<S3ErrorXmlWriter>();
+        services.AddSingleton<IBucketXmlWriter>(sp => sp.GetRequiredService<BucketXmlWriter>());
+        services.AddSingleton<IObjectXmlWriter>(sp => sp.GetRequiredService<ObjectXmlWriter>());
+        services.AddSingleton<IS3ErrorXmlWriter>(sp => sp.GetRequiredService<S3ErrorXmlWriter>());
         services.AddSingleton<S3XmlWriter>();
         services.AddSingleton<IS3XmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
-        services.AddSingleton<IBucketXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
-        services.AddSingleton<IObjectXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
-        services.AddSingleton<IS3ErrorXmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
-        services.AddSingleton<IS3XmlReader, S3XmlReader>();
+
+        services.AddSingleton<BucketXmlReader>();
+        services.AddSingleton<ObjectXmlReader>();
+        services.AddSingleton<IBucketXmlReader>(sp => sp.GetRequiredService<BucketXmlReader>());
+        services.AddSingleton<IObjectXmlReader>(sp => sp.GetRequiredService<ObjectXmlReader>());
+        services.AddSingleton<S3XmlReader>();
+        services.AddSingleton<IS3XmlReader>(sp => sp.GetRequiredService<S3XmlReader>());
         services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
         services.AddSingleton<IWebsiteService, WebsiteService>();
         services.AddVesselS3Actions();

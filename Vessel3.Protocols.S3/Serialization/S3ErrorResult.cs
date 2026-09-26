@@ -1,6 +1,6 @@
 namespace Vessel3.Server.S3;
 
-internal sealed class S3ErrorResult(Error error, IS3XmlWriter xml) : IResult
+internal sealed class S3ErrorResult(Error error, IS3ErrorXmlWriter xml) : IResult
 {
     public async Task ExecuteAsync(HttpContext ctx)
     {
