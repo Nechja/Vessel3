@@ -141,6 +141,14 @@ internal sealed record NoSuchWebsiteConfigurationError(string Bucket)
     : Error("NoSuchWebsiteConfiguration", $"The specified bucket does not have a website configuration: {Bucket}")
 { public override int Status => 404; }
 
+internal sealed record NoSuchCORSConfigurationError(string Bucket)
+    : Error("NoSuchCORSConfiguration", $"The CORS configuration does not exist for {Bucket}")
+{ public override int Status => 404; }
+
+internal sealed record BucketIsReadOnlyError(string Bucket)
+    : Error("AccessDenied", $"Bucket '{Bucket}' is in read-only mode")
+{ public override int Status => 403; }
+
 internal sealed record InvalidArgumentError(string Detail)
     : Error("InvalidArgument", Detail)
 { public override int Status => 400; }

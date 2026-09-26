@@ -19,6 +19,11 @@ internal static class S3ServiceCollectionExtensions
         services.AddSingleton<IS3BucketAction, GetBucketWebsite>();
         services.AddSingleton<IS3BucketAction, PutBucketWebsite>();
         services.AddSingleton<IS3BucketAction, DeleteBucketWebsite>();
+        services.AddSingleton<IS3BucketAction, GetBucketCors>();
+        services.AddSingleton<IS3BucketAction, PutBucketCors>();
+        services.AddSingleton<IS3BucketAction, DeleteBucketCors>();
+        services.AddSingleton<IS3BucketAction, GetBucketAcl>();
+        services.AddSingleton<IS3BucketAction, PutBucketAcl>();
         services.AddSingleton<IS3BucketAction, ListObjectVersions>();
         services.AddSingleton<IS3BucketAction, ListObjects>();
         services.AddSingleton<IS3BucketAction, CreateBucket>();

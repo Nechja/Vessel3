@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -7,14 +8,23 @@ internal interface IS3BucketActionDispatcher
     Task<IResult> Dispatch(string method, string bucket, HttpContext ctx);
 }
 
-internal sealed class S3BucketActionDispatcher(IEnumerable<IS3BucketAction> actions, IHttpResultMapper http) : IS3BucketActionDispatcher
+internal sealed class S3BucketActionDispatcher(IEnumerable<IS3BucketAction> actions, IBucketRegistry? registry, IHttpResultMapper http) : IS3BucketActionDispatcher
 {
+    public S3BucketActionDispatcher(IEnumerable<IS3BucketAction> actions, IHttpResultMapper http)
+        : this(actions, null, http) { }
+
     private readonly FrozenDictionary<S3BucketRoute, Entry> table = actions.ToFrozenDictionary(a => a.Route, a => new Entry(a, a.GetType().Name));
 
     private readonly record struct Entry(IS3BucketAction Action, string Name);
 
     public Task<IResult> Dispatch(string method, string bucket, HttpContext ctx)
     {
+        if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method))
+        {
+            if (registry is not null && registry.GetAccess(bucket).TryGetValue(out var access, out _) && access.ReadOnly)
+                return Task.FromResult(http.Map(new BucketIsReadOnlyError(bucket)));
+        }
+
         var sub = S3BucketSubresourceParser.From(ctx.Request.Query);
 
         return table.TryGetValue(new S3BucketRoute(method, sub), out var entry) ? Invoke(entry, bucket, ctx)

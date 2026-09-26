@@ -55,7 +55,6 @@ public class BucketAccessTests : IDisposable
 
         reg1.SetAccess("b-access", new BucketAccess(PublicRead: true, ReadOnly: true));
 
-        // Create a new registry instance pointing at same root to verify persistence
         using var reg2 = new BucketRegistry(new BucketRegistryOptions(root), sync, durable);
         var acc2 = reg2.GetAccess("b-access");
         Assert.True(acc2.TryGetValue(out var val2, out _));
@@ -100,26 +99,21 @@ public class BucketAccessTests : IDisposable
         };
         var bucketDispatcher = new S3BucketActionDispatcher(bucketActions, reg, http);
 
-        // GET key -> Allowed (returns 200 Ok)
         var getRes = await keyDispatcher.Dispatch(HttpMethods.Get, "ro-bucket", "file.txt", new DefaultHttpContext());
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<string>>(getRes);
 
-        // PUT key -> Blocked (returns S3ErrorResult 403)
         var putRes = await keyDispatcher.Dispatch(HttpMethods.Put, "ro-bucket", "file.txt", new DefaultHttpContext());
         var errPut = Assert.IsType<S3ErrorResult>(putRes);
         var ctxPut = new DefaultHttpContext();
         await errPut.ExecuteAsync(ctxPut);
         Assert.Equal(StatusCodes.Status403Forbidden, ctxPut.Response.StatusCode);
 
-        // DELETE key -> Blocked
         var delRes = await keyDispatcher.Dispatch(HttpMethods.Delete, "ro-bucket", "file.txt", new DefaultHttpContext());
         Assert.IsType<S3ErrorResult>(delRes);
 
-        // GET bucket -> Allowed
         var getBRes = await bucketDispatcher.Dispatch(HttpMethods.Get, "ro-bucket", new DefaultHttpContext());
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<string>>(getBRes);
 
-        // DELETE bucket -> Blocked
         var delBRes = await bucketDispatcher.Dispatch(HttpMethods.Delete, "ro-bucket", new DefaultHttpContext());
         Assert.IsType<S3ErrorResult>(delBRes);
     }
@@ -136,14 +130,12 @@ public class BucketAccessTests : IDisposable
 
         var middleware = new CorsAndAccessMiddleware(reg);
 
-        // Public bucket GET request
         var pubCtx = new DefaultHttpContext();
         pubCtx.Request.Method = "GET";
         pubCtx.Request.Path = "/pub-bucket/photo.jpg";
         await middleware.InvokeAsync(pubCtx, _ => Task.CompletedTask);
         Assert.True(pubCtx.Items.ContainsKey("AnonymousAllowed"));
 
-        // Private bucket GET request
         var privCtx = new DefaultHttpContext();
         privCtx.Request.Method = "GET";
         privCtx.Request.Path = "/priv-bucket/photo.jpg";
@@ -164,7 +156,6 @@ public class BucketAccessTests : IDisposable
         var get = new GetBucketAcl(reg, xml, http);
         var put = new PutBucketAcl(reg, reader, http);
 
-        // Default: Private
         var ctx1 = new DefaultHttpContext();
         var ms1 = new MemoryStream();
         ctx1.Response.Body = ms1;
@@ -174,7 +165,6 @@ public class BucketAccessTests : IDisposable
         Assert.True(pub1.TryGetValue(out var isPub1, out _));
         Assert.False(isPub1);
 
-        // PUT x-amz-acl: public-read
         var ctx2 = new DefaultHttpContext();
         ctx2.Request.Headers["x-amz-acl"] = "public-read";
         var putRes = await put.Invoke("acl-bucket", ctx2);
@@ -184,7 +174,6 @@ public class BucketAccessTests : IDisposable
         Assert.True(acc2.TryGetValue(out var val2, out _));
         Assert.True(val2.PublicRead);
 
-        // GET after public-read
         var ctx3 = new DefaultHttpContext();
         var ms3 = new MemoryStream();
         ctx3.Response.Body = ms3;
@@ -194,7 +183,6 @@ public class BucketAccessTests : IDisposable
         Assert.True(pub3.TryGetValue(out var isPub3, out _));
         Assert.True(isPub3);
 
-        // PUT x-amz-acl: private
         var ctx4 = new DefaultHttpContext();
         ctx4.Request.Headers["x-amz-acl"] = "private";
         await put.Invoke("acl-bucket", ctx4);
@@ -214,7 +202,6 @@ public class BucketAccessTests : IDisposable
         services.AddSingleton<IHttpResultMapper>(new HttpResultMapper(new S3XmlWriter()));
         var sp = services.BuildServiceProvider();
 
-        // 1. GET access -> {"publicRead":false,"readOnly":false}
         var getCtx = new DefaultHttpContext { RequestServices = sp };
         var getMs = new MemoryStream();
         getCtx.Response.Body = getMs;
@@ -225,7 +212,6 @@ public class BucketAccessTests : IDisposable
         Assert.Contains("\"publicRead\":false", json1);
         Assert.Contains("\"readOnly\":false", json1);
 
-        // 2. PUT access -> set publicRead: true, readOnly: true
         var putCtx = new DefaultHttpContext { RequestServices = sp };
         const string updateJson = "{\"publicRead\":true,\"readOnly\":true}";
         putCtx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(updateJson));

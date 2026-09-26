@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Vessel3.Server.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -7,14 +8,23 @@ internal interface IS3KeyActionDispatcher
     Task<IResult> Dispatch(string method, string bucket, string key, HttpContext ctx);
 }
 
-internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IHttpResultMapper http) : IS3KeyActionDispatcher
+internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IBucketRegistry? registry, IHttpResultMapper http) : IS3KeyActionDispatcher
 {
+    public S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IHttpResultMapper http)
+        : this(actions, null, http) { }
+
     private readonly FrozenDictionary<S3KeyRoute, Entry> table = actions.ToFrozenDictionary(a => a.Route, a => new Entry(a, a.GetType().Name));
 
     private readonly record struct Entry(IS3KeyAction Action, string Name);
 
     public Task<IResult> Dispatch(string method, string bucket, string key, HttpContext ctx)
     {
+        if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method))
+        {
+            if (registry is not null && registry.GetAccess(bucket).TryGetValue(out var access, out _) && access.ReadOnly)
+                return Task.FromResult(http.Map(new BucketIsReadOnlyError(bucket)));
+        }
+
         var sub = S3KeySubresourceParser.From(ctx.Request.Query);
         var headerFlag = !string.IsNullOrEmpty(ctx.Request.Headers["x-amz-copy-source"].ToString())
             ? S3KeyHeaderFlag.CopySource

@@ -149,6 +149,15 @@ public class BucketCorsTests : IDisposable
 
         Assert.True(rule.MatchesHeaders(["Authorization", "x-amz-date", "x-amz-content-sha256"]));
         Assert.False(rule.MatchesHeaders(["X-Custom-Forbidden-Header"]));
+
+        Assert.True(CorsRule.WildcardMatch("*", "https://anything.com"));
+        Assert.True(CorsRule.WildcardMatch("https://*.example.com", "https://sub.example.com"));
+        Assert.False(CorsRule.WildcardMatch("https://*.example.com", "https://sub.example.com.evil.com"));
+        Assert.False(CorsRule.WildcardMatch("https://*.example.com", "https://sub.example.com/path"));
+        Assert.True(CorsRule.WildcardMatch("https://*.*.example.com", "https://a.b.example.com"));
+        Assert.False(CorsRule.WildcardMatch("https://*.*.example.com", "https://a.b.example.com/evil"));
+        Assert.True(CorsRule.WildcardMatch("x-amz-*", "x-amz-date"));
+        Assert.False(CorsRule.WildcardMatch("x-amz-*", "authorization"));
     }
 
     [Fact]
@@ -165,12 +174,10 @@ public class BucketCorsTests : IDisposable
         var put = new PutBucketCors(reg, reader, http);
         var del = new DeleteBucketCors(reg, http);
 
-        // 1. Initial GET -> 404 NoSuchCORSConfiguration
         var ctx1 = new DefaultHttpContext();
         var res1 = await get.Invoke("test-cors", ctx1);
         Assert.IsType<S3ErrorResult>(res1);
 
-        // 2. PUT CORS configuration
         const string corsXml = """
             <CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
                 <CORSRule>
@@ -185,7 +192,6 @@ public class BucketCorsTests : IDisposable
         var res2 = await put.Invoke("test-cors", ctx2);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok>(res2);
 
-        // 3. GET CORS -> Returns 200 with XML
         var ctx3 = new DefaultHttpContext();
         var ms3 = new MemoryStream();
         ctx3.Response.Body = ms3;
@@ -197,19 +203,17 @@ public class BucketCorsTests : IDisposable
         Assert.Single(cfg.Rules);
         Assert.Equal(["*"], cfg.Rules[0].AllowedOrigins);
 
-        // 4. DELETE CORS -> 204
         var ctx4 = new DefaultHttpContext();
         var res4 = await del.Invoke("test-cors", ctx4);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.NoContent>(res4);
 
-        // 5. Subsequent GET -> 404
         var ctx5 = new DefaultHttpContext();
         var res5 = await get.Invoke("test-cors", ctx5);
         Assert.IsType<S3ErrorResult>(res5);
     }
 
     [Fact]
-    public async Task CorsAndAccessMiddleware_Preflight_And_Actual()
+    public async Task CorsAndAccessMiddleware_Preflight_MatchingOrigin_ReturnsOkWithHeaders()
     {
         var reg = Registry();
         reg.Create("cors-bucket");
@@ -224,32 +228,44 @@ public class BucketCorsTests : IDisposable
 
         var middleware = new CorsAndAccessMiddleware(reg);
 
-        // Preflight OPTIONS for matching origin and method
-        var ctxPreflight = new DefaultHttpContext();
-        ctxPreflight.Request.Method = "OPTIONS";
-        ctxPreflight.Request.Path = "/cors-bucket/my-key";
-        ctxPreflight.Request.Headers.Origin = "http://localhost:3000";
-        ctxPreflight.Request.Headers["Access-Control-Request-Method"] = "PUT";
-        ctxPreflight.Request.Headers["Access-Control-Request-Headers"] = "content-type, x-amz-date";
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "OPTIONS";
+        ctx.Request.Path = "/cors-bucket/my-key";
+        ctx.Request.Headers.Origin = "http://localhost:3000";
+        ctx.Request.Headers["Access-Control-Request-Method"] = "PUT";
+        ctx.Request.Headers["Access-Control-Request-Headers"] = "content-type, x-amz-date";
 
         var nextCalled = false;
-        await middleware.InvokeAsync(ctxPreflight, _ => { nextCalled = true; return Task.CompletedTask; });
+        await middleware.InvokeAsync(ctx, _ => { nextCalled = true; return Task.CompletedTask; });
 
-        Assert.False(nextCalled); // Short-circuits preflight
-        Assert.Equal(200, ctxPreflight.Response.StatusCode);
-        Assert.Equal("http://localhost:3000", ctxPreflight.Response.Headers.AccessControlAllowOrigin.ToString());
-        Assert.Equal("PUT", ctxPreflight.Response.Headers.AccessControlAllowMethods.ToString());
-        Assert.Equal("content-type, x-amz-date", ctxPreflight.Response.Headers.AccessControlAllowHeaders.ToString());
-        Assert.Equal("1800", ctxPreflight.Response.Headers.AccessControlMaxAge.ToString());
+        Assert.False(nextCalled);
+        Assert.Equal(200, ctx.Response.StatusCode);
+        Assert.Equal("http://localhost:3000", ctx.Response.Headers.AccessControlAllowOrigin.ToString());
+        Assert.Equal("PUT", ctx.Response.Headers.AccessControlAllowMethods.ToString());
+        Assert.Equal("content-type, x-amz-date", ctx.Response.Headers.AccessControlAllowHeaders.ToString());
+        Assert.Equal("1800", ctx.Response.Headers.AccessControlMaxAge.ToString());
+    }
 
-        // Preflight OPTIONS for forbidden origin
-        var ctxForbidden = new DefaultHttpContext();
-        ctxForbidden.Request.Method = "OPTIONS";
-        ctxForbidden.Request.Path = "/cors-bucket/my-key";
-        ctxForbidden.Request.Headers.Origin = "http://evil.com";
-        ctxForbidden.Request.Headers["Access-Control-Request-Method"] = "PUT";
+    [Fact]
+    public async Task CorsAndAccessMiddleware_Preflight_ForbiddenOrigin_ReturnsForbidden()
+    {
+        var reg = Registry();
+        reg.Create("cors-bucket");
+        reg.SetCors("cors-bucket", new CorsConfig([
+            new CorsRule(
+                AllowedOrigins: ["http://localhost:3000"],
+                AllowedMethods: ["PUT"])
+        ]));
 
-        await middleware.InvokeAsync(ctxForbidden, _ => Task.CompletedTask);
-        Assert.Equal(403, ctxForbidden.Response.StatusCode);
+        var middleware = new CorsAndAccessMiddleware(reg);
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "OPTIONS";
+        ctx.Request.Path = "/cors-bucket/my-key";
+        ctx.Request.Headers.Origin = "http://evil.com";
+        ctx.Request.Headers["Access-Control-Request-Method"] = "PUT";
+
+        await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
+        Assert.Equal(403, ctx.Response.StatusCode);
     }
 }

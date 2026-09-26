@@ -14,6 +14,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
     private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
     private readonly string websitePath = Path.Combine(path, "website.json");
+    private readonly string accessPath = Path.Combine(path, "access.json");
+    private readonly string corsPath = Path.Combine(path, "cors.json");
     private readonly Lock writeGate = new();
     private bool sealedForDelete;
 
@@ -24,6 +26,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public ObjectLockConfig? ObjectLock { get; private set; }
     public LifecycleConfig? Lifecycle { get; private set; }
     public WebsiteConfig? Website { get; private set; }
+    public BucketAccess Access { get; private set; } = BucketAccess.Private;
+    public CorsConfig? Cors { get; private set; }
 
     public void Open()
     {
@@ -42,6 +46,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         ObjectLock = ReadObjectLock();
         Lifecycle = ReadLifecycle();
         Website = ReadWebsite();
+        Access = ReadAccess();
+        Cors = ReadCors();
 
         var maxSeq = Index.MaxSeq();
         foreach (var ev in log.Replay())
@@ -125,6 +131,35 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     private WebsiteConfig? ReadWebsite() =>
         File.Exists(websitePath)
             ? JsonSerializer.Deserialize(File.ReadAllText(websitePath), WebsiteJsonContext.Default.WebsiteConfig)
+            : null;
+
+    public Result SetAccess(BucketAccess access)
+    {
+        Access = access;
+        return durableWrite.AtomicReplace(accessPath, JsonSerializer.Serialize(access, BucketAccessJsonContext.Default.BucketAccess));
+    }
+
+    private BucketAccess ReadAccess() =>
+        File.Exists(accessPath)
+            ? JsonSerializer.Deserialize(File.ReadAllText(accessPath), BucketAccessJsonContext.Default.BucketAccess) ?? BucketAccess.Private
+            : BucketAccess.Private;
+
+    public Result SetCors(CorsConfig cfg)
+    {
+        Cors = cfg;
+        return durableWrite.AtomicReplace(corsPath, JsonSerializer.Serialize(cfg, CorsJsonContext.Default.CorsConfig));
+    }
+
+    public Result RemoveCors()
+    {
+        Cors = null;
+        if (File.Exists(corsPath)) File.Delete(corsPath);
+        return Result.Ok;
+    }
+
+    private CorsConfig? ReadCors() =>
+        File.Exists(corsPath)
+            ? JsonSerializer.Deserialize(File.ReadAllText(corsPath), CorsJsonContext.Default.CorsConfig)
             : null;
 
     public bool ExpireCurrentVersion(string key, string expectedCurrentVersionId, DateTimeOffset expectedAt)

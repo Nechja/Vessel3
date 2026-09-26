@@ -22,6 +22,8 @@ internal interface IS3XmlReader
     Task<Result<Retention>> ReadRetention(Stream input, CancellationToken ct);
     Task<Result<bool>> ReadLegalHold(Stream input, CancellationToken ct);
     Task<Result<WebsiteConfig>> ReadWebsiteConfiguration(Stream input, CancellationToken ct);
+    Task<Result<CorsConfig>> ReadCorsConfiguration(Stream input, CancellationToken ct);
+    Task<Result<bool>> ReadAccessControlPolicy(Stream input, CancellationToken ct);
 }
 
 internal sealed class S3XmlReader : IS3XmlReader
@@ -507,6 +509,139 @@ internal sealed class S3XmlReader : IS3XmlReader
             return string.IsNullOrEmpty(indexSuffix)
                 ? new MalformedXmlError("WebsiteConfiguration requires a non-empty IndexDocument Suffix")
                 : new WebsiteConfig(indexSuffix, string.IsNullOrEmpty(errorKey) ? null : errorKey);
+        }
+        catch (XmlException ex)
+        {
+            return new MalformedXmlError(ex.Message);
+        }
+    }
+
+    public async Task<Result<CorsConfig>> ReadCorsConfiguration(Stream input, CancellationToken ct)
+    {
+        try
+        {
+            using var r = XmlReader.Create(input, settings);
+            List<CorsRule> rules = [];
+            while (await r.ReadAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                if (r.NodeType is XmlNodeType.Element && r.LocalName is "CORSRule")
+                {
+                    var ruleResult = await ReadCorsRule(r, ct);
+                    if (ruleResult is Result<CorsRule>.Failure f)
+                        return f.Error;
+                    if (ruleResult is Result<CorsRule>.Success s)
+                        rules.Add(s.Value);
+                }
+            }
+
+            return rules.Count switch
+            {
+                0 => new MalformedXmlError("CORSConfiguration must contain at least one CORSRule"),
+                > 100 => new MalformedXmlError("CORSConfiguration cannot contain more than 100 rules"),
+                _ => new CorsConfig(rules)
+            };
+        }
+        catch (XmlException ex)
+        {
+            return new MalformedXmlError(ex.Message);
+        }
+    }
+
+    private async Task<Result<CorsRule>> ReadCorsRule(XmlReader r, CancellationToken ct)
+    {
+        string? id = null;
+        List<string> origins = [];
+        List<string> methods = [];
+        List<string> headers = [];
+        List<string> exposeHeaders = [];
+        int? maxAgeSeconds = null;
+
+        using var sub = r.ReadSubtree();
+        string? currentField = null;
+
+        while (await sub.ReadAsync())
+        {
+            ct.ThrowIfCancellationRequested();
+            switch (sub.NodeType)
+            {
+                case XmlNodeType.Element:
+                    currentField = sub.LocalName;
+                    break;
+                case XmlNodeType.Text or XmlNodeType.CDATA:
+                    var val = (await sub.GetValueAsync()).Trim();
+                    switch (currentField)
+                    {
+                        case "ID": id = val; break;
+                        case "AllowedOrigin": if (!string.IsNullOrEmpty(val)) origins.Add(val); break;
+                        case "AllowedMethod": if (!string.IsNullOrEmpty(val)) methods.Add(val.ToUpperInvariant()); break;
+                        case "AllowedHeader": if (!string.IsNullOrEmpty(val)) headers.Add(val); break;
+                        case "ExposeHeader": if (!string.IsNullOrEmpty(val)) exposeHeaders.Add(val); break;
+                        case "MaxAgeSeconds":
+                            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var age))
+                                maxAgeSeconds = age;
+                            break;
+                    }
+                    break;
+                case XmlNodeType.EndElement:
+                    currentField = null;
+                    break;
+            }
+        }
+
+        return origins.Count == 0
+            ? new MalformedXmlError("CORSRule requires at least one AllowedOrigin")
+            : methods.Count == 0
+                ? new MalformedXmlError("CORSRule requires at least one AllowedMethod")
+                : new CorsRule(origins, methods, headers, exposeHeaders, maxAgeSeconds, id);
+    }
+
+    public async Task<Result<bool>> ReadAccessControlPolicy(Stream input, CancellationToken ct)
+    {
+        try
+        {
+            using var r = XmlReader.Create(input, settings);
+            var publicRead = false;
+            string? currentField = null;
+            var isGroupGrantee = false;
+            var isAllUsersUri = false;
+
+            while (await r.ReadAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                switch (r.NodeType)
+                {
+                    case XmlNodeType.Element:
+                        currentField = r.LocalName;
+                        if (currentField is "Grantee")
+                        {
+                            isGroupGrantee = r.GetAttribute("type") is "Group" || r.GetAttribute("xsi:type") is "Group";
+                            isAllUsersUri = false;
+                        }
+                        break;
+                    case XmlNodeType.Text or XmlNodeType.CDATA:
+                        var val = (await r.GetValueAsync()).Trim();
+                        if (currentField is "URI" && isGroupGrantee && val.Contains("AllUsers", StringComparison.OrdinalIgnoreCase))
+                        {
+                            isAllUsersUri = true;
+                        }
+                        else if (currentField is "Permission" && isAllUsersUri && (val is "READ" or "FULL_CONTROL"))
+                        {
+                            publicRead = true;
+                        }
+                        break;
+                    case XmlNodeType.EndElement:
+                        if (r.LocalName is "Grant")
+                        {
+                            isGroupGrantee = false;
+                            isAllUsersUri = false;
+                        }
+                        currentField = null;
+                        break;
+                }
+            }
+
+            return publicRead;
         }
         catch (XmlException ex)
         {
