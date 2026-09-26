@@ -1,31 +1,23 @@
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace Vessel3.Storage;
-
-internal enum VersioningStatus { Unversioned, Enabled, Suspended }
 
 internal sealed class Bucket(string name, string path, IFileSync fileSync, IDurableWrite durableWrite) : IDisposable
 {
     private readonly VersionLog log = new(Path.Combine(path, "log"), fileSync);
-    private readonly string versioningPath = Path.Combine(path, "versioning.txt");
-    private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
-    private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
-    private readonly string websitePath = Path.Combine(path, "website.json");
-    private readonly string accessPath = Path.Combine(path, "access.json");
-    private readonly string corsPath = Path.Combine(path, "cors.json");
+    private readonly BucketConfigStore configs = new(path, durableWrite);
     private readonly Lock writeGate = new();
     private bool sealedForDelete;
 
     public string Name { get; } = name;
     public BucketIndex Index { get; } = new(Path.Combine(path, "index.db"));
     public DateTimeOffset CreatedAt { get; private set; }
-    public VersioningStatus Versioning { get; private set; }
-    public ObjectLockConfig? ObjectLock { get; private set; }
-    public LifecycleConfig? Lifecycle { get; private set; }
-    public WebsiteConfig? Website { get; private set; }
-    public BucketAccess Access { get; private set; } = BucketAccess.Private;
-    public CorsConfig? Cors { get; private set; }
+    public VersioningStatus Versioning => configs.Versioning;
+    public ObjectLockConfig? ObjectLock => configs.ObjectLock;
+    public LifecycleConfig? Lifecycle => configs.Lifecycle;
+    public WebsiteConfig? Website => configs.Website;
+    public BucketAccess Access => configs.Access;
+    public CorsConfig? Cors => configs.Cors;
 
     public void Open()
     {
@@ -40,12 +32,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
         Index.Open();
         CreatedAt = Directory.GetCreationTimeUtc(path);
-        Versioning = ReadVersioning();
-        ObjectLock = ReadObjectLock();
-        Lifecycle = ReadLifecycle();
-        Website = ReadWebsite();
-        Access = ReadAccess();
-        Cors = ReadCors();
+        configs.Load();
 
         var maxSeq = Index.MaxSeq();
         foreach (var ev in log.Replay())
@@ -59,106 +46,15 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         log.Open(Math.Max(maxSeq, Index.AppliedSeq()) + 1);
     }
 
-    public Result SetVersioning(VersioningStatus status)
-    {
-        if (ObjectLock is { Enabled: true }
-            && status is VersioningStatus.Suspended or VersioningStatus.Unversioned)
-            return new InvalidBucketStateError("cannot suspend versioning on a bucket with Object Lock enabled");
-
-        Versioning = status;
-        if (status is VersioningStatus.Unversioned)
-        {
-            if (File.Exists(versioningPath)) File.Delete(versioningPath);
-            return Result.Ok;
-        }
-        return durableWrite.AtomicReplace(versioningPath, status.ToString());
-    }
-
-    public Result SetObjectLock(ObjectLockConfig cfg)
-    {
-        if (cfg.Enabled && Versioning is not VersioningStatus.Enabled)
-            return new InvalidBucketStateError("Object Lock requires versioning to be Enabled");
-        if (ObjectLock is { Enabled: true } && !cfg.Enabled)
-            return new InvalidBucketStateError("Object Lock cannot be disabled once enabled");
-
-        ObjectLock = cfg;
-        return durableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
-    }
-
-    private VersioningStatus ReadVersioning() =>
-        File.Exists(versioningPath)
-            && Enum.TryParse<VersioningStatus>(File.ReadAllText(versioningPath).Trim(), out var s)
-                ? s : VersioningStatus.Unversioned;
-
-    private ObjectLockConfig? ReadObjectLock() =>
-        File.Exists(objectLockPath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(objectLockPath), ObjectLockJsonContext.Default.ObjectLockConfig)
-            : null;
-
-    public Result SetLifecycle(LifecycleConfig cfg)
-    {
-        Lifecycle = cfg;
-        return durableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
-    }
-
-    public Result RemoveLifecycle()
-    {
-        Lifecycle = null;
-        if (File.Exists(lifecyclePath)) File.Delete(lifecyclePath);
-        return Result.Ok;
-    }
-
-    private LifecycleConfig? ReadLifecycle() =>
-        File.Exists(lifecyclePath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(lifecyclePath), LifecycleJsonContext.Default.LifecycleConfig)
-            : null;
-
-    public Result SetWebsite(WebsiteConfig cfg)
-    {
-        Website = cfg;
-        return durableWrite.AtomicReplace(websitePath, JsonSerializer.Serialize(cfg, WebsiteJsonContext.Default.WebsiteConfig));
-    }
-
-    public Result RemoveWebsite()
-    {
-        Website = null;
-        if (File.Exists(websitePath)) File.Delete(websitePath);
-        return Result.Ok;
-    }
-
-    private WebsiteConfig? ReadWebsite() =>
-        File.Exists(websitePath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(websitePath), WebsiteJsonContext.Default.WebsiteConfig)
-            : null;
-
-    public Result SetAccess(BucketAccess access)
-    {
-        Access = access;
-        return durableWrite.AtomicReplace(accessPath, JsonSerializer.Serialize(access, BucketAccessJsonContext.Default.BucketAccess));
-    }
-
-    private BucketAccess ReadAccess() =>
-        File.Exists(accessPath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(accessPath), BucketAccessJsonContext.Default.BucketAccess) ?? BucketAccess.Private
-            : BucketAccess.Private;
-
-    public Result SetCors(CorsConfig cfg)
-    {
-        Cors = cfg;
-        return durableWrite.AtomicReplace(corsPath, JsonSerializer.Serialize(cfg, CorsJsonContext.Default.CorsConfig));
-    }
-
-    public Result RemoveCors()
-    {
-        Cors = null;
-        if (File.Exists(corsPath)) File.Delete(corsPath);
-        return Result.Ok;
-    }
-
-    private CorsConfig? ReadCors() =>
-        File.Exists(corsPath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(corsPath), CorsJsonContext.Default.CorsConfig)
-            : null;
+    public Result SetVersioning(VersioningStatus status) => configs.SetVersioning(status);
+    public Result SetObjectLock(ObjectLockConfig cfg) => configs.SetObjectLock(cfg);
+    public Result SetLifecycle(LifecycleConfig cfg) => configs.SetLifecycle(cfg);
+    public Result RemoveLifecycle() => configs.RemoveLifecycle();
+    public Result SetWebsite(WebsiteConfig cfg) => configs.SetWebsite(cfg);
+    public Result RemoveWebsite() => configs.RemoveWebsite();
+    public Result SetAccess(BucketAccess access) => configs.SetAccess(access);
+    public Result SetCors(CorsConfig cfg) => configs.SetCors(cfg);
+    public Result RemoveCors() => configs.RemoveCors();
 
     public bool ExpireCurrentVersion(string key, string expectedCurrentVersionId, DateTimeOffset expectedAt)
     {

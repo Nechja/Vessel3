@@ -1,5 +1,3 @@
-using Vessel3.Storage;
-
-namespace Vessel3.Server.S3;
+namespace Vessel3.Storage;
 
 internal sealed record CompletedPart(int Number, string Etag, CompletedPartChecksums? Sums = null);

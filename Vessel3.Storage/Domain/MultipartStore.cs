@@ -5,40 +5,10 @@ using System.Text.Json.Serialization;
 
 namespace Vessel3.Storage;
 
-internal sealed record MultipartStoreOptions(string Root);
-
-internal sealed record CreateUploadOutcome(string UploadId);
-internal sealed record UploadPartOutcome(string Etag, string BlobSha, long Size, ChecksumSet Checksums);
-internal sealed record CompleteUploadOutcome(string Etag, string VersionId, long Size, ChecksumSet Checksums);
-internal sealed record InProgressUpload(string UploadId, string Bucket, string Key, DateTimeOffset Initiated);
-internal sealed record ListedPart(int Number, string Etag, long Size, DateTimeOffset LastModified);
-
-internal sealed record CompletedPartChecksums(string? Crc32, string? Crc32C, string? Sha1, string? Sha256);
-
-internal sealed record UploadMeta(
-    string Bucket,
-    string Key,
-    string ContentType,
-    IReadOnlyDictionary<string, string> Metadata,
-    DateTimeOffset CreatedAt);
-
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(UploadMeta))]
 [JsonSerializable(typeof(MultipartPart))]
 internal sealed partial class MultipartJsonContext : JsonSerializerContext;
-
-internal interface IMultipartStore
-{
-    Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata);
-    Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct);
-    Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct);
-    Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag, CompletedPartChecksums? Sums)> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct);
-    Result Abort(string uploadId);
-    IEnumerable<InProgressUpload> ListUploads(string bucket);
-    Result<IReadOnlyList<ListedPart>> ListParts(string uploadId);
-    IEnumerable<string> EnumerateInFlightPartShas();
-    int ReapAbandonedUploads(DateTime cutoffUtc);
-}
 
 internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegistry registry, IBlobPool blobs, IDurableWrite durableWrite, IGcGate gate) : IMultipartStore
 {
@@ -75,7 +45,7 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
             : new UploadPartOutcome(blob.Md5, blob.Sha, blob.Size, toStore);
     }
 
-    public async Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<(int Number, string Etag, CompletedPartChecksums? Sums)> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct)
+    public async Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<CompletedPart> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct)
     {
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
@@ -95,30 +65,30 @@ internal sealed class MultipartStore(MultipartStoreOptions options, IBucketRegis
 
         var ordered = new List<MultipartPart>(clientParts.Count);
         var prevNumber = 0;
-        foreach (var (n, etag, sums) in clientParts)
+        foreach (var p in clientParts)
         {
-            if (n <= prevNumber)
-                return new InvalidPartOrderError($"part numbers must be strictly ascending; got {n} after {prevNumber}");
-            if (!stored.TryGetValue(n, out var part))
-                return new InvalidPartError($"part {n} not uploaded");
-            var clientEtag = etag.Trim('"');
+            if (p.Number <= prevNumber)
+                return new InvalidPartOrderError($"part numbers must be strictly ascending; got {p.Number} after {prevNumber}");
+            if (!stored.TryGetValue(p.Number, out var part))
+                return new InvalidPartError($"part {p.Number} not uploaded");
+            var clientEtag = p.Etag.Trim('"');
             if (!string.Equals(clientEtag, part.Md5, StringComparison.OrdinalIgnoreCase))
-                return new InvalidPartError($"part {n} etag mismatch: client {clientEtag}, server {part.Md5}");
+                return new InvalidPartError($"part {p.Number} etag mismatch: client {clientEtag}, server {part.Md5}");
 
-            if (sums is not null)
+            if (p.Sums is not null)
             {
-                if (sums.Crc32 is { } a && !string.Equals(a, part.Crc32, StringComparison.OrdinalIgnoreCase))
-                    return new BadDigestError($"part {n} crc32 mismatch");
-                if (sums.Crc32C is { } b && !string.Equals(b, part.Crc32C, StringComparison.OrdinalIgnoreCase))
-                    return new BadDigestError($"part {n} crc32c mismatch");
-                if (sums.Sha1 is { } c && !string.Equals(c, part.Sha1, StringComparison.OrdinalIgnoreCase))
-                    return new BadDigestError($"part {n} sha1 mismatch");
-                if (sums.Sha256 is { } d && !string.Equals(d, part.BlobSha, StringComparison.OrdinalIgnoreCase))
-                    return new BadDigestError($"part {n} sha256(checksum) mismatch");
+                if (p.Sums.Crc32 is { } a && !string.Equals(a, part.Crc32, StringComparison.OrdinalIgnoreCase))
+                    return new BadDigestError($"part {p.Number} crc32 mismatch");
+                if (p.Sums.Crc32C is { } b && !string.Equals(b, part.Crc32C, StringComparison.OrdinalIgnoreCase))
+                    return new BadDigestError($"part {p.Number} crc32c mismatch");
+                if (p.Sums.Sha1 is { } c && !string.Equals(c, part.Sha1, StringComparison.OrdinalIgnoreCase))
+                    return new BadDigestError($"part {p.Number} sha1 mismatch");
+                if (p.Sums.Sha256 is { } d && !string.Equals(d, part.BlobSha, StringComparison.OrdinalIgnoreCase))
+                    return new BadDigestError($"part {p.Number} sha256(checksum) mismatch");
             }
 
             ordered.Add(part);
-            prevNumber = n;
+            prevNumber = p.Number;
         }
 
         const long MinPartSize = 5 * 1024 * 1024;

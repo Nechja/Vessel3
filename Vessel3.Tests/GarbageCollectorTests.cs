@@ -46,7 +46,7 @@ public class GarbageCollectorTests : IDisposable
             upload.UploadId, 1, new MemoryStream(Encoding.UTF8.GetBytes("the whole object")), null, ChecksumSet.Empty, ct)).Value;
 
         var complete = await multipart.Complete(
-            upload.UploadId, [(1, part.Etag, null)], compositeAlgo: null, ct);
+            upload.UploadId, [new CompletedPart(1, part.Etag)], compositeAlgo: null, ct);
         Assert.IsType<Result<CompleteUploadOutcome>.Success>(complete);
 
         File.SetLastWriteTimeUtc(BlobPath(part.BlobSha), DateTime.UtcNow - TimeSpan.FromHours(2));
