@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Vessel3.Server.Lifecycle;
+using Vessel3.Server.Storage;
 using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server;
@@ -39,5 +40,50 @@ internal static class AdminEndpoints
         var report = sweeper.Run(now);
         ctx.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.LifecycleReport, ctx.RequestAborted);
+    }
+
+    public static async Task GetBucketAccess(string bucket, HttpContext ctx)
+    {
+        RequestTrace.SetAction("AdminGetBucketAccess");
+        var reg = ctx.RequestServices.GetRequiredService<IBucketRegistry>();
+        if (!reg.GetAccess(bucket).TryGetValue(out var access, out var err))
+        {
+            var http = ctx.RequestServices.GetRequiredService<IHttpResultMapper>();
+            await http.Map(err).ExecuteAsync(ctx);
+            return;
+        }
+
+        ctx.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(ctx.Response.Body, access, BucketAccessJsonContext.Default.BucketAccess, ctx.RequestAborted);
+    }
+
+    public static async Task SetBucketAccess(string bucket, HttpContext ctx)
+    {
+        RequestTrace.SetAction("AdminSetBucketAccess");
+        var reg = ctx.RequestServices.GetRequiredService<IBucketRegistry>();
+        var http = ctx.RequestServices.GetRequiredService<IHttpResultMapper>();
+        try
+        {
+            var access = await JsonSerializer.DeserializeAsync(ctx.Request.Body, BucketAccessJsonContext.Default.BucketAccess, ctx.RequestAborted);
+            if (access is null)
+            {
+                await http.Map(new InvalidArgumentError("Invalid JSON body for BucketAccess")).ExecuteAsync(ctx);
+                return;
+            }
+
+            if (reg.SetAccess(bucket, access).TryGetError(out var err))
+            {
+                await http.Map(err).ExecuteAsync(ctx);
+                return;
+            }
+
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = "application/json";
+            await JsonSerializer.SerializeAsync(ctx.Response.Body, access, BucketAccessJsonContext.Default.BucketAccess, ctx.RequestAborted);
+        }
+        catch (JsonException ex)
+        {
+            await http.Map(new InvalidArgumentError(ex.Message)).ExecuteAsync(ctx);
+        }
     }
 }

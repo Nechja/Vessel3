@@ -38,6 +38,7 @@ if (args.Length > 0)
         case "smoke": return await Smoke.Run(s3);
         case "idp": return await IdpCompat.Run(args.Length > 1 ? args[1] : null);
         case "website": return await WebsiteScenarios.Run(s3, endpoint);
+        case "cors": return await CorsAndAccessScenarios.Run(s3, endpoint);
         default:
             Console.Error.WriteLine($"unknown phase: {args[0]}");
             return 2;
@@ -2495,6 +2496,7 @@ await Run("DefaultRetentionAppliedOnPut", async () =>
 });
 
 await WebsiteScenarios.Run(s3, endpoint);
+await CorsAndAccessScenarios.Run(s3, endpoint);
 
 Console.WriteLine();
 Console.WriteLine("ALL GOOD");

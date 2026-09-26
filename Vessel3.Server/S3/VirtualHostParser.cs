@@ -22,17 +22,18 @@ internal static class VirtualHostParser
         if (string.IsNullOrWhiteSpace(hostHeader)) return false;
 
         var host = StripPort(hostHeader).ToLowerInvariant();
-        if (IsIpAddress(host)) return false;
+        return !IsIpAddress(host)
+            && (TryExtractSubdomainBucket(host, baseDomains, registry, out bucket)
+                || TryExtractCustomDomainBucket(host, registry, out bucket));
+    }
 
-        // Check against configured base domains
+    private static bool TryExtractSubdomainBucket(string host, IReadOnlyList<string> baseDomains, IBucketRegistry registry, out string bucket)
+    {
+        bucket = string.Empty;
         foreach (var domain in baseDomains)
         {
-            if (host.Equals(domain, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // "admin.<domain>" is reserved for the UI
-            if (host.Equals($"admin.{domain}", StringComparison.OrdinalIgnoreCase))
-                return false;
+            if (host.Equals(domain, StringComparison.OrdinalIgnoreCase) || IsReservedAdminDomain(host, domain))
+                continue;
 
             var suffix = "." + domain;
             if (host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && host.Length > suffix.Length)
@@ -45,16 +46,22 @@ internal static class VirtualHostParser
                 }
             }
         }
+        return false;
+    }
 
-        // Custom domain: if host directly matches an existing bucket name
+    private static bool TryExtractCustomDomainBucket(string host, IBucketRegistry registry, out string bucket)
+    {
+        bucket = string.Empty;
         if (registry.IsValidName(host) && registry.Exists(host) is Result<bool>.Success { Value: true })
         {
             bucket = host.ToLowerInvariant();
             return true;
         }
-
         return false;
     }
+
+    private static bool IsReservedAdminDomain(string host, string domain) =>
+        host.Equals($"admin.{domain}", StringComparison.OrdinalIgnoreCase);
 
     public static string StripPort(string host)
     {

@@ -81,6 +81,11 @@ diff -r "$WORK/in/syncdir" "$WORK/out/aws-sync" >/dev/null 2>&1 && ok "sync iden
 awscli s3api list-multipart-uploads --bucket cli-aws >/dev/null 2>&1 && ok "list MPUs" || no "awscli list MPUs" "$?"
 awscli s3api put-object-tagging --bucket cli-aws --key small.bin --tagging 'TagSet=[{Key=env,Value=prod}]' >/dev/null 2>&1 && ok "tagging put" || no "awscli tagging put" "$?"
 awscli s3api get-object-tagging --bucket cli-aws --key small.bin 2>&1 | grep -q env && ok "tagging get" || no "awscli tagging get" "no env tag"
+awscli s3api put-bucket-cors --bucket cli-aws --cors-configuration '{"CORSRules":[{"AllowedOrigins":["*"],"AllowedMethods":["GET"]}]}' >/dev/null 2>&1 && ok "cors put" || no "awscli cors put" "$?"
+awscli s3api get-bucket-cors --bucket cli-aws 2>&1 | grep -q AllowedOrigins && ok "cors get" || no "awscli cors get" "no cors"
+awscli s3api delete-bucket-cors --bucket cli-aws >/dev/null 2>&1 && ok "cors delete" || no "awscli cors delete" "$?"
+awscli s3api put-bucket-acl --bucket cli-aws --acl public-read >/dev/null 2>&1 && ok "acl put public-read" || no "awscli acl put" "$?"
+awscli s3api get-bucket-acl --bucket cli-aws 2>&1 | grep -q AllUsers && ok "acl get public-read" || no "awscli acl get" "no AllUsers"
 awscli s3 rb s3://cli-aws --force >/dev/null 2>&1 && ok "rb force" || no "awscli rb force" "$?"
 
 echo

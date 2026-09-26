@@ -40,6 +40,11 @@ internal interface IBucketRegistry : IDisposable
     Result<WebsiteConfig?> GetWebsite(string bucket);
     Result SetWebsite(string bucket, WebsiteConfig cfg);
     Result RemoveWebsite(string bucket);
+    Result<BucketAccess> GetAccess(string bucket);
+    Result SetAccess(string bucket, BucketAccess access);
+    Result<CorsConfig?> GetCors(string bucket);
+    Result SetCors(string bucket, CorsConfig cfg);
+    Result RemoveCors(string bucket);
     IEnumerable<Bucket> OpenBuckets();
     Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
@@ -153,6 +158,21 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     public Result RemoveWebsite(string bucket) =>
         OnBucket(bucket, b => b.RemoveWebsite());
+
+    public Result<BucketAccess> GetAccess(string bucket) =>
+        OnBucketRaw(bucket, b => b.Access);
+
+    public Result SetAccess(string bucket, BucketAccess access) =>
+        OnBucket(bucket, b => b.SetAccess(access));
+
+    public Result<CorsConfig?> GetCors(string bucket) =>
+        OnBucketRaw<CorsConfig?>(bucket, b => b.Cors);
+
+    public Result SetCors(string bucket, CorsConfig cfg) =>
+        OnBucket(bucket, b => b.SetCors(cfg));
+
+    public Result RemoveCors(string bucket) =>
+        OnBucket(bucket, b => b.RemoveCors());
 
     public IEnumerable<Bucket> OpenBuckets()
     {

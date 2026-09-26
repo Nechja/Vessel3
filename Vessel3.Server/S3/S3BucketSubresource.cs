@@ -11,6 +11,8 @@ internal enum S3BucketSubresource
     Versions,
     Delete,
     Website,
+    Cors,
+    Acl,
 }
 
 internal static class S3BucketSubresourceParser
@@ -24,5 +26,7 @@ internal static class S3BucketSubresourceParser
         : query.ContainsKey("versions") ? S3BucketSubresource.Versions
         : query.ContainsKey("delete") ? S3BucketSubresource.Delete
         : query.ContainsKey("website") ? S3BucketSubresource.Website
+        : query.ContainsKey("cors") ? S3BucketSubresource.Cors
+        : query.ContainsKey("acl") ? S3BucketSubresource.Acl
         : S3BucketSubresource.None;
 }

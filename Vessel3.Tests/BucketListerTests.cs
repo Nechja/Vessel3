@@ -49,6 +49,11 @@ public class BucketListerTests
         public Result<WebsiteConfig?> GetWebsite(string bucket) => (WebsiteConfig?)null;
         public Result SetWebsite(string bucket, WebsiteConfig cfg) => Result.Ok;
         public Result RemoveWebsite(string bucket) => Result.Ok;
+        public Result<BucketAccess> GetAccess(string bucket) => BucketAccess.Private;
+        public Result SetAccess(string bucket, BucketAccess access) => Result.Ok;
+        public Result<CorsConfig?> GetCors(string bucket) => (CorsConfig?)null;
+        public Result SetCors(string bucket, CorsConfig cfg) => Result.Ok;
+        public Result RemoveCors(string bucket) => Result.Ok;
         public IEnumerable<Bucket> OpenBuckets() => [];
         public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => throw new NotImplementedException();
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => (Retention?)null;

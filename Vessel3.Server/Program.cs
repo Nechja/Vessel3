@@ -127,6 +127,7 @@ else
     builder.Services.AddSingleton<ISigV4Verifier, AlwaysPassVerifier>();
 }
 builder.Services.AddSingleton<SigV4Middleware>();
+builder.Services.AddSingleton<CorsAndAccessMiddleware>();
 
 var slowRequestMs = long.TryParse(
     Environment.GetEnvironmentVariable("VESSEL3_SLOW_REQUEST_MS"),
@@ -200,13 +201,23 @@ app.Use(async (ctx, next) =>
     if (VirtualHostParser.TryExtractBucket(ctx.Request.Host.Value, vh.BaseDomains, reg, out var vhBucket))
     {
         ctx.Items["VirtualHostBucket"] = vhBucket;
+    }
 
+    await next(ctx);
+});
+
+app.UseMiddleware<CorsAndAccessMiddleware>();
+
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Items.TryGetValue("VirtualHostBucket", out var vhObj) && vhObj is string vhBucket)
+    {
         var hasAuth = ctx.Request.Headers.ContainsKey("Authorization")
             || ctx.Request.Query.ContainsKey("X-Amz-Signature");
 
         if (!hasAuth
             && (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
-            && reg.GetWebsite(vhBucket) is Result<WebsiteConfig?>.Success { Value: not null })
+            && ctx.RequestServices.GetRequiredService<IBucketRegistry>().GetWebsite(vhBucket) is Result<WebsiteConfig?>.Success { Value: not null })
         {
             RequestTrace.SetAction(HttpMethods.IsHead(ctx.Request.Method) ? "WebsiteHead" : "WebsiteGet");
             var res = await WebsiteHandler.Serve(
@@ -214,7 +225,7 @@ app.Use(async (ctx, next) =>
                 ctx.Request.Path.Value ?? "/",
                 ctx,
                 ctx.RequestServices.GetRequiredService<IObjectStore>(),
-                reg,
+                ctx.RequestServices.GetRequiredService<IBucketRegistry>(),
                 ctx.RequestServices.GetRequiredService<IPreconditionEvaluator>());
             await res.ExecuteAsync(ctx);
             return;
@@ -261,11 +272,13 @@ app.Use(async (ctx, next) =>
     await next(ctx);
 });
 
-app.MapGet("/", async (HttpResponse res, IS3XmlWriter xml, IBucketRegistry registry, CancellationToken ct) =>
+app.MapGet("/", static async ctx =>
 {
     RequestTrace.SetAction("ListBuckets");
-    res.ContentType = "application/xml";
-    await xml.WriteListBuckets(res.Body, registry.List(), ct);
+    var xml = ctx.RequestServices.GetRequiredService<IS3XmlWriter>();
+    var registry = ctx.RequestServices.GetRequiredService<IBucketRegistry>();
+    ctx.Response.ContentType = "application/xml";
+    await xml.WriteListBuckets(ctx.Response.Body, registry.List(), ctx.RequestAborted);
 });
 
 app.MapPut("/_admin/gc", AdminEndpoints.RunGc);
@@ -274,38 +287,51 @@ app.MapPut("/_admin/lifecycle", AdminEndpoints.RunLifecycle);
 
 app.MapPut("/_admin/compact", AdminEndpoints.RunCompact);
 
-app.MapGet("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Get, bucket, ctx));
+app.MapGet("/_admin/buckets/{bucket}/access", static ctx =>
+    AdminEndpoints.GetBucketAccess((string)ctx.GetRouteValue("bucket")!, ctx));
 
-app.MapPut("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Put, bucket, ctx));
+app.MapPut("/_admin/buckets/{bucket}/access", static ctx =>
+    AdminEndpoints.SetBucketAccess((string)ctx.GetRouteValue("bucket")!, ctx));
 
-app.MapDelete("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Delete, bucket, ctx));
+app.MapGet("/{bucket}", static ctx => DispatchBucket(HttpMethods.Get, ctx));
 
-app.MapPost("/{bucket}", (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Post, bucket, ctx));
+app.MapPut("/{bucket}", static ctx => DispatchBucket(HttpMethods.Put, ctx));
 
-app.MapMethods("/{bucket}", ["HEAD"], (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Head, bucket, ctx));
+app.MapDelete("/{bucket}", static ctx => DispatchBucket(HttpMethods.Delete, ctx));
 
-app.MapGet("/{bucket}/{**key}", (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Get, bucket, key, ctx));
+app.MapPost("/{bucket}", static ctx => DispatchBucket(HttpMethods.Post, ctx));
 
-app.MapPut("/{bucket}/{**key}", (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Put, bucket, key, ctx));
+app.MapMethods("/{bucket}", ["HEAD"], static ctx => DispatchBucket(HttpMethods.Head, ctx));
 
-app.MapDelete("/{bucket}/{**key}", (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Delete, bucket, key, ctx));
+app.MapGet("/{bucket}/{**key}", static ctx => DispatchKey(HttpMethods.Get, ctx));
 
-app.MapPost("/{bucket}/{**key}", (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Post, bucket, key, ctx));
+app.MapPut("/{bucket}/{**key}", static ctx => DispatchKey(HttpMethods.Put, ctx));
 
-app.MapMethods("/{bucket}/{**key}", ["HEAD"], (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
-    dispatch.Dispatch(HttpMethods.Head, bucket, key, ctx));
+app.MapDelete("/{bucket}/{**key}", static ctx => DispatchKey(HttpMethods.Delete, ctx));
+
+app.MapPost("/{bucket}/{**key}", static ctx => DispatchKey(HttpMethods.Post, ctx));
+
+app.MapMethods("/{bucket}/{**key}", ["HEAD"], static ctx => DispatchKey(HttpMethods.Head, ctx));
 
 app.Run();
 return 0;
+
+static async Task DispatchBucket(string method, HttpContext ctx)
+{
+    var bucket = (string)ctx.GetRouteValue("bucket")!;
+    var dispatch = ctx.RequestServices.GetRequiredService<IS3BucketActionDispatcher>();
+    var result = await dispatch.Dispatch(method, bucket, ctx);
+    await result.ExecuteAsync(ctx);
+}
+
+static async Task DispatchKey(string method, HttpContext ctx)
+{
+    var bucket = (string)ctx.GetRouteValue("bucket")!;
+    var key = (string)ctx.GetRouteValue("key")!;
+    var dispatch = ctx.RequestServices.GetRequiredService<IS3KeyActionDispatcher>();
+    var result = await dispatch.Dispatch(method, bucket, key, ctx);
+    await result.ExecuteAsync(ctx);
+}
 
 static bool MetricsRequestAuthorized(HttpContext ctx, string? token, bool allowAnonymous)
 {

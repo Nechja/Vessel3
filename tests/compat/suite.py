@@ -1568,6 +1568,98 @@ def _():
     assert "-" in r["ETag"], r["ETag"]
 
 
+section("CORS and Bucket Access")
+
+BCORS = f"v3cors-{uuid.uuid4().hex[:8]}"
+c.create_bucket(Bucket=BCORS)
+
+
+@test("cors_lifecycle_put_get_delete")
+def _():
+    try:
+        c.get_bucket_cors(Bucket=BCORS)
+        raise AssertionError("expected NoSuchCORSConfiguration")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] in ("NoSuchCORSConfiguration", "404")
+
+    cors_cfg = {
+        "CORSRules": [
+            {
+                "ID": "rule1",
+                "AllowedOrigins": ["http://localhost:3000", "https://*.example.com"],
+                "AllowedMethods": ["GET", "PUT", "DELETE"],
+                "AllowedHeaders": ["*"],
+                "ExposeHeaders": ["ETag"],
+                "MaxAgeSeconds": 3000,
+            }
+        ]
+    }
+    c.put_bucket_cors(Bucket=BCORS, CORSConfiguration=cors_cfg)
+
+    r = c.get_bucket_cors(Bucket=BCORS)
+    assert len(r["CORSRules"]) == 1
+    assert r["CORSRules"][0]["ID"] == "rule1"
+    assert "http://localhost:3000" in r["CORSRules"][0]["AllowedOrigins"]
+
+    c.delete_bucket_cors(Bucket=BCORS)
+    try:
+        c.get_bucket_cors(Bucket=BCORS)
+        raise AssertionError("expected NoSuchCORSConfiguration after delete")
+    except ClientError as e:
+        assert e.response["Error"]["Code"] in ("NoSuchCORSConfiguration", "404")
+
+
+@test("bucket_acl_public_read_anonymous_get")
+def _():
+    c.put_object(Bucket=BCORS, Key="pub.txt", Body=b"public content")
+
+    c.put_bucket_acl(Bucket=BCORS, ACL="public-read")
+
+    url = f"{ENDPOINT}/{BCORS}/pub.txt"
+    with urllib.request.urlopen(url) as resp:
+        assert resp.status == 200
+        assert resp.read() == b"public content"
+
+    c.put_bucket_acl(Bucket=BCORS, ACL="private")
+    try:
+        with urllib.request.urlopen(url) as resp:
+            raise AssertionError("expected 403 on private bucket anonymous read")
+    except urllib.error.HTTPError as e:
+        assert e.code in (403, 400)
+
+
+@test("bucket_readonly_mode_blocks_writes")
+def _():
+    admin_body = json.dumps({"publicRead": False, "readOnly": True}).encode()
+    req = _admin_request("PUT", f"/_admin/buckets/{BCORS}/access", body=admin_body)
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+
+    obj = c.get_object(Bucket=BCORS, Key="pub.txt")
+    assert obj["Body"].read() == b"public content"
+
+    try:
+        c.put_object(Bucket=BCORS, Key="ro-fail.txt", Body=b"fail")
+        raise AssertionError("expected 403 AccessDenied for put_object on read-only bucket")
+    except ClientError as e:
+        assert e.response["ResponseMetadata"]["HTTPStatusCode"] == 403
+        assert e.response["Error"]["Code"] == "AccessDenied"
+
+    try:
+        c.delete_object(Bucket=BCORS, Key="pub.txt")
+        raise AssertionError("expected 403 AccessDenied for delete_object on read-only bucket")
+    except ClientError as e:
+        assert e.response["ResponseMetadata"]["HTTPStatusCode"] == 403
+
+    admin_body_reset = json.dumps({"publicRead": False, "readOnly": False}).encode()
+    req_reset = _admin_request("PUT", f"/_admin/buckets/{BCORS}/access", body=admin_body_reset)
+    with urllib.request.urlopen(req_reset) as resp:
+        assert resp.status == 200
+
+    c.put_object(Bucket=BCORS, Key="ro-success.txt", Body=b"success")
+    assert c.get_object(Bucket=BCORS, Key="ro-success.txt")["Body"].read() == b"success"
+
+
 print("\n" + "=" * 60)
 print(f"PASSED: {len(PASS)}")
 print(f"FAILED: {len(FAIL)}")

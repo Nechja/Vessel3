@@ -29,6 +29,8 @@ internal interface IS3XmlWriter
     Task WriteRetention(Stream output, Retention retention, CancellationToken ct);
     Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
     Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct);
+    Task WriteCorsConfiguration(Stream output, CorsConfig cfg, CancellationToken ct);
+    Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct);
 }
 
 internal sealed record ObjectAttributesRequest(
@@ -555,6 +557,105 @@ internal sealed class S3XmlWriter : IS3XmlWriter
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
+    }
+
+    public async Task WriteCorsConfiguration(Stream output, CorsConfig cfg, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "CORSConfiguration", S3Namespace);
+
+        foreach (var rule in cfg.Rules)
+        {
+            await w.WriteStartElementAsync(null, "CORSRule", null);
+            if (!string.IsNullOrEmpty(rule.Id))
+            {
+                await w.WriteElementStringAsync(null, "ID", null, rule.Id);
+            }
+            foreach (var origin in rule.AllowedOrigins)
+            {
+                await w.WriteElementStringAsync(null, "AllowedOrigin", null, origin);
+            }
+            foreach (var method in rule.AllowedMethods)
+            {
+                await w.WriteElementStringAsync(null, "AllowedMethod", null, method);
+            }
+            if (rule.AllowedHeaders is not null)
+            {
+                foreach (var header in rule.AllowedHeaders)
+                {
+                    await w.WriteElementStringAsync(null, "AllowedHeader", null, header);
+                }
+            }
+            if (rule.MaxAgeSeconds.HasValue)
+            {
+                await w.WriteElementStringAsync(null, "MaxAgeSeconds", null, rule.MaxAgeSeconds.Value.ToString(CultureInfo.InvariantCulture));
+            }
+            if (rule.ExposeHeaders is not null)
+            {
+                foreach (var expose in rule.ExposeHeaders)
+                {
+                    await w.WriteElementStringAsync(null, "ExposeHeader", null, expose);
+                }
+            }
+            await w.WriteEndElementAsync();
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    public async Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await using var w = XmlWriter.Create(output, settings);
+        await w.WriteStartDocumentAsync();
+        await w.WriteStartElementAsync(null, "AccessControlPolicy", S3Namespace);
+
+        await w.WriteStartElementAsync(null, "Owner", null);
+        await w.WriteElementStringAsync(null, "ID", null, ownerId);
+        await w.WriteElementStringAsync(null, "DisplayName", null, ownerId);
+        await w.WriteEndElementAsync();
+
+        await w.WriteStartElementAsync(null, "AccessControlList", null);
+
+        await WriteCanonicalUserGrant(w, ownerId, "FULL_CONTROL");
+        if (publicRead)
+        {
+            await WriteAllUsersGroupGrant(w, "READ");
+        }
+
+        await w.WriteEndElementAsync();
+        await w.WriteEndElementAsync();
+        await w.WriteEndDocumentAsync();
+        await w.FlushAsync();
+    }
+
+    private static async Task WriteCanonicalUserGrant(XmlWriter w, string ownerId, string permission)
+    {
+        await w.WriteStartElementAsync(null, "Grant", null);
+        await w.WriteStartElementAsync(null, "Grantee", null);
+        await w.WriteAttributeStringAsync("xmlns", "xsi", null, "http://www.w3.org/2001/XMLSchema-instance");
+        await w.WriteAttributeStringAsync("xsi", "type", null, "CanonicalUser");
+        await w.WriteElementStringAsync(null, "ID", null, ownerId);
+        await w.WriteElementStringAsync(null, "DisplayName", null, ownerId);
+        await w.WriteEndElementAsync();
+        await w.WriteElementStringAsync(null, "Permission", null, permission);
+        await w.WriteEndElementAsync();
+    }
+
+    private static async Task WriteAllUsersGroupGrant(XmlWriter w, string permission)
+    {
+        await w.WriteStartElementAsync(null, "Grant", null);
+        await w.WriteStartElementAsync(null, "Grantee", null);
+        await w.WriteAttributeStringAsync("xmlns", "xsi", null, "http://www.w3.org/2001/XMLSchema-instance");
+        await w.WriteAttributeStringAsync("xsi", "type", null, "Group");
+        await w.WriteElementStringAsync(null, "URI", null, "http://acs.amazonaws.com/groups/global/AllUsers");
+        await w.WriteEndElementAsync();
+        await w.WriteElementStringAsync(null, "Permission", null, permission);
+        await w.WriteEndElementAsync();
     }
 
     private static string ModeToWire(RetentionMode m) => m switch
