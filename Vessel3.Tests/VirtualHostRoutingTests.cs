@@ -34,7 +34,6 @@ public class VirtualHostRoutingTests : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Transient test directory cleanup
         }
     }
 
@@ -42,12 +41,13 @@ public class VirtualHostRoutingTests : IDisposable
     public void Admin_Host_Root_Redirects_To_Ui()
     {
         string[] baseDomains = ["s3.local", "localhost"];
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
         var ctx = new DefaultHttpContext();
         ctx.Request.Host = new HostString("admin.localhost", 9000);
         ctx.Request.Path = "/";
 
         var isHandled = false;
-        if (VirtualHostParser.IsAdminHost(ctx.Request.Host.Value, baseDomains))
+        if (resolver.IsAdminHost(ctx.Request.Host.Value))
         {
             if (ctx.Request.Path == "/" || !ctx.Request.Path.StartsWithSegments("/_ui"))
             {
@@ -66,13 +66,14 @@ public class VirtualHostRoutingTests : IDisposable
     public void Admin_Host_Subpath_Redirects_To_Ui_Prefix()
     {
         string[] baseDomains = ["s3.local", "localhost"];
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
         var ctx = new DefaultHttpContext();
         ctx.Request.Host = new HostString("admin.s3.local");
         ctx.Request.Path = "/browse";
         ctx.Request.QueryString = new QueryString("?prefix=photos/");
 
         var isHandled = false;
-        if (VirtualHostParser.IsAdminHost(ctx.Request.Host.Value, baseDomains))
+        if (resolver.IsAdminHost(ctx.Request.Host.Value))
         {
             if (ctx.Request.Path == "/" || !ctx.Request.Path.StartsWithSegments("/_ui"))
             {
@@ -106,9 +107,8 @@ public class VirtualHostRoutingTests : IDisposable
         ctx.Request.Path = "/test-key.txt";
         ctx.Request.Headers["Host"] = "mybucket.s3.local:9000";
         ctx.Request.Headers["x-amz-date"] = amzDate;
-        ctx.Request.Headers["x-amz-content-sha256"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // Empty SHA256
+        ctx.Request.Headers["x-amz-content-sha256"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-        // Compute expected SigV4 for virtual-host request
         var canonicalUri = "/test-key.txt";
         var canonicalHeaders = "host:mybucket.s3.local:9000\nx-amz-content-sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nx-amz-date:20260923T120000Z\n";
         var signedHeaders = "host;x-amz-content-sha256;x-amz-date";

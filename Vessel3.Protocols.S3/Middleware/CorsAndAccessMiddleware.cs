@@ -2,8 +2,9 @@ using System.Globalization;
 
 namespace Vessel3.Server.S3;
 
-internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry) : IMiddleware
+internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry, IS3SubresourceResolver? subresourceResolver = null) : IMiddleware
 {
+    private readonly IS3SubresourceResolver subresourceResolver = subresourceResolver ?? new S3SubresourceResolver();
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
         var bucket = ResolveBucket(ctx);
@@ -122,12 +123,14 @@ internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry) : IMiddl
         });
     }
 
-    private static void EvaluateAnonymousAccess(HttpContext ctx, BucketAccess access)
+    private void EvaluateAnonymousAccess(HttpContext ctx, BucketAccess access)
     {
         if (!access.PublicRead || (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)))
+        {
             return;
+        }
 
-        var sub = S3BucketSubresourceParser.From(ctx.Request.Query);
+        var sub = subresourceResolver.ResolveBucket(ctx.Request.Query);
         if (sub is S3BucketSubresource.None or S3BucketSubresource.Location)
         {
             ctx.Items["AnonymousAllowed"] = true;

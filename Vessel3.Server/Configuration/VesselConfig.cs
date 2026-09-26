@@ -97,7 +97,7 @@ internal sealed record VesselConfig(
         return string.IsNullOrWhiteSpace(raw)
             ? []
             : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(d => VirtualHostParser.StripPort(d).ToLowerInvariant())
+                .Select(d => VirtualHostResolver.StripPort(d).ToLowerInvariant())
                 .Distinct()];
     }
 }
