@@ -1,4 +1,4 @@
-using static Vessel3.Server.RequestHelpers;
+using static Vessel3.Server.S3.S3RequestExtensions;
 
 namespace Vessel3.Server.S3.Bucket;
 

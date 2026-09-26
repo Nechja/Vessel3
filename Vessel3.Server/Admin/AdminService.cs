@@ -26,8 +26,8 @@ internal sealed class AdminService(
     public async Task RunGc(HttpContext ctx)
     {
         RequestTrace.SetAction("AdminGc");
-        var blobAgeSec = RequestHelpers.ParseAgeQuery(ctx.Request.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
-        var uploadAgeSec = RequestHelpers.ParseAgeQuery(ctx.Request.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
+        var blobAgeSec = ParseAgeQuery(ctx.Request.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
+        var uploadAgeSec = ParseAgeQuery(ctx.Request.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
         var report = await gc.Run(TimeSpan.FromSeconds(blobAgeSec), TimeSpan.FromSeconds(uploadAgeSec));
         ctx.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.GcReport, ctx.RequestAborted);
@@ -36,7 +36,7 @@ internal sealed class AdminService(
     public async Task RunCompact(HttpContext ctx)
     {
         RequestTrace.SetAction("AdminCompact");
-        var minBytes = RequestHelpers.ParseAgeQuery(ctx.Request.Query, "min-bytes", fallback: 0);
+        var minBytes = ParseAgeQuery(ctx.Request.Query, "min-bytes", fallback: 0);
         var report = compactor.Run(minBytes);
         ctx.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(ctx.Response.Body, report, AdminJsonContext.Default.CompactionReport, ctx.RequestAborted);
@@ -94,4 +94,14 @@ internal sealed class AdminService(
             await http.Map(new InvalidArgumentError(ex.Message)).ExecuteAsync(ctx);
         }
     }
+
+    private static long ParseAgeQuery(IQueryCollection query, string name, long fallback)
+    {
+        var raw = Nullify(query[name].ToString()) ?? Nullify(query["x-" + name].ToString());
+        return raw is not null && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+            ? n
+            : fallback;
+    }
+
+    private static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
 }

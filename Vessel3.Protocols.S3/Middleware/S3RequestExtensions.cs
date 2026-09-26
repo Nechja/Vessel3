@@ -1,9 +1,10 @@
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3;
 
 internal static class S3RequestExtensions
 {
+    public static string? Nullify(string? s) =>
+        string.IsNullOrEmpty(s) ? null : s;
+
     public static string? VersionId(this HttpContext ctx) =>
         Nullify(ctx.Request.Query["versionId"].ToString());
 

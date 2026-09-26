@@ -1,5 +1,4 @@
 using System.Globalization;
-using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -26,23 +25,23 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
                 }
                 res.Headers.ETag = $"\"{ok.Etag}\"";
                 foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
-                EmitSystemHeaders(res.Headers, ok.SystemHeaders);
+                S3HeaderCodec.EmitSystemHeaders(res.Headers, ok.SystemHeaders);
 
                 var rangeRaw = req.Headers.Range.ToString();
                 var isRangedSlice = false;
                 if (!string.IsNullOrEmpty(rangeRaw))
                 {
-                    var parsed = ParseByteRange(rangeRaw, ok.Size);
+                    var parsed = S3ByteRange.Parse(rangeRaw, ok.Size);
                     switch (parsed)
                     {
-                        case ByteRange.Unsatisfiable:
+                        case S3ByteRange.Unsatisfiable:
                             ok.Body.Dispose();
                             res.Headers["Content-Range"] = $"bytes */{ok.Size.ToString(CultureInfo.InvariantCulture)}";
                             return Results.StatusCode(416);
-                        case ByteRange.Ignored:
+                        case S3ByteRange.Ignored:
                             req.Headers.Remove("Range");
                             break;
-                        case ByteRange.Normal n:
+                        case S3ByteRange.Normal n:
                             req.Headers.Range = $"bytes={n.Start.ToString(CultureInfo.InvariantCulture)}-{n.End.ToString(CultureInfo.InvariantCulture)}";
                             isRangedSlice = true;
                             break;
@@ -50,7 +49,9 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
                 }
 
                 if (!isRangedSlice)
+                {
                     ChecksumHeaders.Emit(res.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
+                }
 
                 return Results.File(
                     ok.Body,

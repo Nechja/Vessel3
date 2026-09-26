@@ -1,5 +1,3 @@
-using static Vessel3.Server.RequestHelpers;
-
 namespace Vessel3.Server.S3.Key;
 
 internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpResultMapper http) : IS3KeyAction
@@ -15,7 +13,7 @@ internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpRe
         var copySource = req.Headers["x-amz-copy-source"].ToString();
         var directive = req.Headers["x-amz-metadata-directive"].ToString();
         var metadataOverride = directive.Equals("REPLACE", StringComparison.OrdinalIgnoreCase)
-            ? ExtractUserMetadata(req.Headers)
+            ? S3HeaderCodec.ExtractUserMetadata(req.Headers)
             : null;
 
         IReadOnlyDictionary<string, string>? tagsOverride = null;
@@ -23,12 +21,17 @@ internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpRe
         if (tagDirective.Equals("REPLACE", StringComparison.OrdinalIgnoreCase))
         {
             if (!TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString()).TryGetValue(out var parsed, out var hdrErr))
+            {
                 return http.Map(hdrErr);
+            }
+
             tagsOverride = parsed;
         }
 
-        if (!TryParseCopySource(copySource, out var srcBucket, out var srcKey))
+        if (!CopySource.TryParse(copySource, out var srcBucket, out var srcKey))
+        {
             return http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
+        }
 
         var copied = await objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride);
         return copied.Match<IResult>(
