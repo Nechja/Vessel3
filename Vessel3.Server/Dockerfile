@@ -19,11 +19,17 @@ WORKDIR /src
 
 COPY global.json ./
 COPY Directory.Build.props ./
+COPY Vessel3.Primitives/Vessel3.Primitives.csproj Vessel3.Primitives/
+COPY Vessel3.Storage/Vessel3.Storage.csproj Vessel3.Storage/
+COPY Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj Vessel3.Protocols.S3/
 COPY Vessel3.Server/Vessel3.Server.csproj Vessel3.Server/
 COPY Vessel3.UI/Vessel3.UI.csproj Vessel3.UI/
 RUN dotnet restore Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID} -p:EmbedUi=${EMBED_UI}
 
 COPY .editorconfig ./
+COPY Vessel3.Primitives/ Vessel3.Primitives/
+COPY Vessel3.Storage/ Vessel3.Storage/
+COPY Vessel3.Protocols.S3/ Vessel3.Protocols.S3/
 COPY Vessel3.Server/ Vessel3.Server/
 COPY Vessel3.UI/ Vessel3.UI/
 

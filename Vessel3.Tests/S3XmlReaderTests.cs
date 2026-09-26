@@ -1,7 +1,6 @@
 using System.Text;
 using Vessel3.Server;
 using Vessel3.Server.S3;
-using Vessel3.Server.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -213,7 +212,7 @@ public class S3XmlReaderTests
         sb.Append("</LifecycleConfiguration>");
 
         var r = await new S3XmlReader().ReadLifecycleConfiguration(Drip(sb.ToString(), chunk), CancellationToken.None);
-        var ok = Assert.IsType<Result<Vessel3.Server.Lifecycle.LifecycleConfig>.Success>(r);
+        var ok = Assert.IsType<Result<LifecycleConfig>.Success>(r);
         Assert.Equal(50, ok.Value.Rules.Count);
         Assert.Equal(new string('r', 200) + "49", ok.Value.Rules[49].Id);
         Assert.Equal(new string('p', 500) + "49/", ok.Value.Rules[49].Prefix);

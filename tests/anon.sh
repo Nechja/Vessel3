@@ -14,6 +14,8 @@ SERVER_LOG=${VESSEL3_SERVER_LOG:-/tmp/vessel3-anon-server.log}
 unset VESSEL3_ACCESS_KEY VESSEL3_SECRET_KEY
 export VESSEL3_DATA=$DATA_DIR
 export VESSEL3_ANON_ENDPOINT=$ENDPOINT
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
 
 SERVER_PID=
 

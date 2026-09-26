@@ -30,10 +30,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
-    <PackageReference Include="Ulid" Version="*" />
-    <PackageReference Include="System.IO.Hashing" Version="*" />
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+    <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="*" Condition="'$(EmbedUi)' == 'true'" />
   </ItemGroup>
 

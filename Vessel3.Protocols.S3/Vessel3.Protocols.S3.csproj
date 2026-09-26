@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Vessel3.Protocols.S3</RootNamespace>
+    <AssemblyName>Vessel3.Protocols.S3</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+    <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="vessel3" />
+    <InternalsVisibleTo Include="Vessel3.Server" />
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+  </ItemGroup>
+
+</Project>

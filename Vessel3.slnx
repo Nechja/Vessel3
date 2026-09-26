@@ -1,0 +1,12 @@
+<Solution>
+  <Project Path="Vessel3.Primitives/Vessel3.Primitives.csproj" />
+  <Project Path="Vessel3.Storage/Vessel3.Storage.csproj" />
+  <Project Path="Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj" />
+  <Project Path="Vessel3.Server/Vessel3.Server.csproj" />
+  <Project Path="Vessel3.UI/Vessel3.UI.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="Vessel3.Tests/Vessel3.Tests.csproj" />
+    <Project Path="Vessel3.RealClient/Vessel3.RealClient.csproj" />
+    <Project Path="Vessel3.Bench/Vessel3.Bench.csproj" />
+  </Folder>
+</Solution>

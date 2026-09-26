@@ -311,7 +311,7 @@ internal static class IdpCompat
     {
         if (Environment.GetEnvironmentVariable("VESSEL3_SERVER_BIN") is { Length: > 0 } configured) return configured;
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Vessel3.sln"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Vessel3.slnx")) && !File.Exists(Path.Combine(dir.FullName, "Vessel3.sln"))) dir = dir.Parent;
         if (dir is null) throw new InvalidOperationException("set VESSEL3_SERVER_BIN; repo root not found from " + AppContext.BaseDirectory);
         var binary = Path.Combine(dir.FullName, "Vessel3.Server", "bin", "Release", "net10.0", "vessel3");
         if (!File.Exists(binary)) throw new InvalidOperationException($"{binary} missing; run: dotnet build Vessel3.Server -c Release");

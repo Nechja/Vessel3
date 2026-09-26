@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using Vessel3.Server;
-using Vessel3.Server.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
