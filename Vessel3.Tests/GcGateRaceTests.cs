@@ -198,6 +198,11 @@ public class GcGateRaceTests : IDisposable
         public Result<WebsiteConfig?> GetWebsite(string bucket) => inner.GetWebsite(bucket);
         public Result SetWebsite(string bucket, WebsiteConfig cfg) => inner.SetWebsite(bucket, cfg);
         public Result RemoveWebsite(string bucket) => inner.RemoveWebsite(bucket);
+        public Result<BucketAccess> GetAccess(string bucket) => inner.GetAccess(bucket);
+        public Result SetAccess(string bucket, BucketAccess access) => inner.SetAccess(bucket, access);
+        public Result<CorsConfig?> GetCors(string bucket) => inner.GetCors(bucket);
+        public Result SetCors(string bucket, CorsConfig cfg) => inner.SetCors(bucket, cfg);
+        public Result RemoveCors(string bucket) => inner.RemoveCors(bucket);
         public IEnumerable<Bucket> OpenBuckets() => inner.OpenBuckets();
         public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) => inner.PutRetention(bucket, key, versionId, retention, bypassGovernance);
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => inner.GetRetention(bucket, key, versionId);
