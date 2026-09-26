@@ -117,6 +117,16 @@ public class BucketListerTests
         Assert.Equal(new[] { "users/alice/", "users/bob/" }, prefixes);
     }
 
+    [Fact]
+    public void MalformedContinuationToken_ReturnsInvalidArgument()
+    {
+        var reg = new StubRegistry([V("a")]);
+        var result = new BucketLister(reg).List(
+            new ListRequest("b1", null, null, null, 10), continuationToken: "not-valid-base64!!!");
+        var failure = Assert.IsType<Result<ListPage>.Failure>(result);
+        Assert.IsType<InvalidArgumentError>(failure.Error);
+    }
+
     private static ListPage AssertSuccess(Result<ListPage> r) =>
         Assert.IsType<Result<ListPage>.Success>(r).Value;
 }
