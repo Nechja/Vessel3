@@ -16,6 +16,9 @@ export VESSEL3_ACCESS_KEY=AKIATEST
 export VESSEL3_SECRET_KEY=secretkey1234567890
 export VESSEL3_PROBE_STATE=$STATE
 export VESSEL3_ENDPOINT=$ENDPOINT
+export NO_PROXY="*"
+export no_proxy="*"
+unset HTTP_PROXY http_proxy HTTPS_PROXY https_proxy
 
 SERVER_PID=
 
@@ -44,12 +47,24 @@ stop_server_clean() {
   kill "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=
+  for _ in $(seq 1 40); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" || echo 000)
+    if [ "$code" = "000" ]; then break; fi
+    sleep 0.1
+  done
+  sleep 0.5
 }
 
 stop_server_hard() {
   kill -9 "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=
+  for _ in $(seq 1 40); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" || echo 000)
+    if [ "$code" = "000" ]; then break; fi
+    sleep 0.1
+  done
+  sleep 0.5
 }
 
 run_phase() {
