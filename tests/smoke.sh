@@ -15,6 +15,8 @@ export VESSEL3_DATA=$DATA_DIR
 export VESSEL3_ACCESS_KEY=AKIATEST
 export VESSEL3_SECRET_KEY=secretkey1234567890
 export VESSEL3_ENDPOINT=$ENDPOINT
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
 
 SERVER_PID=
 cleanup() {
