@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Vessel3.Storage</RootNamespace>
+    <AssemblyName>Vessel3.Storage</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
+    <PackageReference Include="Ulid" Version="*" />
+    <PackageReference Include="System.IO.Hashing" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Protocols.S3" />
+    <InternalsVisibleTo Include="vessel3" />
+    <InternalsVisibleTo Include="Vessel3.Server" />
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+  </ItemGroup>
+
+</Project>

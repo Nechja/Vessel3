@@ -23,6 +23,7 @@
     <!-- Determinism / reproducibility -->
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <NuGetAudit Condition="'$(CI)' != 'true'">false</NuGetAudit>
   </PropertyGroup>
 
 </Project>

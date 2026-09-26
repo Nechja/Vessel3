@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Vessel3.Primitives</RootNamespace>
+    <AssemblyName>Vessel3.Primitives</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Storage" />
+    <InternalsVisibleTo Include="Vessel3.Protocols.S3" />
+    <InternalsVisibleTo Include="vessel3" />
+    <InternalsVisibleTo Include="Vessel3.Server" />
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+  </ItemGroup>
+
+</Project>

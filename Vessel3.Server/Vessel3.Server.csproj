@@ -30,10 +30,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
-    <PackageReference Include="Ulid" Version="*" />
-    <PackageReference Include="System.IO.Hashing" Version="*" />
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+    <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="*" Condition="'$(EmbedUi)' == 'true'" />
   </ItemGroup>
 
@@ -53,7 +55,7 @@
 
   <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; -p:BaseIntermediateOutputPath=&quot;$(UIPublishDir)obj/&quot; -p:MSBuildProjectExtensionsPath=&quot;$(UIPublishDir)obj/&quot; -p:BaseOutputPath=&quot;$(UIPublishDir)bin/&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; -p:BaseIntermediateOutputPath=&quot;$(UIPublishDir)obj/&quot; -p:MSBuildProjectExtensionsPath=&quot;$(UIPublishDir)obj/&quot; -p:BaseOutputPath=&quot;$(UIPublishDir)bin/&quot; --no-restore --nologo -v q" />
   </Target>
 
   <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="PrepareForBuild">
