@@ -4,7 +4,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-ENDPOINT=${VESSEL3_ENDPOINT:-http://127.0.0.1:9000}
+PORT=${VESSEL3_RESTART_PORT:-9390}
+ENDPOINT=${VESSEL3_ENDPOINT:-http://127.0.0.1:$PORT}
 DATA_DIR=${VESSEL3_DATA:-/tmp/vessel3-restart-data}
 SERVER_BIN=${SERVER_BIN:-$ROOT/Vessel3.Server/bin/Release/net10.0/vessel3}
 PROBE_PROJ=$ROOT/Vessel3.Tests.AwsCompatibility
@@ -31,12 +32,17 @@ cleanup() {
 trap cleanup EXIT
 
 start_server() {
-  "$SERVER_BIN" --urls "$ENDPOINT" >> "$SERVER_LOG" 2>&1 &
-  SERVER_PID=$!
-  for _ in $(seq 1 40); do
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" || echo 000)
-    if [ "$code" != "000" ]; then return 0; fi
-    sleep 0.25
+  for _ in $(seq 1 10); do
+    "$SERVER_BIN" --urls "$ENDPOINT" >> "$SERVER_LOG" 2>&1 &
+    SERVER_PID=$!
+    for _ in $(seq 1 40); do
+      code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" 2>/dev/null || true)
+      if [ "$code" != "000" ]; then return 0; fi
+      if ! kill -0 "$SERVER_PID" 2>/dev/null; then break; fi
+      sleep 0.25
+    done
+    wait "$SERVER_PID" 2>/dev/null || true
+    sleep 0.5
   done
   echo "server failed to start; log:" >&2
   tail -50 "$SERVER_LOG" >&2
@@ -44,27 +50,27 @@ start_server() {
 }
 
 stop_server_clean() {
-  kill "$SERVER_PID" 2>/dev/null || true
-  wait "$SERVER_PID" 2>/dev/null || true
-  SERVER_PID=
-  for _ in $(seq 1 40); do
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" || echo 000)
-    if [ "$code" = "000" ]; then break; fi
-    sleep 0.1
-  done
-  sleep 0.5
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    while kill -0 "$SERVER_PID" 2>/dev/null; do
+      sleep 0.05
+    done
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=
+  fi
+  sleep 1
 }
 
 stop_server_hard() {
-  kill -9 "$SERVER_PID" 2>/dev/null || true
-  wait "$SERVER_PID" 2>/dev/null || true
-  SERVER_PID=
-  for _ in $(seq 1 40); do
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT/" || echo 000)
-    if [ "$code" = "000" ]; then break; fi
-    sleep 0.1
-  done
-  sleep 0.5
+  if [ -n "$SERVER_PID" ]; then
+    kill -9 "$SERVER_PID" 2>/dev/null || true
+    while kill -0 "$SERVER_PID" 2>/dev/null; do
+      sleep 0.05
+    done
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=
+  fi
+  sleep 1
 }
 
 run_phase() {

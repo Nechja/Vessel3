@@ -1,11 +1,16 @@
 using System.Diagnostics;
+using Vessel3.Server.Telemetry;
 
 namespace Vessel3.Server;
 
 internal sealed record RequestTelemetryOptions(TimeSpan SlowThreshold);
 
-internal sealed partial class RequestTelemetry(RequestTelemetryOptions options, ILogger<RequestTelemetry> log) : IMiddleware
+internal sealed partial class RequestTelemetry(
+    RequestTelemetryOptions options,
+    ILogger<RequestTelemetry> log,
+    IMetricsCollector metrics) : IMiddleware
 {
+
     private readonly long slowTicks = options.SlowThreshold > TimeSpan.Zero
         ? (long)(options.SlowThreshold.TotalSeconds * Stopwatch.Frequency)
         : long.MaxValue;
@@ -33,8 +38,8 @@ internal sealed partial class RequestTelemetry(RequestTelemetryOptions options, 
             var reqBytes = ctx.Request.ContentLength ?? 0;
             var resBytes = ctx.Response.ContentLength ?? 0;
 
-            Metrics.RecordRequest(trace.Action, status, elapsed, reqBytes, resBytes);
-            Metrics.RecordStages(trace);
+            metrics.RecordRequest(trace.Action, status, elapsed, reqBytes, resBytes);
+            metrics.RecordStages(trace);
 
             if (status >= 500 || elapsed >= slowTicks)
             {

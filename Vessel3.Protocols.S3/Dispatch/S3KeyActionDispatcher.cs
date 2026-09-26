@@ -9,9 +9,6 @@ internal interface IS3KeyActionDispatcher
 
 internal sealed class S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IBucketRegistry? registry, IHttpResultMapper http) : IS3KeyActionDispatcher
 {
-    public S3KeyActionDispatcher(IEnumerable<IS3KeyAction> actions, IHttpResultMapper http)
-        : this(actions, null, http) { }
-
     private readonly FrozenDictionary<S3KeyRoute, Entry> table = actions.ToFrozenDictionary(a => a.Route, a => new Entry(a, a.GetType().Name));
 
     private readonly record struct Entry(IS3KeyAction Action, string Name);

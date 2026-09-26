@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Vessel3.Server;
+using Vessel3.Server.Admin;
 using Vessel3.Server.S3;
 using Vessel3.Server.S3.Bucket;
 using Vessel3.Server.S3.Key;
@@ -196,27 +197,24 @@ public class BucketAccessTests : IDisposable
         var reg = Registry();
         reg.Create("adm-bucket");
 
-        var services = new ServiceCollection();
-        services.AddSingleton<IBucketRegistry>(reg);
-        services.AddSingleton<IHttpResultMapper>(new HttpResultMapper(new S3XmlWriter()));
-        var sp = services.BuildServiceProvider();
+        var adminService = new AdminService(reg, new HttpResultMapper(new S3XmlWriter()));
 
-        var getCtx = new DefaultHttpContext { RequestServices = sp };
+        var getCtx = new DefaultHttpContext();
         var getMs = new MemoryStream();
         getCtx.Response.Body = getMs;
-        await AdminEndpoints.GetBucketAccess("adm-bucket", getCtx);
+        await adminService.GetBucketAccess("adm-bucket", getCtx);
 
         getMs.Position = 0;
         var json1 = Encoding.UTF8.GetString(getMs.ToArray());
         Assert.Contains("\"publicRead\":false", json1);
         Assert.Contains("\"readOnly\":false", json1);
 
-        var putCtx = new DefaultHttpContext { RequestServices = sp };
+        var putCtx = new DefaultHttpContext();
         const string updateJson = "{\"publicRead\":true,\"readOnly\":true}";
         putCtx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(updateJson));
         var putMs = new MemoryStream();
         putCtx.Response.Body = putMs;
-        await AdminEndpoints.SetBucketAccess("adm-bucket", putCtx);
+        await adminService.SetBucketAccess("adm-bucket", putCtx);
 
         Assert.Equal(200, putCtx.Response.StatusCode);
         var acc = reg.GetAccess("adm-bucket");

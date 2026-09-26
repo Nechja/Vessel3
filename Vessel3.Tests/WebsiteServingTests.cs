@@ -17,6 +17,7 @@ public class WebsiteServingTests : IDisposable
     private readonly ObjectStore objects;
     private readonly GcGate gate = new();
     private readonly PreconditionEvaluator pre = new();
+    private readonly WebsiteService websiteService;
 
     public WebsiteServingTests()
     {
@@ -28,6 +29,7 @@ public class WebsiteServingTests : IDisposable
 
         blobs = new BlobPool(new BlobPoolOptions(Path.Combine(root, "blobs")), sync);
         objects = new ObjectStore(registry, blobs, pre, gate);
+        websiteService = new WebsiteService(registry, objects, pre);
     }
 
     public void Dispose()
@@ -67,7 +69,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
 
-        var res = await WebsiteHandler.Serve(bucket, "/", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/", ctx);
         var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
         Assert.Equal("text/html", fileRes.ContentType);
     }
@@ -83,7 +85,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
 
-        var res = await WebsiteHandler.Serve(bucket, "/docs/", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/docs/", ctx);
         var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
         Assert.Equal("text/html", fileRes.ContentType);
     }
@@ -99,7 +101,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
 
-        var res = await WebsiteHandler.Serve(bucket, "/docs", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/docs", ctx);
         var redirect = Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.HttpResults.RedirectHttpResult>(res);
         Assert.True(redirect.Permanent);
         Assert.Equal("/docs/", redirect.Url);
@@ -116,7 +118,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
 
-        var res = await WebsiteHandler.Serve(bucket, "/styles/main.css", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/styles/main.css", ctx);
         var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
         Assert.Equal("text/css", fileRes.ContentType);
     }
@@ -132,7 +134,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
 
-        var res = await WebsiteHandler.Serve(bucket, "/non-existent-page", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/non-existent-page", ctx);
         Assert.Equal(404, ctx.Response.StatusCode);
         var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
         Assert.Equal("text/html", fileRes.ContentType);
@@ -149,7 +151,7 @@ public class WebsiteServingTests : IDisposable
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "HEAD";
 
-        var res = await WebsiteHandler.Serve(bucket, "/", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/", ctx);
         Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
         Assert.Equal("text/html", ctx.Response.ContentType);
         Assert.True(ctx.Response.ContentLength > 0);
@@ -171,7 +173,7 @@ public class WebsiteServingTests : IDisposable
         ctx.Request.Method = "GET";
         ctx.Request.Headers.IfNoneMatch = $"\"{s.Etag}\"";
 
-        var res = await WebsiteHandler.Serve(bucket, "/", ctx, objects, registry, pre);
+        var res = await websiteService.Serve(bucket, "/", ctx);
         var statusRes = Assert.IsAssignableFrom<IStatusCodeHttpResult>(res);
         Assert.Equal(StatusCodes.Status304NotModified, statusRes.StatusCode);
     }

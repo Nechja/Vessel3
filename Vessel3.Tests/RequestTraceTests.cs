@@ -86,7 +86,7 @@ public sealed class RequestTraceTests : IDisposable
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
         var http = new HttpResultMapper(new S3XmlWriter());
-        var dispatcher = new S3KeyActionDispatcher([new FakeKeyAction()], http);
+        var dispatcher = new S3KeyActionDispatcher([new FakeKeyAction()], null, http);
 
         await dispatcher.Dispatch(HttpMethods.Put, "b1", "dir/k", new DefaultHttpContext());
 
@@ -102,7 +102,7 @@ public sealed class RequestTraceTests : IDisposable
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
         var http = new HttpResultMapper(new S3XmlWriter());
-        var dispatcher = new S3BucketActionDispatcher([new FakeBucketAction()], http);
+        var dispatcher = new S3BucketActionDispatcher([new FakeBucketAction()], null, http);
 
         await dispatcher.Dispatch(HttpMethods.Get, "b2", new DefaultHttpContext());
 
@@ -117,7 +117,7 @@ public sealed class RequestTraceTests : IDisposable
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
-        var dispatcher = new S3KeyActionDispatcher([new FakeKeyAction()], new HttpResultMapper(new S3XmlWriter()));
+        var dispatcher = new S3KeyActionDispatcher([new FakeKeyAction()], null, new HttpResultMapper(new S3XmlWriter()));
 
         await dispatcher.Dispatch(HttpMethods.Delete, "b1", "k", new DefaultHttpContext());
 

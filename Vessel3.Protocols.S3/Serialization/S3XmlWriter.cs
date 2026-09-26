@@ -4,30 +4,42 @@ using System.Xml;
 
 namespace Vessel3.Server.S3;
 
-internal interface IS3XmlWriter
+internal interface IBucketXmlWriter
 {
     Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct);
-    Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
-    Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
-    Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
-    Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
-    Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct);
-    Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct);
     Task WriteLocationConstraint(Stream output, string region, CancellationToken ct);
-    Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct);
-    Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
-    Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
     Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct);
-    Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct);
-    Task WriteObjectAttributes(Stream output, ObjectAttributesRequest req, CancellationToken ct);
-    Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct);
-    Task WriteObjectLockConfiguration(Stream output, ObjectLockConfig cfg, CancellationToken ct);
-    Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct);
-    Task WriteRetention(Stream output, Retention retention, CancellationToken ct);
-    Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
     Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct);
     Task WriteCorsConfiguration(Stream output, CorsConfig cfg, CancellationToken ct);
     Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct);
+    Task WriteObjectLockConfiguration(Stream output, ObjectLockConfig cfg, CancellationToken ct);
+    Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct);
+    Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct);
+}
+
+internal interface IObjectXmlWriter
+{
+    Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
+    Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct);
+    Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct);
+    Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct);
+    Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct);
+    Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct);
+    Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct);
+    Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct);
+    Task WriteObjectAttributes(Stream output, ObjectAttributesRequest req, CancellationToken ct);
+    Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct);
+    Task WriteRetention(Stream output, Retention retention, CancellationToken ct);
+    Task WriteLegalHold(Stream output, bool on, CancellationToken ct);
+}
+
+internal interface IS3ErrorXmlWriter
+{
+    Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct);
+}
+
+internal interface IS3XmlWriter : IBucketXmlWriter, IObjectXmlWriter, IS3ErrorXmlWriter
+{
 }
 
 internal sealed record ObjectAttributesRequest(

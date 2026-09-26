@@ -18,7 +18,7 @@ public class SigV4VerifierTests
     private sealed class FakeStore(params Credential[] creds) : ICredentialStore
     {
         public Credential? Find(string accessKey) => creds.FirstOrDefault(c => c.AccessKey == accessKey);
-        public Credential IssueSession(string subject, TimeSpan ttl) => throw new NotSupportedException();
+        public Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null) => throw new NotSupportedException();
     }
 
     private static SigV4Verifier Verifier(TimeProvider? clock = null, params Credential[] creds) =>

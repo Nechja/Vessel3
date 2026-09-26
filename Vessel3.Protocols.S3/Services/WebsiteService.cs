@@ -3,21 +3,23 @@ using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3;
 
-internal static class WebsiteHandler
+internal interface IWebsiteService
 {
-    public static Task<IResult> Serve(
-        string bucket,
-        string rawPath,
-        HttpContext ctx,
-        IObjectStore objects,
-        IBucketRegistry registry,
-        IPreconditionEvaluator pre)
+    Task<IResult> Serve(string bucket, string rawPath, HttpContext ctx);
+}
+
+internal sealed class WebsiteService(
+    IBucketRegistry registry,
+    IObjectStore objects,
+    IPreconditionEvaluator preconditions) : IWebsiteService
+{
+    public Task<IResult> Serve(string bucket, string rawPath, HttpContext ctx)
     {
         if (registry.GetWebsite(bucket) is not Result<WebsiteConfig?>.Success { Value: { } cfg })
             return Task.FromResult<IResult>(Results.StatusCode(404));
 
         var path = (rawPath ?? "/").TrimStart('/');
-        if (TryResolveDirectoryRedirect(bucket, path, cfg, ctx, objects, out var redirectResult))
+        if (TryResolveDirectoryRedirect(bucket, path, cfg, ctx, out var redirectResult))
         {
             return Task.FromResult(redirectResult);
         }
@@ -25,18 +27,17 @@ internal static class WebsiteHandler
         var targetKey = ResolveTargetKey(path, cfg);
 
         var result = HttpMethods.IsHead(ctx.Request.Method)
-            ? ServeHead(bucket, targetKey, cfg, ctx, objects, pre)
-            : ServeGet(bucket, targetKey, cfg, ctx, objects, pre);
+            ? ServeHead(bucket, targetKey, cfg, ctx)
+            : ServeGet(bucket, targetKey, cfg, ctx);
 
         return Task.FromResult(result);
     }
 
-    private static bool TryResolveDirectoryRedirect(
+    private bool TryResolveDirectoryRedirect(
         string bucket,
         string path,
         WebsiteConfig cfg,
         HttpContext ctx,
-        IObjectStore objects,
         out IResult redirect)
     {
         redirect = Results.Empty;
@@ -62,17 +63,15 @@ internal static class WebsiteHandler
         : path.EndsWith('/') ? $"{path}{cfg.IndexDocument}"
         : path;
 
-    private static IResult ServeHead(
+    private IResult ServeHead(
         string bucket,
         string targetKey,
         WebsiteConfig cfg,
-        HttpContext ctx,
-        IObjectStore objects,
-        IPreconditionEvaluator pre)
+        HttpContext ctx)
     {
         if (objects.Stat(bucket, targetKey, versionId: null) is Result<ObjectStat>.Success { Value: var stat })
         {
-            var precond = pre.EvaluateForRead(ctx.Request.Headers, stat.Etag, stat.LastModified);
+            var precond = preconditions.EvaluateForRead(ctx.Request.Headers, stat.Etag, stat.LastModified);
             if (precond is Precondition.NotModified) return Results.StatusCode(304);
             if (precond is Precondition.Failed) return Results.StatusCode(412);
 
@@ -96,17 +95,15 @@ internal static class WebsiteHandler
         return Results.StatusCode(404);
     }
 
-    private static IResult ServeGet(
+    private IResult ServeGet(
         string bucket,
         string targetKey,
         WebsiteConfig cfg,
-        HttpContext ctx,
-        IObjectStore objects,
-        IPreconditionEvaluator pre)
+        HttpContext ctx)
     {
         if (objects.Get(bucket, targetKey, versionId: null) is Result<StoredObject>.Success { Value: var obj })
         {
-            var precond = pre.EvaluateForRead(ctx.Request.Headers, obj.Etag, obj.LastModified);
+            var precond = preconditions.EvaluateForRead(ctx.Request.Headers, obj.Etag, obj.LastModified);
             if (precond is Precondition.NotModified)
             {
                 obj.Body.Dispose();
@@ -128,14 +125,13 @@ internal static class WebsiteHandler
                 enableRangeProcessing: true);
         }
 
-        return ServeErrorDocumentOrDefault(bucket, cfg, ctx, objects);
+        return ServeErrorDocumentOrDefault(bucket, cfg, ctx);
     }
 
-    private static IResult ServeErrorDocumentOrDefault(
+    private IResult ServeErrorDocumentOrDefault(
         string bucket,
         WebsiteConfig cfg,
-        HttpContext ctx,
-        IObjectStore objects)
+        HttpContext ctx)
     {
         if (!string.IsNullOrEmpty(cfg.ErrorDocument)
             && objects.Get(bucket, cfg.ErrorDocument, versionId: null) is Result<StoredObject>.Success { Value: var errObj })

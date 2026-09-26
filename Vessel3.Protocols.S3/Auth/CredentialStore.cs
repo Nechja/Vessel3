@@ -3,12 +3,12 @@ using System.Security.Cryptography;
 
 namespace Vessel3.Server.S3;
 
-internal sealed record Credential(string AccessKey, string Secret, string? SessionToken, DateTimeOffset? ExpiresAt, string? Subject = null);
+internal sealed record Credential(string AccessKey, string Secret, string? SessionToken, DateTimeOffset? ExpiresAt, string? Subject = null, string? AccountId = null);
 
 internal interface ICredentialStore
 {
     Credential? Find(string accessKey);
-    Credential IssueSession(string subject, TimeSpan ttl);
+    Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null);
 }
 
 internal sealed class CredentialStore(Credential? root, TimeProvider clock) : ICredentialStore
@@ -24,7 +24,7 @@ internal sealed class CredentialStore(Credential? root, TimeProvider clock) : IC
             : null;
     }
 
-    public Credential IssueSession(string subject, TimeSpan ttl)
+    public Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null)
     {
         var now = clock.GetUtcNow();
         Sweep(now);
@@ -35,7 +35,8 @@ internal sealed class CredentialStore(Credential? root, TimeProvider clock) : IC
                 RandomToken(30),
                 RandomToken(32),
                 now + ttl,
-                subject);
+                subject,
+                accountId);
             if (sessions.TryAdd(cred.AccessKey, cred)) return cred;
         }
     }

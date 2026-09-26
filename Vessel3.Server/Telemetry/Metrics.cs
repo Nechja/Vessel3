@@ -3,15 +3,29 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 
-namespace Vessel3.Server;
+namespace Vessel3.Server.Telemetry;
 
-
-internal static class Metrics
+internal interface IMetricsCollector
 {
-    public const string ContentType = "text/plain; version=0.0.4; charset=utf-8";
+    void RecordRequest(string action, int status, long elapsedTicks, long reqBytes, long resBytes);
+    void RecordStages(RequestTrace trace);
+}
 
-    private static readonly long StartTimeUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+internal interface IMetricsRenderer
+{
+    string ContentType { get; }
+    void Render(StringBuilder sb, IEnumerable<BucketStats> buckets);
+}
 
+internal interface IMetricsService : IMetricsCollector, IMetricsRenderer
+{
+}
+
+internal sealed class MetricsService : IMetricsService
+{
+    public string ContentType => "text/plain; version=0.0.4; charset=utf-8";
+
+    private readonly long startTimeUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     private static readonly string[] StatusNames = ["2xx", "3xx", "4xx", "5xx", "other"];
     private const int StatusCount = 5;
 
@@ -53,8 +67,8 @@ internal static class Metrics
         public readonly Histogram Latency = new(RequestBuckets);
     }
 
-    private static readonly ConcurrentDictionary<string, ActionCounters> Actions = new(StringComparer.Ordinal);
-    private static readonly Histogram[] Stages = [.. Enumerable.Range(0, StageCount).Select(_ => new Histogram(StageBuckets))];
+    private readonly ConcurrentDictionary<string, ActionCounters> actions = new(StringComparer.Ordinal);
+    private readonly Histogram[] stages = [.. Enumerable.Range(0, StageCount).Select(_ => new Histogram(StageBuckets))];
 
     public static int StatusIndex(int status) => status switch
     {
@@ -65,25 +79,25 @@ internal static class Metrics
         _ => 4,
     };
 
-    public static void RecordRequest(string action, int status, long elapsedTicks, long reqBytes, long resBytes)
+    public void RecordRequest(string action, int status, long elapsedTicks, long reqBytes, long resBytes)
     {
-        var counters = Actions.GetOrAdd(action, static _ => new ActionCounters());
+        var counters = actions.GetOrAdd(action, static _ => new ActionCounters());
         Interlocked.Increment(ref counters.Requests[StatusIndex(status)]);
         if (reqBytes > 0) Interlocked.Add(ref counters.RequestBytes, reqBytes);
         if (resBytes > 0) Interlocked.Add(ref counters.ResponseBytes, resBytes);
         counters.Latency.Observe(elapsedTicks);
     }
 
-    public static void RecordStages(RequestTrace trace)
+    public void RecordStages(RequestTrace trace)
     {
         for (var i = 0; i < StageCount; i++)
         {
             var ticks = trace.Ticks((Stage)i);
-            if (ticks > 0) Stages[i].Observe(ticks);
+            if (ticks > 0) stages[i].Observe(ticks);
         }
     }
 
-    public static void Render(StringBuilder sb, IEnumerable<BucketStats> buckets)
+    public void Render(StringBuilder sb, IEnumerable<BucketStats> buckets)
     {
         var inv = CultureInfo.InvariantCulture;
 
@@ -91,7 +105,7 @@ internal static class Metrics
 
         sb.Append("# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.\n");
         sb.Append("# TYPE process_start_time_seconds gauge\n");
-        sb.Append("process_start_time_seconds ").Append(StartTimeUnixSeconds.ToString(inv)).Append('\n');
+        sb.Append("process_start_time_seconds ").Append(startTimeUnixSeconds.ToString(inv)).Append('\n');
 
         sb.Append("# HELP process_resident_memory_bytes Resident memory size in bytes.\n");
         sb.Append("# TYPE process_resident_memory_bytes gauge\n");
@@ -114,11 +128,11 @@ internal static class Metrics
         sb.Append("# TYPE dotnet_gc_heap_bytes gauge\n");
         sb.Append("dotnet_gc_heap_bytes ").Append(GC.GetTotalMemory(forceFullCollection: false).ToString(inv)).Append('\n');
 
-        var actions = Actions.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+        var sortedActions = actions.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
 
         sb.Append("# HELP vessel3_requests_total Count of requests handled, by S3 action and status class.\n");
         sb.Append("# TYPE vessel3_requests_total counter\n");
-        foreach (var (action, c) in actions)
+        foreach (var (action, c) in sortedActions)
         {
             for (var s = 0; s < StatusCount; s++)
             {
@@ -132,7 +146,7 @@ internal static class Metrics
 
         sb.Append("# HELP vessel3_request_bytes_total Total request body bytes received, by S3 action.\n");
         sb.Append("# TYPE vessel3_request_bytes_total counter\n");
-        foreach (var (action, c) in actions)
+        foreach (var (action, c) in sortedActions)
         {
             var v = Interlocked.Read(ref c.RequestBytes);
             if (v == 0) continue;
@@ -141,7 +155,7 @@ internal static class Metrics
 
         sb.Append("# HELP vessel3_response_bytes_total Total response body bytes sent, by S3 action.\n");
         sb.Append("# TYPE vessel3_response_bytes_total counter\n");
-        foreach (var (action, c) in actions)
+        foreach (var (action, c) in sortedActions)
         {
             var v = Interlocked.Read(ref c.ResponseBytes);
             if (v == 0) continue;
@@ -150,13 +164,13 @@ internal static class Metrics
 
         sb.Append("# HELP vessel3_request_duration_seconds Request latency histogram in seconds, by S3 action.\n");
         sb.Append("# TYPE vessel3_request_duration_seconds histogram\n");
-        foreach (var (action, c) in actions)
+        foreach (var (action, c) in sortedActions)
             RenderHistogram(sb, "vessel3_request_duration_seconds", "action", action, c.Latency, inv);
 
         sb.Append("# HELP vessel3_stage_duration_seconds Time spent per request in each storage stage, in seconds.\n");
         sb.Append("# TYPE vessel3_stage_duration_seconds histogram\n");
         for (var i = 0; i < StageCount; i++)
-            RenderHistogram(sb, "vessel3_stage_duration_seconds", "stage", StageNames[i], Stages[i], inv);
+            RenderHistogram(sb, "vessel3_stage_duration_seconds", "stage", StageNames[i], stages[i], inv);
 
         var stats = buckets.ToList();
         RenderGauge(sb, "vessel3_bucket_versions", "Rows in the bucket index (one per stored version).", stats, b => b.Versions, inv);
@@ -195,9 +209,9 @@ internal static class Metrics
             sb.Append(name).Append("{bucket=\"").Append(b.Name).Append("\"} ").Append(pick(b).ToString(inv)).Append('\n');
     }
 
-    internal static void ResetForTests()
+    internal void ResetForTests()
     {
-        Actions.Clear();
-        for (var i = 0; i < StageCount; i++) Stages[i] = new Histogram(StageBuckets);
+        actions.Clear();
+        for (var i = 0; i < StageCount; i++) stages[i] = new Histogram(StageBuckets);
     }
 }
