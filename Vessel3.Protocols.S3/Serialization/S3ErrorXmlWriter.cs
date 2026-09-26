@@ -1,21 +1,13 @@
-using System.Xml;
+using System.Security;
+using System.Text;
 
 namespace Vessel3.Server.S3;
 
 internal sealed class S3ErrorXmlWriter : IS3ErrorXmlWriter
 {
-    public async Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct)
+    public Task WriteError(Stream output, Error error, string resource, string requestId, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "Error", null);
-        await w.WriteElementStringAsync(null, "Code", null, error.Code);
-        await w.WriteElementStringAsync(null, "Message", null, error.Message);
-        await w.WriteElementStringAsync(null, "Resource", null, resource);
-        await w.WriteElementStringAsync(null, "RequestId", null, requestId);
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><Error><Code>{SecurityElement.Escape(error.Code)}</Code><Message>{SecurityElement.Escape(error.Message)}</Message><Resource>{SecurityElement.Escape(resource)}</Resource><RequestId>{SecurityElement.Escape(requestId)}</RequestId></Error>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 }

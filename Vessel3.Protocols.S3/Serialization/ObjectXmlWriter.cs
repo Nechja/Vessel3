@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security;
+using System.Text;
 using System.Xml;
 using Vessel3.Storage;
 
@@ -82,42 +84,21 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct)
+    public Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "InitiateMultipartUploadResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
-        await w.WriteElementStringAsync(null, "Key", null, key);
-        await w.WriteElementStringAsync(null, "UploadId", null, uploadId);
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><InitiateMultipartUploadResult xmlns="{S3XmlDefaults.S3Namespace}"><Bucket>{SecurityElement.Escape(bucket)}</Bucket><Key>{SecurityElement.Escape(key)}</Key><UploadId>{SecurityElement.Escape(uploadId)}</UploadId></InitiateMultipartUploadResult>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct)
+    public Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "CompleteMultipartUploadResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Location", null, $"/{bucket}/{key}");
-        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
-        await w.WriteElementStringAsync(null, "Key", null, key);
-        await w.WriteElementStringAsync(null, "ETag", null, $"\"{etag}\"");
         var suffix = $"-{partsCount.ToString(CultureInfo.InvariantCulture)}";
-        if (objectChecksums.Crc32 is { } c32)
-            await w.WriteElementStringAsync(null, "ChecksumCRC32", null, ChecksumAlgorithms.HexToBase64(c32) + suffix);
-        if (objectChecksums.Crc32C is { } c32c)
-            await w.WriteElementStringAsync(null, "ChecksumCRC32C", null, ChecksumAlgorithms.HexToBase64(c32c) + suffix);
-        if (objectChecksums.Sha1 is { } s1)
-            await w.WriteElementStringAsync(null, "ChecksumSHA1", null, ChecksumAlgorithms.HexToBase64(s1) + suffix);
-        if (objectChecksums.Sha256 is { } s256)
-            await w.WriteElementStringAsync(null, "ChecksumSHA256", null, ChecksumAlgorithms.HexToBase64(s256) + suffix);
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var c32Xml = objectChecksums.Crc32 is { } c32 ? $"<ChecksumCRC32>{ChecksumAlgorithms.HexToBase64(c32) + suffix}</ChecksumCRC32>" : "";
+        var c32cXml = objectChecksums.Crc32C is { } c32c ? $"<ChecksumCRC32C>{ChecksumAlgorithms.HexToBase64(c32c) + suffix}</ChecksumCRC32C>" : "";
+        var s1Xml = objectChecksums.Sha1 is { } s1 ? $"<ChecksumSHA1>{ChecksumAlgorithms.HexToBase64(s1) + suffix}</ChecksumSHA1>" : "";
+        var s256Xml = objectChecksums.Sha256 is { } s256 ? $"<ChecksumSHA256>{ChecksumAlgorithms.HexToBase64(s256) + suffix}</ChecksumSHA256>" : "";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><CompleteMultipartUploadResult xmlns="{S3XmlDefaults.S3Namespace}"><Location>/{SecurityElement.Escape(bucket)}/{SecurityElement.Escape(key)}</Location><Bucket>{SecurityElement.Escape(bucket)}</Bucket><Key>{SecurityElement.Escape(key)}</Key><ETag>"{SecurityElement.Escape(etag)}"</ETag>{c32Xml}{c32cXml}{s1Xml}{s256Xml}</CompleteMultipartUploadResult>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     public async Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct)
@@ -149,32 +130,18 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
+    public Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "CopyObjectResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "LastModified", null,
-            outcome.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, $"\"{outcome.Etag}\"");
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var lastModified = outcome.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture);
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><CopyObjectResult xmlns="{S3XmlDefaults.S3Namespace}"><LastModified>{lastModified}</LastModified><ETag>"{SecurityElement.Escape(outcome.Etag)}"</ETag></CopyObjectResult>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct)
+    public Task WriteCopyPartResult(Stream output, string etag, DateTimeOffset lastModified, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "CopyPartResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "LastModified", null,
-            lastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, $"\"{etag}\"");
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var lastModStr = lastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture);
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><CopyPartResult xmlns="{S3XmlDefaults.S3Namespace}"><LastModified>{lastModStr}</LastModified><ETag>"{SecurityElement.Escape(etag)}"</ETag></CopyPartResult>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
@@ -260,49 +227,26 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct)
+    public Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "Tagging", S3XmlDefaults.S3Namespace);
-        await w.WriteStartElementAsync(null, "TagSet", null);
-        foreach (var (k, v) in tags)
-        {
-            await w.WriteStartElementAsync(null, "Tag", null);
-            await w.WriteElementStringAsync(null, "Key", null, k);
-            await w.WriteElementStringAsync(null, "Value", null, v);
-            await w.WriteEndElementAsync();
-        }
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var tagsXml = string.Concat(tags.Select(t => $"<Tag><Key>{SecurityElement.Escape(t.Key)}</Key><Value>{SecurityElement.Escape(t.Value)}</Value></Tag>"));
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><Tagging xmlns="{S3XmlDefaults.S3Namespace}"><TagSet>{tagsXml}</TagSet></Tagging>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteRetention(Stream output, Retention retention, CancellationToken ct)
+    public Task WriteRetention(Stream output, Retention retention, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "Retention", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Mode", null, S3XmlDefaults.ModeToWire(retention.Mode));
-        await w.WriteElementStringAsync(null, "RetainUntilDate", null,
-            retention.RetainUntilDate.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var mode = S3XmlDefaults.ModeToWire(retention.Mode);
+        var date = retention.RetainUntilDate.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture);
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><Retention xmlns="{S3XmlDefaults.S3Namespace}"><Mode>{mode}</Mode><RetainUntilDate>{date}</RetainUntilDate></Retention>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteLegalHold(Stream output, bool on, CancellationToken ct)
+    public Task WriteLegalHold(Stream output, bool on, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "LegalHold", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Status", null, on ? "ON" : "OFF");
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var status = on ? "ON" : "OFF";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><LegalHold xmlns="{S3XmlDefaults.S3Namespace}"><Status>{status}</Status></LegalHold>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     private static async Task WriteContents(XmlWriter w, ListEntry.Contents c, bool urlEncode)

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security;
+using System.Text;
 using System.Xml;
 using Vessel3.Storage;
 
@@ -34,52 +36,29 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteLocationConstraint(Stream output, string region, CancellationToken ct)
+    public Task WriteLocationConstraint(Stream output, string region, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "LocationConstraint", S3XmlDefaults.S3Namespace);
-        if (region is not "us-east-1") await w.WriteStringAsync(region);
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var content = region is "us-east-1" ? "" : SecurityElement.Escape(region);
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><LocationConstraint xmlns="{S3XmlDefaults.S3Namespace}">{content}</LocationConstraint>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct)
+    public Task WriteVersioningConfiguration(Stream output, VersioningStatus status, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "VersioningConfiguration", S3XmlDefaults.S3Namespace);
-        if (status is not VersioningStatus.Unversioned)
-            await w.WriteElementStringAsync(null, "Status", null, status.ToString());
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var body = status is not VersioningStatus.Unversioned
+            ? $"<Status>{status}</Status>"
+            : "";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><VersioningConfiguration xmlns="{S3XmlDefaults.S3Namespace}">{body}</VersioningConfiguration>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct)
+    public Task WriteWebsiteConfiguration(Stream output, WebsiteConfig cfg, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "WebsiteConfiguration", S3XmlDefaults.S3Namespace);
-
-        await w.WriteStartElementAsync(null, "IndexDocument", null);
-        await w.WriteElementStringAsync(null, "Suffix", null, cfg.IndexDocument);
-        await w.WriteEndElementAsync();
-
-        if (!string.IsNullOrEmpty(cfg.ErrorDocument))
-        {
-            await w.WriteStartElementAsync(null, "ErrorDocument", null);
-            await w.WriteElementStringAsync(null, "Key", null, cfg.ErrorDocument);
-            await w.WriteEndElementAsync();
-        }
-
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var errorDoc = !string.IsNullOrEmpty(cfg.ErrorDocument)
+            ? $"<ErrorDocument><Key>{SecurityElement.Escape(cfg.ErrorDocument)}</Key></ErrorDocument>"
+            : "";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><WebsiteConfiguration xmlns="{S3XmlDefaults.S3Namespace}"><IndexDocument><Suffix>{SecurityElement.Escape(cfg.IndexDocument)}</Suffix></IndexDocument>{errorDoc}</WebsiteConfiguration>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     public async Task WriteCorsConfiguration(Stream output, CorsConfig cfg, CancellationToken ct)
@@ -130,55 +109,30 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
         await w.FlushAsync();
     }
 
-    public async Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct)
+    public Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "AccessControlPolicy", S3XmlDefaults.S3Namespace);
-
-        await w.WriteStartElementAsync(null, "Owner", null);
-        await w.WriteElementStringAsync(null, "ID", null, ownerId);
-        await w.WriteElementStringAsync(null, "DisplayName", null, ownerId);
-        await w.WriteEndElementAsync();
-
-        await w.WriteStartElementAsync(null, "AccessControlList", null);
-
-        await WriteCanonicalUserGrant(w, ownerId, "FULL_CONTROL");
-        if (publicRead)
-        {
-            await WriteAllUsersGroupGrant(w, "READ");
-        }
-
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var escapedOwner = SecurityElement.Escape(ownerId);
+        var publicGrant = publicRead
+            ? """<Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="Group"><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee><Permission>READ</Permission></Grant>"""
+            : "";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><AccessControlPolicy xmlns="{S3XmlDefaults.S3Namespace}"><Owner><ID>{escapedOwner}</ID><DisplayName>{escapedOwner}</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>{escapedOwner}</ID><DisplayName>{escapedOwner}</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant>{publicGrant}</AccessControlList></AccessControlPolicy>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    public async Task WriteObjectLockConfiguration(Stream output, ObjectLockConfig cfg, CancellationToken ct)
+    public Task WriteObjectLockConfiguration(Stream output, ObjectLockConfig cfg, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ObjectLockConfiguration", S3XmlDefaults.S3Namespace);
-        if (cfg.Enabled)
-            await w.WriteElementStringAsync(null, "ObjectLockEnabled", null, "Enabled");
+        var enabledXml = cfg.Enabled ? "<ObjectLockEnabled>Enabled</ObjectLockEnabled>" : "";
+        var ruleXml = "";
         if (cfg.Default is { } def)
         {
-            await w.WriteStartElementAsync(null, "Rule", null);
-            await w.WriteStartElementAsync(null, "DefaultRetention", null);
-            await w.WriteElementStringAsync(null, "Mode", null, S3XmlDefaults.ModeToWire(def.Mode));
-            if (def.Days is { } d)
-                await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
-            if (def.Years is { } y)
-                await w.WriteElementStringAsync(null, "Years", null, y.ToString(CultureInfo.InvariantCulture));
-            await w.WriteEndElementAsync();
-            await w.WriteEndElementAsync();
+            var mode = S3XmlDefaults.ModeToWire(def.Mode);
+            var period = def.Days is { } d
+                ? $"<Days>{d.ToString(CultureInfo.InvariantCulture)}</Days>"
+                : (def.Years is { } y ? $"<Years>{y.ToString(CultureInfo.InvariantCulture)}</Years>" : "");
+            ruleXml = $"<Rule><DefaultRetention><Mode>{mode}</Mode>{period}</DefaultRetention></Rule>";
         }
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><ObjectLockConfiguration xmlns="{S3XmlDefaults.S3Namespace}">{enabledXml}{ruleXml}</ObjectLockConfiguration>""";
+        return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     public async Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct)
@@ -241,30 +195,5 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
         await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
-    }
-
-    private static async Task WriteCanonicalUserGrant(XmlWriter w, string ownerId, string permission)
-    {
-        await w.WriteStartElementAsync(null, "Grant", null);
-        await w.WriteStartElementAsync(null, "Grantee", null);
-        await w.WriteAttributeStringAsync("xmlns", "xsi", null, "http://www.w3.org/2001/XMLSchema-instance");
-        await w.WriteAttributeStringAsync("xsi", "type", null, "CanonicalUser");
-        await w.WriteElementStringAsync(null, "ID", null, ownerId);
-        await w.WriteElementStringAsync(null, "DisplayName", null, ownerId);
-        await w.WriteEndElementAsync();
-        await w.WriteElementStringAsync(null, "Permission", null, permission);
-        await w.WriteEndElementAsync();
-    }
-
-    private static async Task WriteAllUsersGroupGrant(XmlWriter w, string permission)
-    {
-        await w.WriteStartElementAsync(null, "Grant", null);
-        await w.WriteStartElementAsync(null, "Grantee", null);
-        await w.WriteAttributeStringAsync("xmlns", "xsi", null, "http://www.w3.org/2001/XMLSchema-instance");
-        await w.WriteAttributeStringAsync("xsi", "type", null, "Group");
-        await w.WriteElementStringAsync(null, "URI", null, "http://acs.amazonaws.com/groups/global/AllUsers");
-        await w.WriteEndElementAsync();
-        await w.WriteElementStringAsync(null, "Permission", null, permission);
-        await w.WriteEndElementAsync();
     }
 }
