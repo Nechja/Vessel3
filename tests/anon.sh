@@ -8,7 +8,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ENDPOINT=${VESSEL3_ANON_ENDPOINT:-http://127.0.0.1:9101}
 DATA_DIR=${VESSEL3_DATA:-/tmp/vessel3-anon-data}
 SERVER_BIN=${SERVER_BIN:-$ROOT/Vessel3.Server/bin/Release/net10.0/vessel3}
-PROBE_PROJ=$ROOT/Vessel3.RealClient
+PROBE_PROJ=$ROOT/Vessel3.Tests.AwsCompatibility
 SERVER_LOG=${VESSEL3_SERVER_LOG:-/tmp/vessel3-anon-server.log}
 
 unset VESSEL3_ACCESS_KEY VESSEL3_SECRET_KEY

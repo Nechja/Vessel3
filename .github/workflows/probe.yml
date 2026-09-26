@@ -114,7 +114,7 @@ jobs:
           VESSEL3_ENDPOINT: http://127.0.0.1:9000
           VESSEL3_ACCESS_KEY: AKIATEST
           VESSEL3_SECRET_KEY: secretkey1234567890
-        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile -p:AwsSdkVersion='${{ matrix.aws }}'
+        run: dotnet run --project Vessel3.Tests.AwsCompatibility -c Release --no-launch-profile -p:AwsSdkVersion='${{ matrix.aws }}'
 
       - name: Server logs on failure
         if: failure() && matrix.mode != 'container'
@@ -147,7 +147,7 @@ jobs:
         run: dotnet build Vessel3.Server -c Release --nologo
 
       - name: Build probe
-        run: dotnet build Vessel3.RealClient -c Release --nologo
+        run: dotnet build Vessel3.Tests.AwsCompatibility -c Release --nologo
 
       - name: Run restart + crash recovery orchestrator
         run: bash tests/restart-durability.sh

@@ -6,7 +6,7 @@
   <Project Path="Vessel3.UI/Vessel3.UI.csproj" />
   <Folder Name="/tests/">
     <Project Path="Vessel3.Tests/Vessel3.Tests.csproj" />
-    <Project Path="Vessel3.RealClient/Vessel3.RealClient.csproj" />
+    <Project Path="Vessel3.Tests.AwsCompatibility/Vessel3.Tests.AwsCompatibility.csproj" />
     <Project Path="Vessel3.Bench/Vessel3.Bench.csproj" />
   </Folder>
 </Solution>

@@ -48,4 +48,4 @@ jobs:
         run: dotnet build Vessel3.Server -c Release --nologo
 
       - name: Exchange and round trip
-        run: dotnet run --project Vessel3.RealClient -c Release --no-launch-profile -- idp ${{ matrix.idp }}
+        run: dotnet run --project Vessel3.Tests.AwsCompatibility -c Release --no-launch-profile -- idp ${{ matrix.idp }}
