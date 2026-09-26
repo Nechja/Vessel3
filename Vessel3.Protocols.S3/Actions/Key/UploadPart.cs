@@ -1,5 +1,4 @@
 using System.Globalization;
-using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -13,14 +12,22 @@ internal sealed class UploadPart(IMultipartStore multipart, IHttpResultMapper ht
         var res = ctx.Response;
         var partNumberRaw = req.Query["partNumber"].ToString();
         if (string.IsNullOrEmpty(partNumberRaw))
+        {
             return http.Map(new InvalidPathError("PUT with uploadId requires partNumber"));
-        if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
-            return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
+        }
 
-        var (partBody, partLength) = DecodeRequestBody(req);
+        if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
+        {
+            return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
+        }
+
+        var (partBody, partLength) = RequestBodyDecoder.Decode(req);
         var partChecksums = ChecksumHeaders.ParseDeclared(req.Headers);
         if (partChecksums is null)
+        {
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
+        }
+
         var partResult = await multipart.UploadPart(req.Query["uploadId"].ToString(), partNumber, partBody, partLength, partChecksums, ctx.RequestAborted);
         return partResult.Match<IResult>(
             outcome =>

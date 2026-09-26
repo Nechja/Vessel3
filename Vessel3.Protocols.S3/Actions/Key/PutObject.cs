@@ -1,5 +1,4 @@
 using System.Globalization;
-using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -24,23 +23,29 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             }
         }
 
-        var (body, declaredLength) = DecodeRequestBody(req);
+        var (body, declaredLength) = RequestBodyDecoder.Decode(req);
         var contentSha = req.Headers["x-amz-content-sha256"].ToString();
         var declaredSha = body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64
             ? null
             : contentSha;
-        var declaredMd5OrNull = Nullify(req.Headers["Content-MD5"].ToString());
+        var declaredMd5OrNull = S3RequestExtensions.Nullify(req.Headers["Content-MD5"].ToString());
 
-        var metadata = ExtractUserMetadata(req.Headers);
+        var metadata = S3HeaderCodec.ExtractUserMetadata(req.Headers);
         var declaredChecksums = ChecksumHeaders.ParseDeclared(req.Headers);
         if (declaredChecksums is null)
+        {
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
+        }
 
         if (!TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagErr))
+        {
             return http.Map(tagErr);
+        }
 
         if (!ResolveInitialRetention(req.Headers, bucket).TryGetValue(out var initialRetention, out var retErr))
+        {
             return http.Map(retErr);
+        }
 
         var initialHold = req.Headers["x-amz-object-lock-legal-hold"].ToString()
             .Equals("ON", StringComparison.OrdinalIgnoreCase);
@@ -48,8 +53,12 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         Result<PutOutcome> result;
         try
         {
-            var systemHeaders = ExtractSystemHeaders(req.Headers);
-            result = await objects.Put(bucket, key, body, declaredLength, req.ContentType, declaredSha, declaredMd5OrNull, metadata, initialTags, declaredChecksums, ct, initialRetention, initialHold, systemHeaders);
+            var systemHeaders = S3HeaderCodec.ExtractSystemHeaders(req.Headers);
+            var putReq = new ObjectPutRequest(
+                bucket, key, body, declaredLength, req.ContentType,
+                declaredSha, declaredMd5OrNull, metadata, initialTags,
+                declaredChecksums, ct, initialRetention, initialHold, systemHeaders);
+            result = await objects.Put(putReq);
         }
         catch (InvalidDataException ex)
         {

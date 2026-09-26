@@ -1,5 +1,4 @@
 using System.Globalization;
-using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3;
 
@@ -79,7 +78,7 @@ internal sealed class WebsiteService(
             ctx.Response.ContentType = stat.ContentType;
             ctx.Response.Headers.ETag = $"\"{stat.Etag}\"";
             ctx.Response.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
-            EmitSystemHeaders(ctx.Response.Headers, stat.SystemHeaders);
+            S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, stat.SystemHeaders);
             return Results.Empty;
         }
 
@@ -116,7 +115,7 @@ internal sealed class WebsiteService(
             }
 
             ctx.Response.Headers.ETag = $"\"{obj.Etag}\"";
-            EmitSystemHeaders(ctx.Response.Headers, obj.SystemHeaders);
+            S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, obj.SystemHeaders);
 
             return Results.File(
                 obj.Body,
@@ -138,7 +137,7 @@ internal sealed class WebsiteService(
         {
             ctx.Response.StatusCode = 404;
             ctx.Response.Headers.ETag = $"\"{errObj.Etag}\"";
-            EmitSystemHeaders(ctx.Response.Headers, errObj.SystemHeaders);
+            S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, errObj.SystemHeaders);
 
             return Results.File(
                 errObj.Body,

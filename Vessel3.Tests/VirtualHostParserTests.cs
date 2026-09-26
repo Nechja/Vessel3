@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Vessel3.Tests;
 
-public class VirtualHostParserTests
+public class VirtualHostResolverTests
 {
     private static readonly System.Buffers.SearchValues<char> ValidBucketChars =
         System.Buffers.SearchValues.Create("abcdefghijklmnopqrstuvwxyz0123456789-.");
@@ -69,8 +69,9 @@ public class VirtualHostParserTests
     {
         string[] baseDomains = ["s3.local", "localhost", "s3.example.com"];
         var registry = new MockRegistry([]);
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
 
-        Assert.True(VirtualHostParser.TryExtractBucket(host, baseDomains, registry, out var bucket));
+        Assert.True(resolver.TryExtractBucket(host, out var bucket));
         Assert.Equal(expectedBucket, bucket);
     }
 
@@ -85,28 +86,31 @@ public class VirtualHostParserTests
     [InlineData("admin.s3.local:9000")]
     [InlineData("-invalid.localhost:9000")]
     [InlineData("invalid-.localhost:9000")]
-    [InlineData("ab.localhost:9000")] // Too short (< 3)
+    [InlineData("ab.localhost:9000")]
     [InlineData("")]
     public void Rejects_Invalid_Or_Base_Host(string host)
     {
         string[] baseDomains = ["s3.local", "localhost", "s3.example.com"];
         var registry = new MockRegistry([]);
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
 
-        Assert.False(VirtualHostParser.TryExtractBucket(host, baseDomains, registry, out _));
+        Assert.False(resolver.TryExtractBucket(host, out _));
     }
 
     [Fact]
     public void Identifies_Admin_Hosts()
     {
         string[] baseDomains = ["s3.local", "localhost"];
+        var registry = new MockRegistry([]);
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
 
-        Assert.True(VirtualHostParser.IsAdminHost("admin.localhost:9000", baseDomains));
-        Assert.True(VirtualHostParser.IsAdminHost("admin.s3.local", baseDomains));
-        Assert.True(VirtualHostParser.IsAdminHost("ADMIN.localhost", baseDomains));
+        Assert.True(resolver.IsAdminHost("admin.localhost:9000"));
+        Assert.True(resolver.IsAdminHost("admin.s3.local"));
+        Assert.True(resolver.IsAdminHost("ADMIN.localhost"));
 
-        Assert.False(VirtualHostParser.IsAdminHost("localhost:9000", baseDomains));
-        Assert.False(VirtualHostParser.IsAdminHost("other.localhost:9000", baseDomains));
-        Assert.False(VirtualHostParser.IsAdminHost("admin.other.com", baseDomains));
+        Assert.False(resolver.IsAdminHost("localhost:9000"));
+        Assert.False(resolver.IsAdminHost("other.localhost:9000"));
+        Assert.False(resolver.IsAdminHost("admin.other.com"));
     }
 
     [Fact]
@@ -114,14 +118,24 @@ public class VirtualHostParserTests
     {
         string[] baseDomains = ["localhost"];
         var registry = new MockRegistry(["mysite.lan", "docs.company.internal"]);
+        var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
 
-        Assert.True(VirtualHostParser.TryExtractBucket("mysite.lan:9000", baseDomains, registry, out var b1));
+        Assert.True(resolver.TryExtractBucket("mysite.lan:9000", out var b1));
         Assert.Equal("mysite.lan", b1);
 
-        Assert.True(VirtualHostParser.TryExtractBucket("docs.company.internal", baseDomains, registry, out var b2));
+        Assert.True(resolver.TryExtractBucket("docs.company.internal", out var b2));
         Assert.Equal("docs.company.internal", b2);
 
-        // If bucket does not exist, custom domain returns false
-        Assert.False(VirtualHostParser.TryExtractBucket("unknown.company.internal:9000", baseDomains, registry, out _));
+        Assert.False(resolver.TryExtractBucket("unknown.company.internal:9000", out _));
+    }
+
+    [Theory]
+    [InlineData("example.com:80", "example.com")]
+    [InlineData("example.com", "example.com")]
+    [InlineData("[::1]:8080", "[::1]")]
+    [InlineData("[::1]", "[::1]")]
+    public void Strips_Port_Correctly(string host, string expected)
+    {
+        Assert.Equal(expected, VirtualHostResolver.StripPort(host));
     }
 }

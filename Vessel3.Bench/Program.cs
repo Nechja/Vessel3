@@ -37,16 +37,17 @@ if (scenario is "list-growth")
 
 var summary = scenario switch
 {
-    "put-small" => await Scenarios.PutSmall(s3, opts),
-    "put-large" => await Scenarios.PutLarge(s3, opts),
-    "get"       => await Scenarios.Get(s3, opts),
-    "multipart" => await Scenarios.Multipart(s3, opts),
-    "mixed"     => await Scenarios.Mixed(s3, opts),
-    "list"      => await Scenarios.List(s3, opts),
+    "wildcard"    => await Scenarios.Wildcard(opts),
+    "put-small"   => await Scenarios.PutSmall(s3, opts),
+    "put-large"   => await Scenarios.PutLarge(s3, opts),
+    "get"         => await Scenarios.Get(s3, opts),
+    "multipart"   => await Scenarios.Multipart(s3, opts),
+    "mixed"       => await Scenarios.Mixed(s3, opts),
+    "list"        => await Scenarios.List(s3, opts),
     "bulk-delete" => await Scenarios.BulkDelete(s3, opts),
-    "loki"      => await Scenarios.Loki(s3, opts),
+    "loki"        => await Scenarios.Loki(s3, opts),
     "loki-single" => await Scenarios.LokiSingleDelete(s3, opts),
-    _           => throw new ArgumentException($"unknown scenario: {scenario}"),
+    _             => throw new ArgumentException($"unknown scenario: {scenario}"),
 };
 
 if (json) PrintJson(scenario, opts, summary);
@@ -96,6 +97,7 @@ static int ParseSize(string raw) => raw switch
     _ => int.Parse(raw, CultureInfo.InvariantCulture),
 };
 
+
 static void PrintTable(string scenario, BenchOptions opts, LatencySummary s)
 {
     Console.WriteLine($"== {scenario} ==");
@@ -105,7 +107,8 @@ static void PrintTable(string scenario, BenchOptions opts, LatencySummary s)
     Console.WriteLine($"  duration:    {s.WallTime.TotalSeconds:F2}s (warmup {opts.Warmup.TotalSeconds:F2}s)");
     Console.WriteLine($"  ops:         {s.Ops:N0}  ({s.OpsPerSecond,9:N1} ops/s)");
     Console.WriteLine($"  bytes:       {FormatBytes(s.Bytes)}  ({FormatBytes((long)s.BytesPerSecond)}/s)");
-    Console.WriteLine($"  latency ms:  avg={s.AvgMs:F2}  p50={s.P50Ms:F2}  p95={s.P95Ms:F2}  p99={s.P99Ms:F2}  p999={s.P999Ms:F2}  max={s.MaxMs:F2}");
+    var format = s.AvgMs < 0.1 ? "F4" : "F2";
+    Console.WriteLine($"  latency ms:  avg={s.AvgMs.ToString(format, CultureInfo.InvariantCulture)}  p50={s.P50Ms.ToString(format, CultureInfo.InvariantCulture)}  p95={s.P95Ms.ToString(format, CultureInfo.InvariantCulture)}  p99={s.P99Ms.ToString(format, CultureInfo.InvariantCulture)}  p999={s.P999Ms.ToString(format, CultureInfo.InvariantCulture)}  max={s.MaxMs.ToString(format, CultureInfo.InvariantCulture)}");
 }
 
 static void PrintGrowthTable(BenchOptions opts, IReadOnlyList<GrowthStep> steps)
@@ -136,7 +139,7 @@ static void PrintGrowthJson(BenchOptions opts, IReadOnlyList<GrowthStep> steps)
             ["miss_p99_ms"] = Math.Round(s.ListMiss.P99Ms, 3),
         }).ToList(),
     };
-    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, BenchJson.Compact));
 }
 
 static void PrintJson(string scenario, BenchOptions opts, LatencySummary s)
@@ -155,15 +158,15 @@ static void PrintJson(string scenario, BenchOptions opts, LatencySummary s)
         ["bytes_per_s"] = (long)s.BytesPerSecond,
         ["latency_ms"] = new Dictionary<string, double>
         {
-            ["avg"] = Math.Round(s.AvgMs, 3),
-            ["p50"] = Math.Round(s.P50Ms, 3),
-            ["p95"] = Math.Round(s.P95Ms, 3),
-            ["p99"] = Math.Round(s.P99Ms, 3),
-            ["p999"] = Math.Round(s.P999Ms, 3),
-            ["max"] = Math.Round(s.MaxMs, 3),
+            ["avg"] = Math.Round(s.AvgMs, 4),
+            ["p50"] = Math.Round(s.P50Ms, 4),
+            ["p95"] = Math.Round(s.P95Ms, 4),
+            ["p99"] = Math.Round(s.P99Ms, 4),
+            ["p999"] = Math.Round(s.P999Ms, 4),
+            ["max"] = Math.Round(s.MaxMs, 4),
         },
     };
-    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload, BenchJson.Compact));
 }
 
 static string FormatBytes(long bytes) =>
@@ -180,6 +183,7 @@ static void PrintUsage()
     Console.WriteLine("Usage: vessel3-bench <scenario> [flags]");
     Console.WriteLine();
     Console.WriteLine("Scenarios:");
+    Console.WriteLine("  wildcard    in-memory wildcard pattern matching throughput and latency");
     Console.WriteLine("  put-small   1 KB PUT (override with --object-size)");
     Console.WriteLine("  put-large   10 MB PUT (override with --object-size)");
     Console.WriteLine("  get         GET against pre-seeded bucket");
@@ -202,3 +206,9 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("Env: VESSEL3_ENDPOINT, VESSEL3_ACCESS_KEY, VESSEL3_SECRET_KEY, VESSEL3_REGION");
 }
+
+internal static class BenchJson
+{
+    public static readonly System.Text.Json.JsonSerializerOptions Compact = new() { WriteIndented = false };
+}
+

@@ -1,5 +1,4 @@
 using System.Globalization;
-using static Vessel3.Server.RequestHelpers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -15,22 +14,31 @@ internal sealed class UploadPartCopy(IObjectStore objects, IMultipartStore multi
         var uploadId = req.Query["uploadId"].ToString();
         var partNumberRaw = req.Query["partNumber"].ToString();
         if (string.IsNullOrEmpty(partNumberRaw))
+        {
             return http.Map(new InvalidPathError("PUT with uploadId requires partNumber"));
+        }
+
         if (!int.TryParse(partNumberRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partNumber))
+        {
             return http.Map(new InvalidPartError($"partNumber {partNumberRaw} not an integer"));
+        }
 
         var copySource = req.Headers["x-amz-copy-source"].ToString();
-        if (!TryParseCopySource(copySource, out var srcBucket, out var srcKey))
+        if (!CopySource.TryParse(copySource, out var srcBucket, out var srcKey))
+        {
             return http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
+        }
 
         if (!objects.Get(srcBucket, srcKey).TryGetValue(out var src, out var srcErr))
+        {
             return http.Map(srcErr);
+        }
 
         var rangeHeader = req.Headers["x-amz-copy-source-range"].ToString();
         long copyOffset = 0;
         long copyLength = src.Size;
         if (!string.IsNullOrEmpty(rangeHeader)
-            && TryParseByteRange(rangeHeader, src.Size, out var rangeStart, out var rangeEnd))
+            && S3ByteRange.TryParse(rangeHeader, src.Size, out var rangeStart, out var rangeEnd))
         {
             copyOffset = rangeStart;
             copyLength = rangeEnd - rangeStart + 1;
@@ -38,7 +46,10 @@ internal sealed class UploadPartCopy(IObjectStore objects, IMultipartStore multi
 
         try
         {
-            if (copyOffset > 0) src.Body.Seek(copyOffset, SeekOrigin.Begin);
+            if (copyOffset > 0)
+            {
+                src.Body.Seek(copyOffset, SeekOrigin.Begin);
+            }
         }
         catch (NotSupportedException)
         {

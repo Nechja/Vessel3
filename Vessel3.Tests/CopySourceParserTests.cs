@@ -1,4 +1,4 @@
-using Vessel3.Server;
+using Vessel3.Server.S3;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -16,9 +16,14 @@ public class CopySourceParserTests
     [InlineData("bucket/key.txt?versionId=abc", "bucket", "key.txt")]
     public void Parses(string raw, string expectBucket, string expectKey)
     {
-        Assert.True(RequestHelpers.TryParseCopySource(raw, out var bucket, out var key));
+        Assert.True(CopySource.TryParse(raw, out var bucket, out var key));
         Assert.Equal(expectBucket, bucket);
         Assert.Equal(expectKey, key);
+
+        Assert.True(CopySource.TryParse(raw, out CopySource? src));
+        Assert.NotNull(src);
+        Assert.Equal(expectBucket, src.Bucket);
+        Assert.Equal(expectKey, src.Key);
     }
 
     [Theory]
@@ -29,6 +34,7 @@ public class CopySourceParserTests
     [InlineData("%2Fkey.txt")]
     public void Rejects(string raw)
     {
-        Assert.False(RequestHelpers.TryParseCopySource(raw, out _, out _));
+        Assert.False(CopySource.TryParse(raw, out string _, out string _));
+        Assert.False(CopySource.TryParse(raw, out CopySource? _));
     }
 }

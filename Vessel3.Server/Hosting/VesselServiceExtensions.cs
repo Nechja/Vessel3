@@ -69,6 +69,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
         services.AddSingleton<IWebsiteService, WebsiteService>();
         services.AddVesselS3Actions();
+        services.AddSingleton<IS3SubresourceResolver, S3SubresourceResolver>();
         services.AddSingleton<IVirtualHostResolver, VirtualHostResolver>();
         services.AddSingleton<IS3BucketActionDispatcher, S3BucketActionDispatcher>();
         services.AddSingleton<IS3KeyActionDispatcher, S3KeyActionDispatcher>();

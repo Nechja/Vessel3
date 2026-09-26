@@ -16,6 +16,67 @@ internal sealed record GrowthStep(int Keys, LatencySummary ListEnd, LatencySumma
 
 internal static class Scenarios
 {
+    public static async Task<LatencySummary> Wildcard(BenchOptions opts)
+    {
+        ValidateCorrectness(WildcardTestCases.All);
+        var recorder = new LatencyRecorder();
+        const int batchSize = 1000;
+
+        if (opts.Warmup > TimeSpan.Zero)
+        {
+            using var warmupCts = new CancellationTokenSource(opts.Warmup);
+            await RunWildcardWorkers(opts.Concurrency, WildcardTestCases.All, batchSize, null, warmupCts.Token);
+        }
+
+        using var cts = new CancellationTokenSource(opts.Duration);
+        var sw = Stopwatch.StartNew();
+        await RunWildcardWorkers(opts.Concurrency, WildcardTestCases.All, batchSize, recorder, cts.Token);
+        sw.Stop();
+
+        return recorder.Summarize(sw.Elapsed);
+    }
+
+    private static void ValidateCorrectness(IReadOnlyList<WildcardTestCase> cases)
+    {
+        foreach (var tc in cases)
+        {
+            var actual = WildcardMatcher.Match(tc.Pattern, tc.Value);
+            if (actual != tc.ExpectedResult)
+                throw new InvalidOperationException($"Wildcard mismatch for pattern '{tc.Pattern}' and value '{tc.Value}'");
+        }
+    }
+
+    private static async Task RunWildcardWorkers(
+        int concurrency,
+        IReadOnlyList<WildcardTestCase> cases,
+        int batchSize,
+        LatencyRecorder? recorder,
+        CancellationToken ct)
+    {
+        Task RunWorker(int wid) => Task.Run(() =>
+        {
+            var caseCount = cases.Count;
+            var index = wid % caseCount;
+            while (!ct.IsCancellationRequested)
+            {
+                var t0 = Stopwatch.GetTimestamp();
+                long totalBytes = 0;
+                for (var i = 0; i < batchSize; i++)
+                {
+                    var tc = cases[index];
+                    if (++index >= caseCount) index = 0;
+
+                    _ = WildcardMatcher.Match(tc.Pattern, tc.Value);
+                    totalBytes += tc.Pattern.Length + tc.Value.Length;
+                }
+                var elapsed = Stopwatch.GetTimestamp() - t0;
+                recorder?.RecordBatch(elapsed, batchSize, totalBytes);
+            }
+        }, ct);
+
+        await Task.WhenAll(Enumerable.Range(0, concurrency).Select(RunWorker));
+    }
+
     public static async Task<LatencySummary> PutSmall(AmazonS3Client s3, BenchOptions opts)
     {
         await EnsureBucket(s3, opts);
@@ -282,8 +343,6 @@ internal static class Scenarios
 
     private static async Task<LatencySummary> RunPutWorkload(AmazonS3Client s3, BenchOptions opts, int size)
     {
-        // One buffer per worker; stamp a per-op counter so every PUT has distinct content
-        // (a shared payload would dedup to one blob and skip the create/rename/dir-fsync path).
         var buffers = new byte[opts.Concurrency][];
         for (var i = 0; i < buffers.Length; i++)
         {
@@ -312,24 +371,24 @@ internal static class Scenarios
         if (opts.Warmup > TimeSpan.Zero)
         {
             using var warmupCts = new CancellationTokenSource(opts.Warmup);
-            await RunOnce(opts.Concurrency, warmupCts.Token, op);
+            await RunOnce(opts.Concurrency, op, warmupCts.Token);
         }
 
         var recorder = new LatencyRecorder();
         using var cts = new CancellationTokenSource(opts.Duration);
         var sw = Stopwatch.StartNew();
-        await RunOnce(opts.Concurrency, cts.Token, async (wid, ct) =>
+        await RunOnce(opts.Concurrency, async (wid, ct) =>
         {
             var t0 = Stopwatch.GetTimestamp();
             var bytes = await op(wid, ct);
             recorder.Record(Stopwatch.GetTimestamp() - t0, bytes);
             return bytes;
-        });
+        }, cts.Token);
         sw.Stop();
         return recorder.Summarize(sw.Elapsed);
     }
 
-    private static async Task RunOnce(int concurrency, CancellationToken ct, Func<int, CancellationToken, Task<long>> op)
+    private static async Task RunOnce(int concurrency, Func<int, CancellationToken, Task<long>> op, CancellationToken ct)
     {
         async Task Worker(int wid)
         {
@@ -337,7 +396,7 @@ internal static class Scenarios
             {
                 try { await op(wid, ct); }
                 catch (OperationCanceledException) { return; }
-                catch (AmazonS3Exception) { /* swallow transient race; counted in failures elsewhere */ }
+                catch (AmazonS3Exception) { }
             }
         }
 
