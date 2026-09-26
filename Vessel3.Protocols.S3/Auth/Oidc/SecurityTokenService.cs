@@ -1,22 +1,29 @@
 using System.Globalization;
+using System.Text;
 using System.Xml;
 using Vessel3.Server.S3;
 
 namespace Vessel3.Server.Oidc;
 
-internal static class StsEndpoint
+internal interface ISecurityTokenService
+{
+    bool Matches(HttpRequest req);
+    Task Handle(HttpContext ctx);
+}
+
+internal sealed class SecurityTokenService(ITokenVerifier verifier, ICredentialStore credentials) : ISecurityTokenService
 {
     private const string Namespace = "https://sts.amazonaws.com/doc/2011-06-15/";
     private const string AssumeRoleWithWebIdentity = "AssumeRoleWithWebIdentity";
     private static readonly TimeSpan DefaultDuration = TimeSpan.FromHours(1);
     private static readonly TimeSpan MinDuration = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan MaxDuration = TimeSpan.FromHours(12);
-    private static readonly XmlWriterSettings Settings = new() { Async = true, OmitXmlDeclaration = false, Encoding = new System.Text.UTF8Encoding(false) };
+    private static readonly XmlWriterSettings Settings = new() { Async = true, OmitXmlDeclaration = false, Encoding = new UTF8Encoding(false) };
 
-    public static bool Matches(HttpRequest req) =>
+    public bool Matches(HttpRequest req) =>
         HttpMethods.IsPost(req.Method) && req.Path == "/";
 
-    public static async Task Handle(HttpContext ctx)
+    public async Task Handle(HttpContext ctx)
     {
         var ct = ctx.RequestAborted;
         var form = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync(ct) : null;
@@ -48,14 +55,13 @@ internal static class StsEndpoint
             duration = TimeSpan.FromSeconds(seconds);
         }
 
-        var verifier = ctx.RequestServices.GetRequiredService<ITokenVerifier>();
         if (!(await verifier.Verify(token, ct)).TryGetValue(out var identity, out var err))
         {
             await WriteError(ctx, err.Status, err.Code, err.Message, ct);
             return;
         }
 
-        var session = ctx.RequestServices.GetRequiredService<ICredentialStore>().IssueSession(identity.Subject, duration);
+        var session = credentials.IssueSession(identity.Subject, duration);
         await WriteCredentials(ctx, identity, session, ct);
     }
 

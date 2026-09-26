@@ -9,9 +9,6 @@ internal interface IS3BucketActionDispatcher
 
 internal sealed class S3BucketActionDispatcher(IEnumerable<IS3BucketAction> actions, IBucketRegistry? registry, IHttpResultMapper http) : IS3BucketActionDispatcher
 {
-    public S3BucketActionDispatcher(IEnumerable<IS3BucketAction> actions, IHttpResultMapper http)
-        : this(actions, null, http) { }
-
     private readonly FrozenDictionary<S3BucketRoute, Entry> table = actions.ToFrozenDictionary(a => a.Route, a => new Entry(a, a.GetType().Name));
 
     private readonly record struct Entry(IS3BucketAction Action, string Name);

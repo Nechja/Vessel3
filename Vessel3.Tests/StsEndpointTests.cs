@@ -24,16 +24,13 @@ public class StsEndpointTests
         }
     }
 
-    private static (HttpContext Ctx, CredentialStore Store, FakeVerifier Verifier) Request(
+    private static (HttpContext Ctx, CredentialStore Store, FakeVerifier Verifier, SecurityTokenService Sts) Request(
         string body, Result<VerifiedIdentity>? outcome = null, string? query = null)
     {
         var store = new CredentialStore(null, new TestClock(T0));
         var verifier = new FakeVerifier(outcome ?? new VerifiedIdentity("acct_kayla", ["vessel3"]));
-        var services = new ServiceCollection()
-            .AddSingleton<ICredentialStore>(store)
-            .AddSingleton<ITokenVerifier>(verifier)
-            .BuildServiceProvider();
-        var ctx = new DefaultHttpContext { RequestServices = services };
+        var sts = new SecurityTokenService(verifier, store);
+        var ctx = new DefaultHttpContext();
         ctx.Request.Method = "POST";
         ctx.Request.Path = "/";
         if (query is not null) ctx.Request.QueryString = new QueryString(query);
@@ -43,7 +40,7 @@ public class StsEndpointTests
             ctx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(body));
         }
         ctx.Response.Body = new MemoryStream();
-        return (ctx, store, verifier);
+        return (ctx, store, verifier, sts);
     }
 
     private static XDocument Body(HttpContext ctx)
@@ -55,27 +52,28 @@ public class StsEndpointTests
     [Fact]
     public void Matches_only_post_to_root()
     {
+        var sts = new SecurityTokenService(new FakeVerifier(new VerifiedIdentity("a", ["b"])), new CredentialStore(null, new TestClock(T0)));
         var post = new DefaultHttpContext().Request;
         post.Method = "POST";
         post.Path = "/";
-        Assert.True(StsEndpoint.Matches(post));
+        Assert.True(sts.Matches(post));
 
         var get = new DefaultHttpContext().Request;
         get.Method = "GET";
         get.Path = "/";
-        Assert.False(StsEndpoint.Matches(get));
+        Assert.False(sts.Matches(get));
 
         var bucket = new DefaultHttpContext().Request;
         bucket.Method = "POST";
         bucket.Path = "/photos";
-        Assert.False(StsEndpoint.Matches(bucket));
+        Assert.False(sts.Matches(bucket));
     }
 
     [Fact]
     public async Task Issues_session_credentials_for_a_verified_token()
     {
-        var (ctx, store, verifier) = Request("Action=AssumeRoleWithWebIdentity&Version=2011-06-15&WebIdentityToken=eyJ.abc.def&RoleArn=arn:aws:iam::0:role/x&RoleSessionName=ui");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, store, verifier, sts) = Request("Action=AssumeRoleWithWebIdentity&Version=2011-06-15&WebIdentityToken=eyJ.abc.def&RoleArn=arn:aws:iam::0:role/x&RoleSessionName=ui");
+        await sts.Handle(ctx);
 
         Assert.Equal(200, ctx.Response.StatusCode);
         Assert.Equal("eyJ.abc.def", verifier.Seen);
@@ -93,8 +91,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Honors_duration_seconds()
     {
-        var (ctx, store, _) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds=7200");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, store, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds=7200");
+        await sts.Handle(ctx);
         var accessKey = Body(ctx).Descendants(Ns + "AccessKeyId").Single().Value;
         Assert.Equal(T0 + TimeSpan.FromHours(2), store.Find(accessKey)!.ExpiresAt);
     }
@@ -105,8 +103,8 @@ public class StsEndpointTests
     [InlineData("abc")]
     public async Task Rejects_out_of_range_duration(string duration)
     {
-        var (ctx, _, _) = Request($"Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds={duration}");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, _, _, sts) = Request($"Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds={duration}");
+        await sts.Handle(ctx);
         Assert.Equal(400, ctx.Response.StatusCode);
         Assert.Equal("ValidationError", Body(ctx).Descendants(Ns + "Code").Single().Value);
     }
@@ -114,8 +112,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Accepts_parameters_in_query_string()
     {
-        var (ctx, _, verifier) = Request("", query: "?Action=AssumeRoleWithWebIdentity&WebIdentityToken=fromquery");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, _, verifier, sts) = Request("", query: "?Action=AssumeRoleWithWebIdentity&WebIdentityToken=fromquery");
+        await sts.Handle(ctx);
         Assert.Equal(200, ctx.Response.StatusCode);
         Assert.Equal("fromquery", verifier.Seen);
     }
@@ -123,8 +121,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Rejects_other_actions()
     {
-        var (ctx, _, _) = Request("Action=GetCallerIdentity");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, _, _, sts) = Request("Action=GetCallerIdentity");
+        await sts.Handle(ctx);
         Assert.Equal(400, ctx.Response.StatusCode);
         Assert.Equal("InvalidAction", Body(ctx).Descendants(Ns + "Code").Single().Value);
     }
@@ -132,8 +130,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Rejects_missing_token()
     {
-        var (ctx, _, _) = Request("Action=AssumeRoleWithWebIdentity");
-        await StsEndpoint.Handle(ctx);
+        var (ctx, _, _, sts) = Request("Action=AssumeRoleWithWebIdentity");
+        await sts.Handle(ctx);
         Assert.Equal(400, ctx.Response.StatusCode);
         Assert.Equal("ValidationError", Body(ctx).Descendants(Ns + "Code").Single().Value);
     }
@@ -141,8 +139,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Maps_verifier_errors_to_sts_error_response()
     {
-        var (ctx, store, _) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=bad", outcome: new ExpiredIdentityTokenError());
-        await StsEndpoint.Handle(ctx);
+        var (ctx, store, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=bad", outcome: new ExpiredIdentityTokenError());
+        await sts.Handle(ctx);
         Assert.Equal(400, ctx.Response.StatusCode);
         var error = Body(ctx).Root!.Element(Ns + "Error")!;
         Assert.Equal("Sender", error.Element(Ns + "Type")!.Value);
@@ -152,8 +150,8 @@ public class StsEndpointTests
     [Fact]
     public async Task Access_denied_is_403()
     {
-        var (ctx, _, _) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t", outcome: new AccessDeniedError("nope"));
-        await StsEndpoint.Handle(ctx);
+        var (ctx, _, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t", outcome: new AccessDeniedError("nope"));
+        await sts.Handle(ctx);
         Assert.Equal(403, ctx.Response.StatusCode);
         Assert.Equal("AccessDenied", Body(ctx).Descendants(Ns + "Code").Single().Value);
     }

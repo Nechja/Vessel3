@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Vessel3.Server;
+using Vessel3.Server.Telemetry;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -10,7 +11,7 @@ namespace Vessel3.Tests;
 [Collection(nameof(MetricsTests))]
 public class RequestTelemetryTests
 {
-    public RequestTelemetryTests() => Metrics.ResetForTests();
+    private readonly MetricsService metrics = new();
 
     private sealed class CapturingLogger : ILogger<RequestTelemetry>
     {
@@ -21,10 +22,10 @@ public class RequestTelemetryTests
             Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
-    private static (RequestTelemetry Middleware, CapturingLogger Log) Build(int slowMs)
+    private (RequestTelemetry Middleware, CapturingLogger Log) Build(int slowMs)
     {
         var log = new CapturingLogger();
-        return (new RequestTelemetry(new RequestTelemetryOptions(TimeSpan.FromMilliseconds(slowMs)), log), log);
+        return (new RequestTelemetry(new RequestTelemetryOptions(TimeSpan.FromMilliseconds(slowMs)), log, metrics), log);
     }
 
     private static DefaultHttpContext Context()
@@ -34,10 +35,10 @@ public class RequestTelemetryTests
         return ctx;
     }
 
-    private static string Rendered()
+    private string Rendered()
     {
         var sb = new StringBuilder();
-        Metrics.Render(sb, []);
+        metrics.Render(sb, []);
         return sb.ToString();
     }
 

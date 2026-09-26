@@ -1,42 +1,41 @@
 using System.Diagnostics;
 using System.Text;
 using Vessel3.Server;
+using Vessel3.Server.Telemetry;
 using Xunit;
 
 namespace Vessel3.Tests;
 
-[Collection(nameof(MetricsTests))]
-[CollectionDefinition(nameof(MetricsTests), DisableParallelization = true)]
 public class MetricsTests
 {
-    public MetricsTests() => Metrics.ResetForTests();
+    private readonly MetricsService metrics = new();
 
-    private static string Render(params BucketStats[] buckets)
+    private string Render(params BucketStats[] buckets)
     {
         var sb = new StringBuilder();
-        Metrics.Render(sb, buckets);
+        metrics.Render(sb, buckets);
         return sb.ToString();
     }
 
     [Fact]
     public void StatusIndex_Classes()
     {
-        Assert.Equal(0, Metrics.StatusIndex(200));
-        Assert.Equal(0, Metrics.StatusIndex(204));
-        Assert.Equal(1, Metrics.StatusIndex(304));
-        Assert.Equal(2, Metrics.StatusIndex(403));
-        Assert.Equal(2, Metrics.StatusIndex(499));
-        Assert.Equal(3, Metrics.StatusIndex(500));
-        Assert.Equal(4, Metrics.StatusIndex(0));
-        Assert.Equal(4, Metrics.StatusIndex(700));
+        Assert.Equal(0, MetricsService.StatusIndex(200));
+        Assert.Equal(0, MetricsService.StatusIndex(204));
+        Assert.Equal(1, MetricsService.StatusIndex(304));
+        Assert.Equal(2, MetricsService.StatusIndex(403));
+        Assert.Equal(2, MetricsService.StatusIndex(499));
+        Assert.Equal(3, MetricsService.StatusIndex(500));
+        Assert.Equal(4, MetricsService.StatusIndex(0));
+        Assert.Equal(4, MetricsService.StatusIndex(700));
     }
 
     [Fact]
     public void Render_EmitsSeriesByAction()
     {
-        Metrics.RecordRequest("PutObject", 200, elapsedTicks: 0, reqBytes: 123, resBytes: 0);
-        Metrics.RecordRequest("GetObject", 404, elapsedTicks: 0, reqBytes: 0, resBytes: 17);
-        Metrics.RecordRequest("GetObject", 200, elapsedTicks: 0, reqBytes: 0, resBytes: 40);
+        metrics.RecordRequest("PutObject", 200, elapsedTicks: 0, reqBytes: 123, resBytes: 0);
+        metrics.RecordRequest("GetObject", 404, elapsedTicks: 0, reqBytes: 0, resBytes: 17);
+        metrics.RecordRequest("GetObject", 200, elapsedTicks: 0, reqBytes: 0, resBytes: 40);
 
         var text = Render();
 
@@ -58,7 +57,7 @@ public class MetricsTests
     [Fact]
     public void Render_OmitsZeroSeries()
     {
-        Metrics.RecordRequest("HeadObject", 200, 0, 0, 0);
+        metrics.RecordRequest("HeadObject", 200, 0, 0, 0);
         var text = Render();
         Assert.DoesNotContain("vessel3_requests_total{action=\"GetObject\"", text);
         Assert.DoesNotContain("vessel3_request_bytes_total{action=\"HeadObject\"}", text);
@@ -68,8 +67,8 @@ public class MetricsTests
     [Fact]
     public void Histogram_BucketsAreCumulative()
     {
-        Metrics.RecordRequest("GetObject", 200, elapsedTicks: 0, reqBytes: 0, resBytes: 0);
-        Metrics.RecordRequest("GetObject", 200, elapsedTicks: Stopwatch.Frequency / 10, reqBytes: 0, resBytes: 0);
+        metrics.RecordRequest("GetObject", 200, elapsedTicks: 0, reqBytes: 0, resBytes: 0);
+        metrics.RecordRequest("GetObject", 200, elapsedTicks: Stopwatch.Frequency / 10, reqBytes: 0, resBytes: 0);
         var text = Render();
         Assert.Contains("vessel3_request_duration_seconds_bucket{action=\"GetObject\",le=\"0.001\"} 1", text);
         Assert.Contains("vessel3_request_duration_seconds_bucket{action=\"GetObject\",le=\"0.1\"} 2", text);
@@ -84,7 +83,7 @@ public class MetricsTests
         var trace = new RequestTrace();
         trace.Add(Stage.LogSync, Stopwatch.Frequency / 200);
         trace.Add(Stage.Query, Stopwatch.Frequency / 20000);
-        Metrics.RecordStages(trace);
+        metrics.RecordStages(trace);
 
         var text = Render();
 
@@ -116,9 +115,9 @@ public class MetricsTests
     [Fact]
     public void Actions_RenderInStableOrder()
     {
-        Metrics.RecordRequest("PutObject", 200, 0, 0, 0);
-        Metrics.RecordRequest("DeleteObject", 204, 0, 0, 0);
-        Metrics.RecordRequest("ListObjects", 200, 0, 0, 0);
+        metrics.RecordRequest("PutObject", 200, 0, 0, 0);
+        metrics.RecordRequest("DeleteObject", 204, 0, 0, 0);
+        metrics.RecordRequest("ListObjects", 200, 0, 0, 0);
         var text = Render();
         var d = text.IndexOf("action=\"DeleteObject\"", StringComparison.Ordinal);
         var l = text.IndexOf("action=\"ListObjects\"", StringComparison.Ordinal);

@@ -20,6 +20,8 @@ public class PowerLossTests : IDisposable
         try { Directory.Delete(root, recursive: true); } catch { }
     }
 
+
+
     private static PutRequest Req(string body) => new(
         BlobSha: Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body))),
         Md5: Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(body))),
