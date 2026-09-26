@@ -9,16 +9,15 @@ internal sealed class CompleteMultipartUpload(IMultipartStore multipart, IS3XmlR
         var uploadId = ctx.Request.Query["uploadId"].ToString();
         if (!(await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var parsedParts, out var err))
             return http.Map(err);
-        var clientParts = parsedParts.Select(p => (p.Number, p.Etag, p.Sums)).ToList();
 
         var compositeAlgo = ResolveCompositeAlgo(ctx.Request.Headers["x-amz-sdk-checksum-algorithm"].ToString(), parsedParts);
 
-        var completed = await multipart.Complete(uploadId, clientParts, compositeAlgo, ctx.RequestAborted);
+        var completed = await multipart.Complete(uploadId, parsedParts, compositeAlgo, ctx.RequestAborted);
         return completed.Match<IResult>(
             outcome =>
             {
                 ctx.Response.ContentType = "application/xml";
-                var partsCount = clientParts.Count;
+                var partsCount = parsedParts.Count;
                 return Results.Stream(async stream =>
                     await xml.WriteCompleteMultipartUploadResult(stream, bucket, key, outcome.Etag, outcome.Checksums, partsCount, ctx.RequestAborted),
                     "application/xml");

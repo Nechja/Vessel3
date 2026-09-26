@@ -4,55 +4,12 @@ using System.Security.Cryptography;
 
 namespace Vessel3.Storage;
 
-internal sealed class Crc32C
-{
-    private static readonly uint[] Table = BuildTable();
-    private uint state = 0xFFFFFFFFu;
-
-    private static uint[] BuildTable()
-    {
-        var t = new uint[256];
-        for (uint i = 0; i < 256; i++)
-        {
-            var c = i;
-            for (var k = 0; k < 8; k++)
-                c = (c & 1) != 0 ? 0x82F63B78u ^ (c >> 1) : c >> 1;
-            t[i] = c;
-        }
-        return t;
-    }
-
-    public void Append(ReadOnlySpan<byte> data)
-    {
-        var c = state;
-        foreach (var b in data) c = Table[(c ^ b) & 0xFF] ^ (c >> 8);
-        state = c;
-    }
-
-    public uint GetCurrentHashAndReset()
-    {
-        var v = state ^ 0xFFFFFFFFu;
-        state = 0xFFFFFFFFu;
-        return v;
-    }
-
-    public static uint HashToUInt32(ReadOnlySpan<byte> data)
-    {
-        var h = new Crc32C();
-        h.Append(data);
-        return h.GetCurrentHashAndReset();
-    }
-}
-
-internal enum ChecksumAlgorithm { Crc32, Crc32C, Sha1, Sha256 }
-
 internal static class ChecksumAlgorithms
 {
     public const string HeaderCrc32  = "x-amz-checksum-crc32";
     public const string HeaderCrc32C = "x-amz-checksum-crc32c";
     public const string HeaderSha1   = "x-amz-checksum-sha1";
     public const string HeaderSha256 = "x-amz-checksum-sha256";
-    public const string Pending      = "__PENDING__";
 
     public static string HeaderFor(ChecksumAlgorithm a) => a switch
     {
@@ -113,22 +70,6 @@ internal static class ChecksumAlgorithms
         }
     }
 
-    public static ChecksumSet MergeTrailers(ChecksumSet existing, Stream body)
-    {
-        if (body is not ITrailerStream trailerStream) return existing;
-        var trailers = trailerStream.Trailers;
-        if (trailers.Count is 0) return existing;
-        string? Read(string name, string? current) =>
-            current is { } cur && cur != Pending ? cur
-            : !trailers.TryGetValue(name, out var raw) || string.IsNullOrEmpty(raw) ? null
-            : Base64ToHex(raw);
-        return new ChecksumSet(
-            Read(HeaderCrc32, existing.Crc32),
-            Read(HeaderCrc32C, existing.Crc32C),
-            Read(HeaderSha1, existing.Sha1),
-            Read(HeaderSha256, existing.Sha256));
-    }
-
     public static string Composite(ChecksumAlgorithm algo, IEnumerable<string> partHexValues)
     {
         switch (algo)
@@ -161,18 +102,4 @@ internal static class ChecksumAlgorithms
                 throw new ArgumentOutOfRangeException(nameof(algo));
         }
     }
-}
-
-internal sealed record ChecksumSet(string? Crc32, string? Crc32C, string? Sha1, string? Sha256)
-{
-    public static ChecksumSet Empty { get; } = new(null, null, null, null);
-
-    public string? Get(ChecksumAlgorithm algo) => algo switch
-    {
-        ChecksumAlgorithm.Crc32  => Crc32,
-        ChecksumAlgorithm.Crc32C => Crc32C,
-        ChecksumAlgorithm.Sha1   => Sha1,
-        ChecksumAlgorithm.Sha256 => Sha256,
-        _ => null,
-    };
 }

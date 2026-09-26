@@ -56,7 +56,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
                 using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                 using var sha1 = intent.Sha1 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA1) : null;
                 var crc32 = intent.Crc32 ? new System.IO.Hashing.Crc32() : null;
-                var crc32c = intent.Crc32C ? new Crc32C() : null;
+                var crc32c = new Crc32C();
                 var buf = new byte[81920];
                 total = 0;
                 int n;
@@ -69,7 +69,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
                         md5Hash.AppendData(buf, 0, n);
                         sha1?.AppendData(buf, 0, n);
                         crc32?.Append(span);
-                        crc32c?.Append(span);
+                        if (intent.Crc32C) crc32c.Append(span);
                         await temp.WriteAsync(buf.AsMemory(0, n), ct);
                         total += n;
                     }
@@ -78,7 +78,7 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
                 md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
                 if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
                 if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
-                if (crc32c is not null) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
+                if (intent.Crc32C) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
                 using (RequestTrace.Time(Stage.BlobSync))
                 {
                     if (fileSync.SyncData(temp) is Result.Failure df) return df.Error;
@@ -131,7 +131,6 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort cleanup on failure/dedup; abandoned files are subsequently reaped by ReapAbandonedTempFiles.
         }
     }
 
@@ -152,7 +151,6 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Best-effort cleanup during sweep
             }
         }
         return reaped;

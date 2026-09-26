@@ -182,4 +182,93 @@ public sealed class ChecksumAlgorithmsTests
         Assert.Null(ChecksumSet.Empty.Sha1);
         Assert.Null(ChecksumSet.Empty.Sha256);
     }
+
+    [Fact]
+    public void Crc32C_StreamingChunks_MatchesAllAtOnce()
+    {
+        var data = Encoding.ASCII.GetBytes("123456789");
+        var c = new Crc32C();
+        c.Append(data.AsSpan(0, 4));
+        c.Append(data.AsSpan(4, 5));
+        var hex = ChecksumAlgorithms.CrcUInt32ToHex(c.GetCurrentHashAndReset());
+
+        Assert.Equal("e3069283", hex);
+    }
+
+    [Fact]
+    public void Crc32C_LargeBuffer_MatchesDeterministicHash()
+    {
+        var buffer = new byte[65536];
+        for (var i = 0; i < buffer.Length; i++)
+        {
+            buffer[i] = (byte)(i * 31 & 0xFF);
+        }
+
+        var directHash = Crc32C.HashToUInt32(buffer);
+
+        var streaming = new Crc32C();
+        for (var offset = 0; offset < buffer.Length; offset += 1024)
+        {
+            streaming.Append(buffer.AsSpan(offset, 1024));
+        }
+        var streamHash = streaming.GetCurrentHashAndReset();
+
+        Assert.Equal(directHash, streamHash);
+        Assert.NotEqual(0u, directHash);
+    }
+
+    [Fact]
+    public void DeclaredChecksums_ImplicitConversion_PreservesValues()
+    {
+        var set = new ChecksumSet("c32", "c32c", null, "sha256");
+        DeclaredChecksums declared = set;
+
+        Assert.True(declared.HasAny);
+        Assert.True(declared.Crc32.IsProvided);
+        Assert.Equal("c32", declared.Crc32.Value);
+        Assert.True(declared.Crc32C.IsProvided);
+        Assert.Equal("c32c", declared.Crc32C.Value);
+        Assert.False(declared.Sha1.HasExpectation);
+        Assert.True(declared.Sha256.IsProvided);
+        Assert.Equal("sha256", declared.Sha256.Value);
+    }
+
+    [Fact]
+    public void ChecksumValidator_ValidatesMatchingBlob_AndRejectsMismatch()
+    {
+        var blob = new StoredBlob(
+            Sha: "15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225",
+            Md5: "d41d8cd98f00b204e9800998ecf8427e",
+            Crc32: "cbf43926",
+            Crc32C: "e3069283",
+            Sha1: "f7c3bc1d808e04732adf679965ccc34ca7ae3441",
+            Size: 9);
+
+        var declared = new DeclaredChecksums(
+            ChecksumTarget.Provided("cbf43926"),
+            ChecksumTarget.Provided("e3069283"),
+            ChecksumTarget.None,
+            ChecksumTarget.None);
+
+        using var body = new MemoryStream(Encoding.ASCII.GetBytes("123456789"));
+        var ok = ChecksumValidator.Validate(blob, declared, body, out var toStore, out var err);
+
+        Assert.True(ok);
+        Assert.Null(err);
+        Assert.Equal("cbf43926", toStore.Crc32);
+        Assert.Equal("e3069283", toStore.Crc32C);
+        Assert.Null(toStore.Sha1);
+
+        var mismatch = new DeclaredChecksums(
+            ChecksumTarget.Provided("00000000"),
+            ChecksumTarget.None,
+            ChecksumTarget.None,
+            ChecksumTarget.None);
+
+        using var mismatchBody = new MemoryStream();
+        var failed = ChecksumValidator.Validate(blob, mismatch, mismatchBody, out _, out var mismatchErr);
+
+        Assert.False(failed);
+        Assert.IsType<BadDigestError>(mismatchErr);
+    }
 }

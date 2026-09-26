@@ -26,17 +26,12 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     public async Task<Result<PutOutcome>> Put(ObjectPutRequest req)
     {
         using var lease = await gate.Writing();
-        var intent = new ChecksumIntent(
-            Crc32: req.DeclaredChecksums.Crc32 is not null,
-            Crc32C: req.DeclaredChecksums.Crc32C is not null,
-            Sha1: req.DeclaredChecksums.Sha1 is not null);
-
-        var written = await blobs.Write(req.Body, req.DeclaredSize, intent, req.Ct);
+        var written = await blobs.Write(req.Body, req.DeclaredSize, req.DeclaredChecksums.ToIntent(), req.Ct);
         return !written.TryGetValue(out var blob, out var blobErr)
             ? blobErr
             : ValidateDigests(blob, req.DeclaredSha256, req.DeclaredMd5Base64) is { } digestErr
                 ? digestErr
-                : !ValidateChecksums(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
+                : !ChecksumValidator.Validate(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
                     ? checksumErr
                     : RecordPut(req.Bucket, req.Key, blob, req.ContentType, req.Metadata, req.Tags, toStore, req.Retention, req.LegalHoldOn, req.SystemHeaders);
     }
@@ -47,75 +42,6 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             : declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal)
                 ? new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}")
                 : null;
-
-    private static bool ValidateChecksums(StoredBlob blob, ChecksumSet declaredChecksums, Stream body, out ChecksumSet toStore, [NotNullWhen(false)] out Error? error)
-    {
-        toStore = ChecksumSet.Empty;
-        error = null;
-
-        var promisedCrc32 = declaredChecksums.Crc32 == ChecksumAlgorithms.Pending;
-        var promisedCrc32C = declaredChecksums.Crc32C == ChecksumAlgorithms.Pending;
-        var promisedSha1 = declaredChecksums.Sha1 == ChecksumAlgorithms.Pending;
-        var promisedSha256 = declaredChecksums.Sha256 == ChecksumAlgorithms.Pending;
-
-        var merged = ChecksumAlgorithms.MergeTrailers(declaredChecksums, body);
-
-        if (promisedCrc32 && merged.Crc32 is null)
-        {
-            error = new InvalidRequestError("declared x-amz-checksum-crc32 trailer was not sent");
-            return false;
-        }
-
-        if (promisedCrc32C && merged.Crc32C is null)
-        {
-            error = new InvalidRequestError("declared x-amz-checksum-crc32c trailer was not sent");
-            return false;
-        }
-
-        if (promisedSha1 && merged.Sha1 is null)
-        {
-            error = new InvalidRequestError("declared x-amz-checksum-sha1 trailer was not sent");
-            return false;
-        }
-
-        if (promisedSha256 && merged.Sha256 is null)
-        {
-            error = new InvalidRequestError("declared x-amz-checksum-sha256 trailer was not sent");
-            return false;
-        }
-
-        if (merged.Crc32 is { } c32 && !string.Equals(c32, blob.Crc32, StringComparison.OrdinalIgnoreCase))
-        {
-            error = new BadDigestError($"crc32 declared (hex){c32}, actual {blob.Crc32}");
-            return false;
-        }
-
-        if (merged.Crc32C is { } c32c && !string.Equals(c32c, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
-        {
-            error = new BadDigestError($"crc32c declared (hex){c32c}, actual {blob.Crc32C}");
-            return false;
-        }
-
-        if (merged.Sha1 is { } s1 && !string.Equals(s1, blob.Sha1, StringComparison.OrdinalIgnoreCase))
-        {
-            error = new BadDigestError($"sha1 declared (hex){s1}, actual {blob.Sha1}");
-            return false;
-        }
-
-        if (merged.Sha256 is { } s256 && !string.Equals(s256, blob.Sha, StringComparison.OrdinalIgnoreCase))
-        {
-            error = new BadDigestError($"sha256(checksum) declared (hex){s256}, actual {blob.Sha}");
-            return false;
-        }
-
-        toStore = new ChecksumSet(
-            merged.Crc32 is null ? null : blob.Crc32,
-            merged.Crc32C is null ? null : blob.Crc32C,
-            merged.Sha1 is null ? null : blob.Sha1,
-            merged.Sha256 is null ? null : blob.Sha);
-
-        return true;
-    }
 
     public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId) =>
         IsDeleteMarkerTarget(bucket, key, versionId)
