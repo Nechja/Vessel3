@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Vessel3.UI</RootNamespace>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
 
     <IsAotCompatible>false</IsAotCompatible>
     <IsTrimmable>false</IsTrimmable>

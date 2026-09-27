@@ -26,6 +26,7 @@ public interface IVesselClient : IDisposable
     Task<Result<UserDto>> CreateUserAsync(string username, string role = "Member", CancellationToken ct = default);
     Task<Result> DeleteUserAsync(string userId, CancellationToken ct = default);
     Task<Result<AccessKeyDto>> CreateAccessKeyAsync(string userId, string? description = null, TimeSpan? ttl = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<AccessKeyDto>>> ListAccessKeysAsync(string userId, CancellationToken ct = default);
     Task<Result> RevokeAccessKeyAsync(string accessKeyId, CancellationToken ct = default);
 
     Task<Result<GcReportDto>> RunGcAsync(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default);

@@ -2,9 +2,9 @@ using Vessel3.Client;
 
 namespace Vessel3.UI;
 
-public sealed record UiSession(string? BearerToken, string? AccessKey, string? SecretKey, string Subject, DateTimeOffset? Expires);
+internal sealed record UiSession(string? BearerToken, string? AccessKey, string? SecretKey, string Subject, DateTimeOffset? Expires);
 
-public sealed class UiAuth
+internal sealed class UiAuth
 {
     private readonly UiConfig config;
 

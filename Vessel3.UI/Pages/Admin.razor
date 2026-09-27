@@ -33,17 +33,17 @@
                 <Icon Name="trash" /> @(gcBusy ? "running gc..." : "run garbage collector")
             </button>
 
-            @if (gcReport is not null)
+            @if (gcReport is { } gc)
             {
                 <hr />
                 <div class="stack" style="gap: var(--space-2);">
                     <div class="row justify-between mono" style="font-size: var(--text-sm);">
                         <span class="muted">blobs deleted</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gcReport.BlobsDeleted</span>
+                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gc.BlobsDeleted</span>
                     </div>
                     <div class="row justify-between mono" style="font-size: var(--text-sm);">
                         <span class="muted">uploads reaped</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gcReport.UploadsReaped</span>
+                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gc.UploadsReaped</span>
                     </div>
                 </div>
             }
@@ -66,17 +66,17 @@
                 <Icon Name="refresh" /> @(sweepBusy ? "running sweep..." : "run lifecycle sweep")
             </button>
 
-            @if (sweepReport is not null)
+            @if (sweepReport is { } sweep)
             {
                 <hr />
                 <div class="stack" style="gap: var(--space-2);">
                     <div class="row justify-between mono" style="font-size: var(--text-sm);">
                         <span class="muted">versions expired</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweepReport.Expired</span>
+                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweep.Expired</span>
                     </div>
                     <div class="row justify-between mono" style="font-size: var(--text-sm);">
                         <span class="muted">markers reaped</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweepReport.MarkersReaped</span>
+                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweep.MarkersReaped</span>
                     </div>
                 </div>
             }

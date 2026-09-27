@@ -145,7 +145,7 @@
 
     private string CurrentPrefix => Prefix ?? "";
 
-    private sealed record Row(string Key, string Name, bool IsFolder, long Size, DateTime? Modified);
+    private sealed record Row(string Key, string Name, bool IsFolder, long Size, DateTimeOffset? Modified);
 
     private List<Row> rows = [];
     private bool loading = true;
@@ -189,7 +189,7 @@
                 return;
             }
 
-            var folderRows = page.CommonPrefixes.Select(p =>
+            var folderRows = page.Prefixes.Select(p =>
             {
                 var trimmed = p.TrimEnd('/');
                 var name = trimmed.Contains('/') ? trimmed[(trimmed.LastIndexOf('/') + 1)..] : trimmed;

@@ -29,7 +29,7 @@ builder.Services.AddTransient<IVesselClient>(sp =>
 {
     var a = sp.GetRequiredService<UiAuth>();
     var http = sp.GetRequiredService<HttpClient>();
-    return new VesselClient(http, a.BearerToken, a.AccessKey, a.SecretKey);
+    return new VesselClient(http, new VesselClientOptions(origin, a.AccessKey, a.SecretKey, a.BearerToken));
 });
 
 var host = builder.Build();

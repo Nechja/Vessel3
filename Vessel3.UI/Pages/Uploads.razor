@@ -202,7 +202,7 @@
         {
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
             var res = await Client.PutObjectAsync(bucket, key, stream, string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
-            if (res.TryGetError(out var err))
+            if (!res.TryGetValue(out _, out var err))
             {
                 job.State = UploadState.Failed;
                 job.Error = err.Message;

@@ -14,23 +14,23 @@
             <div>@errorMessage</div>
         </div>
     }
-    else if (info is not null)
+    else if (info is { } obj)
     {
         <div class="stack" style="gap: var(--space-4);">
             <div class="grid grid-3">
                 <div class="stat-card">
                     <div class="stat-kicker">size</div>
-                    <div class="stat-value">@Fmt.Bytes(info.Size)</div>
-                    <div class="stat-sub">@info.Size.ToString("N0") bytes</div>
+                    <div class="stat-value">@Fmt.Bytes(obj.Size)</div>
+                    <div class="stat-sub">@obj.Size.ToString("N0") bytes</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-kicker">etag</div>
-                    <div class="stat-value mono" style="font-size: var(--text-sm);">@info.Etag</div>
+                    <div class="stat-value mono" style="font-size: var(--text-sm);">@obj.ETag</div>
                     <div class="stat-sub">content hash</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-kicker">modified</div>
-                    <div class="stat-value mono" style="font-size: var(--text-sm);">@info.LastModified.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    <div class="stat-value mono" style="font-size: var(--text-sm);">@obj.LastModified.ToString("yyyy-MM-dd HH:mm:ss")</div>
                     <div class="stat-sub">timestamp</div>
                 </div>
             </div>

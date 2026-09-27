@@ -58,7 +58,7 @@
                     {
                         @foreach (var u in users)
                         {
-                            <tr style="@(selectedUser?.Id == u.Id ? "background: var(--color-surface-hover);" : "")">
+                            <tr style="@(selectedUser is { } sel && sel.Id == u.Id ? "background: var(--color-surface-hover);" : "")">
                                 <td>
                                     <div class="row align-center" style="gap: var(--space-2);">
                                         <Icon Name="user" Class="faint" />
@@ -80,7 +80,7 @@
                                 </td>
                                 <td style="text-align: right;">
                                     <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
-                                        <button type="button" class="btn btn-ghost btn-sm @(selectedUser?.Id == u.Id ? "btn-primary" : "")" @onclick="@(() => SelectUser(u))">
+                                        <button type="button" class="btn btn-ghost btn-sm @(selectedUser is { } s && s.Id == u.Id ? "btn-primary" : "")" @onclick="@(() => SelectUser(u))">
                                             keys <Icon Name="arrow-right" />
                                         </button>
                                         @if (armedDeleteUser == u.Id)
@@ -108,12 +108,12 @@
         </div>
     </div>
 
-    @if (selectedUser is not null)
+    @if (selectedUser is { } su)
     {
         <div class="stack" style="gap: var(--space-4);">
             <div class="row justify-between align-center">
                 <div>
-                    <h2>Access Keys: <span class="mono">@selectedUser.Username</span></h2>
+                    <h2>Access Keys: <span class="mono">@su.Username</span></h2>
                     <p class="lead">API keys for programmatic and S3/SigV4 protocol access.</p>
                 </div>
                 <button type="button" class="btn btn-primary" @onclick="@(() => showNewKeyModal = true)">
@@ -121,7 +121,7 @@
                 </button>
             </div>
 
-            @if (newlyCreatedKey is not null)
+            @if (newlyCreatedKey is { } createdKey)
             {
                 <div class="callout callout-info stack" style="gap: var(--space-3);">
                     <div style="font-weight: var(--weight-bold); font-size: var(--text-md);">
@@ -131,12 +131,12 @@
                     <div class="grid grid-2">
                         <div class="field">
                             <label>Access Key ID</label>
-                            <input class="input mono" readonly value="@newlyCreatedKey.Id" />
+                            <input class="input mono" readonly value="@createdKey.Id" />
                         </div>
                         <div class="field">
                             <label>Secret Access Key</label>
                             <div class="row" style="gap: var(--space-2);">
-                                <input class="input mono" readonly value="@newlyCreatedKey.SecretKey" style="flex: 1;" />
+                                <input class="input mono" readonly value="@createdKey.SecretKey" style="flex: 1;" />
                                 <button type="button" class="btn btn-ghost" @onclick="CopySecretKey">
                                     <Icon Name="copy" /> copy
                                 </button>
@@ -188,7 +188,7 @@
                                         <span class="muted">@(string.IsNullOrEmpty(k.Description) ? "—" : k.Description)</span>
                                     </td>
                                     <td>
-                                        @if (k.RevokedAt is not null)
+                                        @if (k.IsRevoked)
                                         {
                                             <span class="badge badge-danger">revoked</span>
                                         }
@@ -205,7 +205,7 @@
                                         <span class="mono muted">@k.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
                                     </td>
                                     <td style="text-align: right;">
-                                        @if (k.RevokedAt is null)
+                                        @if (!k.IsRevoked)
                                         {
                                             <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => RevokeKey(k.Id))">
                                                 revoke
@@ -247,7 +247,7 @@
     </FooterContent>
 </Modal>
 
-<Modal IsOpen="showNewKeyModal" Title="@($"Generate Access Key: {selectedUser?.Username}")" OnClose="@(() => showNewKeyModal = false)">
+<Modal IsOpen="showNewKeyModal" Title="@($"Generate Access Key: {(selectedUser.HasValue ? selectedUser.Value.Username : "")}")" OnClose="@(() => showNewKeyModal = false)">
     <ChildContent>
         <div class="stack" style="gap: var(--space-4);">
             <div class="field">
@@ -296,12 +296,17 @@
             if (res.TryGetValue(out var list, out var err))
             {
                 users = list.OrderBy(u => u.Username, StringComparer.Ordinal).ToList();
-                if (selectedUser is not null)
+                if (selectedUser is { } su)
                 {
-                    selectedUser = users.FirstOrDefault(u => u.Id == selectedUser.Id);
-                    if (selectedUser is not null)
+                    var found = users.FirstOrDefault(u => u.Id == su.Id);
+                    if (found != default)
                     {
-                        await LoadKeysForUser(selectedUser.Id);
+                        selectedUser = found;
+                        await LoadKeysForUser(found.Id);
+                    }
+                    else
+                    {
+                        selectedUser = null;
                     }
                 }
                 else if (users.Count > 0)
@@ -335,8 +340,15 @@
         loadingKeys = true;
         try
         {
-            var res = await Client.ListUsersAsync();
-            keys = [];
+            var res = await Client.ListAccessKeysAsync(userId);
+            if (res.TryGetValue(out var list, out var err))
+            {
+                keys = list.ToList();
+            }
+            else
+            {
+                Toast.Error($"Failed to load keys: {err.Message}");
+            }
         }
         catch (Exception ex)
         {
@@ -356,7 +368,7 @@
         try
         {
             var res = await Client.CreateUserAsync(name, newUserRole);
-            if (res.TryGetError(out var err))
+            if (!res.TryGetValue(out _, out var err))
             {
                 Toast.Error($"Failed to create user: {err.Message}");
                 return;
@@ -388,7 +400,7 @@
                 return;
             }
             Toast.Success("User deleted");
-            if (selectedUser?.Id == userId) selectedUser = null;
+            if (selectedUser is { } su && su.Id == userId) selectedUser = null;
             await Refresh();
         }
         catch (Exception ex)
@@ -399,11 +411,11 @@
 
     private async Task CreateAccessKey()
     {
-        if (selectedUser is null) return;
+        if (selectedUser is not { } su) return;
         creatingKey = true;
         try
         {
-            var res = await Client.CreateAccessKeyAsync(selectedUser.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
+            var res = await Client.CreateAccessKeyAsync(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
             if (!res.TryGetValue(out var key, out var err))
             {
                 Toast.Error($"Failed to generate key: {err.Message}");
@@ -437,9 +449,9 @@
                 return;
             }
             Toast.Success("Access key revoked");
-            if (selectedUser is not null)
+            if (selectedUser is { } su)
             {
-                await LoadKeysForUser(selectedUser.Id);
+                await LoadKeysForUser(su.Id);
             }
         }
         catch (Exception ex)
@@ -450,10 +462,10 @@
 
     private async Task CopySecretKey()
     {
-        if (newlyCreatedKey?.SecretKey is null) return;
+        if (newlyCreatedKey is not { } created) return;
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", newlyCreatedKey.SecretKey);
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", created.SecretKey);
             Toast.Success("Secret key copied to clipboard");
         }
         catch (Exception ex)

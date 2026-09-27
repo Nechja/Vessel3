@@ -223,6 +223,13 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return await ReadJson(res, VesselJsonContext.Default.AccessKeyDto, ct);
     }
 
+    public async Task<Result<IReadOnlyList<AccessKeyDto>>> ListAccessKeysAsync(string userId, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, $"v1/iam/users/{Uri.EscapeDataString(userId)}/keys");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.IReadOnlyListAccessKeyDto, ct);
+    }
+
     public async Task<Result> RevokeAccessKeyAsync(string accessKeyId, CancellationToken ct = default)
     {
         using var req = CreateRequest(HttpMethod.Delete, $"v1/iam/keys/{Uri.EscapeDataString(accessKeyId)}");
