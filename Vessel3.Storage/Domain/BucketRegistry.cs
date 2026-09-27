@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 
 namespace Vessel3.Storage;
 
-internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt);
+internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt, string? OwnerId = null);
 internal sealed record BucketRegistryOptions(string Root);
 internal sealed record VersionsPage(IReadOnlyList<AllVersionsEntry> Entries, bool IsTruncated);
 internal sealed record CurrentPage(IReadOnlyList<VersionListEntry> Entries, bool IsTruncated);
@@ -12,10 +12,12 @@ internal interface IBucketRegistry : IDisposable
 {
     bool IsValidName(string bucket);
 
-    Result<bool> Create(string bucket);
+    Result<bool> Create(string bucket, string? ownerId = null);
     Result Delete(string bucket);
     Result<bool> Exists(string bucket);
-    IEnumerable<BucketInfo> List();
+    IEnumerable<BucketInfo> List(string? ownerId = null);
+    Result<string?> GetOwner(string bucket);
+    Result SetOwner(string bucket, string newOwnerId);
 
     Result<PutEntry?> GetCurrentPut(string bucket, string key);
     Result<PutEntry?> GetVersion(string bucket, string key, string versionId);
@@ -68,7 +70,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         && !bucket.Contains("..", StringComparison.Ordinal)
         && !bucket.ContainsAnyExcept(ValidBucketChars);
 
-    public Result<bool> Create(string bucket)
+    public Result<bool> Create(string bucket, string? ownerId = null)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
@@ -77,7 +79,9 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         {
             if (Directory.Exists(path)) return false;
             if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
-            OpenLocked(bucket, path);
+            var b = OpenLocked(bucket, path);
+            if (ownerId is not null && b is not null)
+                b.SetOwner(ownerId);
         }
         return true;
     }
@@ -107,12 +111,31 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             ? Directory.Exists(Path.Combine(bucketsRoot, bucket))
             : new InvalidBucketNameError(bucket);
 
-    public IEnumerable<BucketInfo> List()
+    public IEnumerable<BucketInfo> List(string? ownerId = null)
     {
         if (!Directory.Exists(bucketsRoot)) yield break;
         foreach (var dir in Directory.EnumerateDirectories(bucketsRoot).OrderBy(d => d, StringComparer.Ordinal))
-            yield return new BucketInfo(Path.GetFileName(dir), Directory.GetCreationTimeUtc(dir));
+        {
+            var name = Path.GetFileName(dir);
+            var bucket = Open(name);
+            var bucketOwner = bucket?.GetOwner();
+            if (ownerId is not null && !string.Equals(bucketOwner, ownerId, StringComparison.Ordinal))
+                continue;
+            yield return new BucketInfo(name, Directory.GetCreationTimeUtc(dir), bucketOwner);
+        }
     }
+
+    public Result<string?> GetOwner(string bucket) =>
+        OnBucketRaw(bucket, b => b.GetOwner());
+
+    public Result SetOwner(string bucket, string newOwnerId) =>
+        string.IsNullOrWhiteSpace(newOwnerId)
+            ? new InvalidArgumentError("OwnerId cannot be empty.")
+            : OnBucket(bucket, b =>
+            {
+                b.SetOwner(newOwnerId);
+                return Result.Ok;
+            });
 
     public Result<PutEntry?> GetCurrentPut(string bucket, string key) =>
         OnKey(bucket, key, b => b.Index.GetCurrentPut(key));

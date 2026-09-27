@@ -36,6 +36,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
         services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold));
+        services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
     }
 
     private static void AddVesselStorage(this IServiceCollection services, VesselConfig config)
@@ -44,6 +45,15 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IDurableWrite, DurableWrite>();
         services.AddSingleton<IBlobPool, BlobPool>();
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
+        services.AddSingleton<IIdentityRegistry>(sp =>
+        {
+            var options = sp.GetRequiredService<IdentityOptions>();
+            var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            var reg = new IdentityRegistry(options, clock);
+            if (config.AccessKey is not null && config.SecretKey is not null)
+                reg.EnsureBootstrapAdmin(config.AccessKey, config.SecretKey);
+            return reg;
+        });
         services.AddSingleton<IObjectStore, ObjectStore>();
         services.AddSingleton<IChunkStager, ChunkStager>();
         services.AddSingleton<IGcGate, GcGate>();

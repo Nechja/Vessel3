@@ -56,6 +56,16 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public Result SetCors(CorsConfig cfg) => configs.SetCors(cfg);
     public Result RemoveCors() => configs.RemoveCors();
 
+    public string? GetOwner() => Index.GetOwner();
+
+    public void SetOwner(string ownerId)
+    {
+        lock (writeGate)
+        {
+            Index.SetOwner(ownerId);
+        }
+    }
+
     public bool ExpireCurrentVersion(string key, string expectedCurrentVersionId, DateTimeOffset expectedAt)
     {
         lock (writeGate)
