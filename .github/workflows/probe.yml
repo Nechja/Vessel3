@@ -155,3 +155,23 @@ jobs:
       - name: Server log on failure
         if: failure()
         run: tail -200 /tmp/vessel3-restart-server.log || true
+
+  anon:
+    runs-on: ubuntu-latest
+    name: probe (anon)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build server (Release)
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Run anon probe
+        run: bash tests/anon.sh
+
+      - name: Server log on failure
+        if: failure()
+        run: tail -200 /tmp/vessel3-anon-server.log || true
