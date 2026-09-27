@@ -9,7 +9,7 @@ public sealed class UrlEncodingTests
 {
     private static readonly XNamespace Ns = "http://s3.amazonaws.com/doc/2006-03-01/";
 
-    private static async Task<XDocument> WriteList(ListRequest req, ListPage page)
+    private static async Task<XDocument> WriteList(S3ListObjectsRequest req, ListPage page)
     {
         var writer = new S3XmlWriter();
         using var ms = new MemoryStream();
@@ -18,7 +18,7 @@ public sealed class UrlEncodingTests
         return XDocument.Load(ms);
     }
 
-    private static ListRequest Req(string? prefix = null, string? delimiter = null,
+    private static S3ListObjectsRequest Req(string? prefix = null, string? delimiter = null,
         string? startAfter = null, string? encodingType = "url") =>
         new("bucket", prefix, delimiter, startAfter, 1000, IsV1: false, Marker: null, EncodingType: encodingType);
 
@@ -107,10 +107,10 @@ public sealed class UrlEncodingTests
     [Fact]
     public async Task ListObjectsV1_NextMarker_IsPercentEncoded()
     {
-        var req = new ListRequest("bucket", null, null, null, 1000,
+        var req = new S3ListObjectsRequest("bucket", null, null, null, 1000,
             IsV1: true, Marker: "m k", EncodingType: "url");
         var page = new ListPage(
-            Array.Empty<ListEntry>(), IsTruncated: true,
+            [], IsTruncated: true,
             NextContinuationToken: null, LastKey: "last key", KeyCount: 0);
 
         var writer = new S3XmlWriter();

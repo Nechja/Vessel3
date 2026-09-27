@@ -1,4 +1,6 @@
-namespace Vessel3.Storage;
+using Vessel3.Storage;
+
+namespace Vessel3.Server.S3;
 
 internal interface IMultipartStore
 {

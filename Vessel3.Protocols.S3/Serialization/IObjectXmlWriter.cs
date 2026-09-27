@@ -4,7 +4,7 @@ namespace Vessel3.Server.S3;
 
 internal interface IObjectXmlWriter
 {
-    Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct);
+    Task WriteListObjects(Stream output, S3ListObjectsRequest req, ListPage page, CancellationToken ct);
     Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct);
     Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct);
     Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct);

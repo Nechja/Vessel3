@@ -38,7 +38,7 @@ internal sealed class S3XmlWriter(
     public Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct) =>
         bucketWriter.WriteListMultipartUploads(output, bucket, uploads, ct);
 
-    public Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct) =>
+    public Task WriteListObjects(Stream output, S3ListObjectsRequest req, ListPage page, CancellationToken ct) =>
         objectWriter.WriteListObjects(output, req, page, ct);
 
     public Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct) =>

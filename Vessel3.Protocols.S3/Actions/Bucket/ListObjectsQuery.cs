@@ -4,7 +4,7 @@ namespace Vessel3.Server.S3.Bucket;
 
 internal static class ListObjectsQuery
 {
-    public static (ListRequest Request, string? ContinuationToken) Bind(string bucket, IQueryCollection query)
+    public static (S3ListObjectsRequest Request, string? ContinuationToken) Bind(string bucket, IQueryCollection query)
     {
         var prefix = Nullify(query["prefix"].ToString());
         var delimiter = Nullify(query["delimiter"].ToString());
@@ -17,7 +17,7 @@ internal static class ListObjectsQuery
 
         var isV1 = listType is not "2";
         var effectiveStart = isV1 ? marker : startAfter;
-        var req = new ListRequest(
+        var req = new S3ListObjectsRequest(
             bucket, prefix, delimiter, effectiveStart,
             Math.Clamp(maxKeys ?? 1000, 1, 1000),
             IsV1: isV1, Marker: marker, EncodingType: encodingType);

@@ -70,7 +70,8 @@ internal sealed class WebsiteService(
     {
         if (objects.Stat(bucket, targetKey, versionId: null) is Result<ObjectStat>.Success { Value: var stat })
         {
-            var precond = preconditions.EvaluateForRead(ctx.Request.Headers, stat.Etag, stat.LastModified);
+            var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
+            var precond = preconditions.Evaluate(readPre, stat.Etag, stat.LastModified);
             if (precond is Precondition.NotModified) return Results.StatusCode(304);
             if (precond is Precondition.Failed) return Results.StatusCode(412);
 
@@ -102,7 +103,8 @@ internal sealed class WebsiteService(
     {
         if (objects.Get(bucket, targetKey, versionId: null) is Result<StoredObject>.Success { Value: var obj })
         {
-            var precond = preconditions.EvaluateForRead(ctx.Request.Headers, obj.Etag, obj.LastModified);
+            var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
+            var precond = preconditions.Evaluate(readPre, obj.Etag, obj.LastModified);
             if (precond is Precondition.NotModified)
             {
                 obj.Body.Dispose();

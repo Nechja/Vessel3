@@ -12,11 +12,12 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         var res = ctx.Response;
         var ct = ctx.RequestAborted;
 
-        if (pre.HasWriteConditions(req.Headers))
+        var writePre = S3HeaderCodec.ExtractWritePreconditions(req.Headers);
+        if (pre.HasWriteConditions(writePre))
         {
             var existing = objects.Stat(bucket, key);
             var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
-            if (pre.EvaluateForWrite(req.Headers, currentEtag) is Precondition.Failed)
+            if (pre.EvaluateForWrite(writePre, currentEtag) is Precondition.Failed)
             {
                 await req.Body.CopyToAsync(Stream.Null, ct);
                 return Results.StatusCode(412);

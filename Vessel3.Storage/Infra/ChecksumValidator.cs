@@ -14,36 +14,36 @@ internal static class ChecksumValidator
         toStore = ChecksumSet.Empty;
         error = null;
 
-        var trailers = (body as ITrailerStream)?.Trailers;
+        var trailing = (body as ITrailingChecksumProvider)?.TrailingChecksums;
 
-        if (!TryResolve(declared.Crc32, trailers, ChecksumAlgorithms.HeaderCrc32, out var c32Resolved, out error))
+        if (!TryResolve(declared.Crc32, trailing?.Crc32, "crc32", out var c32Resolved, out error))
             return false;
-        if (!TryResolve(declared.Crc32C, trailers, ChecksumAlgorithms.HeaderCrc32C, out var c32cResolved, out error))
+        if (!TryResolve(declared.Crc32C, trailing?.Crc32C, "crc32c", out var c32cResolved, out error))
             return false;
-        if (!TryResolve(declared.Sha1, trailers, ChecksumAlgorithms.HeaderSha1, out var s1Resolved, out error))
+        if (!TryResolve(declared.Sha1, trailing?.Sha1, "sha1", out var s1Resolved, out error))
             return false;
-        if (!TryResolve(declared.Sha256, trailers, ChecksumAlgorithms.HeaderSha256, out var s256Resolved, out error))
+        if (!TryResolve(declared.Sha256, trailing?.Sha256, "sha256", out var s256Resolved, out error))
             return false;
 
-        if (c32Resolved is not null && !string.Equals(c32Resolved, blob.Crc32, StringComparison.OrdinalIgnoreCase))
+        if (IsChecksumMismatch(c32Resolved, blob.Crc32))
         {
             error = new BadDigestError($"crc32 declared (hex){c32Resolved}, actual {blob.Crc32}");
             return false;
         }
 
-        if (c32cResolved is not null && !string.Equals(c32cResolved, blob.Crc32C, StringComparison.OrdinalIgnoreCase))
+        if (IsChecksumMismatch(c32cResolved, blob.Crc32C))
         {
             error = new BadDigestError($"crc32c declared (hex){c32cResolved}, actual {blob.Crc32C}");
             return false;
         }
 
-        if (s1Resolved is not null && !string.Equals(s1Resolved, blob.Sha1, StringComparison.OrdinalIgnoreCase))
+        if (IsChecksumMismatch(s1Resolved, blob.Sha1))
         {
             error = new BadDigestError($"sha1 declared (hex){s1Resolved}, actual {blob.Sha1}");
             return false;
         }
 
-        if (s256Resolved is not null && !string.Equals(s256Resolved, blob.Sha, StringComparison.OrdinalIgnoreCase))
+        if (IsChecksumMismatch(s256Resolved, blob.Sha))
         {
             error = new BadDigestError($"sha256(checksum) declared (hex){s256Resolved}, actual {blob.Sha}");
             return false;
@@ -58,10 +58,13 @@ internal static class ChecksumValidator
         return true;
     }
 
+    private static bool IsChecksumMismatch(string? resolved, string? actual) =>
+        resolved is not null && !string.Equals(resolved, actual, StringComparison.OrdinalIgnoreCase);
+
     private static bool TryResolve(
         ChecksumTarget target,
-        IReadOnlyDictionary<string, string>? trailers,
-        string headerName,
+        string? trailingValue,
+        string algorithmName,
         out string? resolvedHex,
         [NotNullWhen(false)] out Error? error)
     {
@@ -70,18 +73,13 @@ internal static class ChecksumValidator
 
         if (target.IsTrailing)
         {
-            if (trailers is null || !trailers.TryGetValue(headerName, out var raw) || string.IsNullOrEmpty(raw))
+            if (string.IsNullOrEmpty(trailingValue))
             {
-                error = new InvalidRequestError($"declared {headerName} trailer was not sent");
+                error = new InvalidRequestError($"declared {algorithmName} trailer was not sent");
                 return false;
             }
 
-            resolvedHex = ChecksumAlgorithms.Base64ToHex(raw);
-            if (resolvedHex is null)
-            {
-                error = new BadDigestError($"malformed {headerName} trailer");
-                return false;
-            }
+            resolvedHex = trailingValue;
             return true;
         }
 

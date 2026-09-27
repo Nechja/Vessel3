@@ -33,9 +33,9 @@ public class GcGateRaceTests : IDisposable
 
     private GarbageCollector NewCollector(IBucketRegistry seen)
     {
-        var multipart = new MultipartStore(
-            new MultipartStoreOptions(Path.Combine(root, "uploads")), seen, blobs, durable, gate);
-        return new GarbageCollector(blobs, seen, multipart, gate, new GcOptions(GcMaxWait, Path.Combine(root, "gc-tmp")));
+        var stager = new ChunkStager(
+            new ChunkStagerOptions(Path.Combine(root, "uploads")), seen, blobs, durable, gate);
+        return new GarbageCollector(blobs, seen, stager, gate, new GcOptions(GcMaxWait, Path.Combine(root, "gc-tmp")));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class GcGateRaceTests : IDisposable
         var collector = NewCollector(registry);
 
         stalling.Arm();
-        var copyTask = Task.Run(() => copier.Copy("alpha-dest", "k", "zulu-src", "k", new HeaderDictionary(), null, null), ct);
+        var copyTask = Task.Run(() => copier.Copy("alpha-dest", "k", "zulu-src", "k"), ct);
         await entered.Task;
 
         Assert.IsType<Result<DeleteOutcome>.Success>(registry.HardDeleteVersion("zulu-src", "k", seeded.VersionId, false));

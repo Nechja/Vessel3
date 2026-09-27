@@ -11,7 +11,8 @@ internal sealed class HeadObject(IObjectStore objects, IHttpResultMapper http, I
             stat =>
             {
                 var res = ctx.Response;
-                var precond = pre.EvaluateForRead(ctx.Request.Headers, stat.Etag, stat.LastModified);
+                var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
+                var precond = pre.Evaluate(readPre, stat.Etag, stat.LastModified);
                 if (precond is Precondition.NotModified)
                 {
                     return Results.StatusCode(304);

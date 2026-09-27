@@ -6,19 +6,6 @@ namespace Vessel3.Storage;
 
 internal static class ChecksumAlgorithms
 {
-    public const string HeaderCrc32  = "x-amz-checksum-crc32";
-    public const string HeaderCrc32C = "x-amz-checksum-crc32c";
-    public const string HeaderSha1   = "x-amz-checksum-sha1";
-    public const string HeaderSha256 = "x-amz-checksum-sha256";
-
-    public static string HeaderFor(ChecksumAlgorithm a) => a switch
-    {
-        ChecksumAlgorithm.Crc32 => HeaderCrc32,
-        ChecksumAlgorithm.Crc32C => HeaderCrc32C,
-        ChecksumAlgorithm.Sha1 => HeaderSha1,
-        ChecksumAlgorithm.Sha256 => HeaderSha256,
-        _ => throw new ArgumentOutOfRangeException(nameof(a)),
-    };
 
     public static bool TryParseName(string name, out ChecksumAlgorithm algo)
     {

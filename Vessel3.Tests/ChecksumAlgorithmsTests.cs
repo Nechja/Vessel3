@@ -97,10 +97,10 @@ public sealed class ChecksumAlgorithmsTests
     [Fact]
     public void HeaderFor_MapsToWireHeaderName()
     {
-        Assert.Equal(ChecksumAlgorithms.HeaderCrc32, ChecksumAlgorithms.HeaderFor(ChecksumAlgorithm.Crc32));
-        Assert.Equal(ChecksumAlgorithms.HeaderCrc32C, ChecksumAlgorithms.HeaderFor(ChecksumAlgorithm.Crc32C));
-        Assert.Equal(ChecksumAlgorithms.HeaderSha1, ChecksumAlgorithms.HeaderFor(ChecksumAlgorithm.Sha1));
-        Assert.Equal(ChecksumAlgorithms.HeaderSha256, ChecksumAlgorithms.HeaderFor(ChecksumAlgorithm.Sha256));
+        Assert.Equal(Vessel3.Server.S3.ChecksumHeaders.HeaderCrc32, Vessel3.Server.S3.ChecksumHeaders.HeaderFor(ChecksumAlgorithm.Crc32));
+        Assert.Equal(Vessel3.Server.S3.ChecksumHeaders.HeaderCrc32C, Vessel3.Server.S3.ChecksumHeaders.HeaderFor(ChecksumAlgorithm.Crc32C));
+        Assert.Equal(Vessel3.Server.S3.ChecksumHeaders.HeaderSha1, Vessel3.Server.S3.ChecksumHeaders.HeaderFor(ChecksumAlgorithm.Sha1));
+        Assert.Equal(Vessel3.Server.S3.ChecksumHeaders.HeaderSha256, Vessel3.Server.S3.ChecksumHeaders.HeaderFor(ChecksumAlgorithm.Sha256));
     }
 
     [Theory]

@@ -1,5 +1,7 @@
 using System.Text;
 using Vessel3.Server;
+using Vessel3.Server.S3;
+using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -12,7 +14,7 @@ public class GarbageCollectorTests : IDisposable
     private readonly IDurableWrite durable = new DurableWrite(new PortableFileSync());
     private readonly BlobPool blobs;
     private readonly BucketRegistry registry;
-    private readonly MultipartStore multipart;
+    private readonly S3MultipartStore multipart;
     private readonly GcGate gate = new();
     private readonly GarbageCollector gc;
 
@@ -23,8 +25,9 @@ public class GarbageCollectorTests : IDisposable
         Directory.CreateDirectory(root);
         blobs = new BlobPool(new BlobPoolOptions(blobsRoot), sync);
         registry = new BucketRegistry(new BucketRegistryOptions(root), sync, durable);
-        multipart = new MultipartStore(new MultipartStoreOptions(Path.Combine(root, "uploads")), registry, blobs, durable, gate);
-        gc = new GarbageCollector(blobs, registry, multipart, gate, new GcOptions(TimeSpan.FromSeconds(30), Path.Combine(root, "gc-tmp")));
+        var stager = new ChunkStager(new ChunkStagerOptions(Path.Combine(root, "uploads")), registry, blobs, durable, gate);
+        multipart = new S3MultipartStore(stager);
+        gc = new GarbageCollector(blobs, registry, stager, gate, new GcOptions(TimeSpan.FromSeconds(30), Path.Combine(root, "gc-tmp")));
     }
 
     public void Dispose()
