@@ -1,0 +1,37 @@
+@inject UiNotifications Notifications
+@implements IDisposable
+
+<div class="toast-container">
+    @foreach (var toast in Notifications.Messages)
+    {
+        <div class="toast toast-@toast.Level" @onclick="@(() => Notifications.Dismiss(toast.Id))">
+            <span class="icon">
+                @if (toast.Level == "success")
+                {
+                    <Icon Name="check" />
+                }
+                else if (toast.Level == "error")
+                {
+                    <Icon Name="trash" />
+                }
+                else
+                {
+                    <Icon Name="shield" />
+                }
+            </span>
+            <span>@toast.Message</span>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Notifications.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        Notifications.OnChange -= StateHasChanged;
+    }
+}

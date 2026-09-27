@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Vessel3.UI</RootNamespace>
 
-    <!-- WASM client: browser-side runtime, not server AOT -->
     <IsAotCompatible>false</IsAotCompatible>
     <IsTrimmable>false</IsTrimmable>
     <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
@@ -22,8 +21,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.*" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.*" PrivateAssets="all" />
-    <PackageReference Include="MudBlazor" Version="*" />
-    <PackageReference Include="AWSSDK.S3" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vessel3.Client\Vessel3.Client.csproj" />
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
   </ItemGroup>
 
 </Project>

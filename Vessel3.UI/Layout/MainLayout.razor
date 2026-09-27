@@ -2,49 +2,103 @@
 @inject UiConfig Config
 @inject UiAuth Auth
 @inject Login Login
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 
-<MudThemeProvider Theme="Vessel3Theme.Dark" IsDarkMode="true" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
+<nav class="nav">
+    <a href="" class="wordmark wordmark--nav">ves<span class="wm-accent">s</span>el<span class="wm-zero">3</span></a>
 
-<MudLayout>
-    <MudAppBar Elevation="0" Dense="true" Class="v3-appbar">
-        <MudSpacer />
-        @if (Auth.Session is { } session)
+    <div class="nav-links">
+        <NavLink href="" Match="NavLinkMatch.All" class="nav-link">
+            <Icon Name="bucket" /> buckets
+        </NavLink>
+        <NavLink href="uploads" class="nav-link">
+            <Icon Name="upload" /> uploads
+        </NavLink>
+        <NavLink href="iam" class="nav-link">
+            <Icon Name="user" /> iam
+        </NavLink>
+        <NavLink href="admin" class="nav-link">
+            <Icon Name="gear" /> maintenance
+        </NavLink>
+    </div>
+
+    <div class="nav-right">
+        @if (Auth.Caller is { } caller)
         {
-            <span class="v3-mono v3-muted mr-3">@session.Subject</span>
-            <MudIconButton Icon="@Icons.Material.Outlined.Logout" Size="Size.Small" Color="Color.Inherit" OnClick="@(() => Login.SignOut(session))" />
+            <span class="badge badge-accent">
+                <Icon Name="user" /> @caller.Username (@caller.Role)
+            </span>
         }
-        <span class="v3-region">@Config.Region</span>
-    </MudAppBar>
-    <MudDrawer Open="true" Variant="DrawerVariant.Persistent" Elevation="0" Class="v3-drawer">
-        <MudDrawerHeader Class="v3-drawer-head">
-            <MudLink Href="" Color="Color.Inherit" Underline="Underline.None" Class="v3-brand">ves<span class="v3-rose">s</span>el<span class="v3-rose">3</span></MudLink>
-        </MudDrawerHeader>
-        <MudNavMenu Class="v3-nav">
-            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Storage">buckets</MudNavLink>
-            <MudNavLink Href="uploads" Icon="@Icons.Material.Outlined.Upload">uploads</MudNavLink>
-            <MudNavLink Href="admin" Icon="@Icons.Material.Outlined.Build">admin</MudNavLink>
-        </MudNavMenu>
-    </MudDrawer>
-    <MudMainContent Class="v3-main">
-        <MudContainer MaxWidth="MaxWidth.Large" Class="pa-6">
-            @if (Auth.SignedOut)
+        else if (Auth.IsAnonymous)
+        {
+            <span class="badge badge-neutral">open dev</span>
+        }
+
+        <span class="badge badge-mint">@Config.Region</span>
+
+        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Toggle theme" @onclick="ToggleTheme">
+            <Icon Name="@(isDark ? "sun" : "moon")" />
+        </button>
+
+        @if (Auth.Session is { } session && Config.Oidc is not null)
+        {
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Login.SignOut(session))">
+                <Icon Name="logout" /> sign out
+            </button>
+        }
+        else if (Auth.SignedOut)
+        {
+            <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => Login.Begin(prompt: true))">
+                <Icon Name="login" /> sign in
+            </button>
+        }
+    </div>
+</nav>
+
+<main class="wrap">
+    @if (Auth.Error is { } error)
+    {
+        <div class="callout callout-danger" style="margin-bottom: var(--space-5);">
+            <div>@error</div>
+            <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" style="margin-left: auto; color: inherit; text-decoration: underline;">retry</a>
+        </div>
+    }
+
+    @Body
+</main>
+
+<ToastProvider />
+
+@code {
+    private bool isDark;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var theme = await JS.InvokeAsync<string?>("localStorage.getItem", "vessel3.theme");
+            if (theme == "dark")
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => Login.Begin(prompt: true))">sign in</MudButton>
+                isDark = true;
+                await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", "dark");
             }
-            else if (Auth.Error is { } error)
+            else if (theme == "light")
             {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
-                    @error <MudLink OnClick="@(() => Login.Retry())" Class="ml-2">sign in again</MudLink>
-                </MudAlert>
-                @Body
+                isDark = false;
+                await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", "light");
             }
-            else
-            {
-                @Body
-            }
-        </MudContainer>
-    </MudMainContent>
-</MudLayout>
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        isDark = !isDark;
+        var nextTheme = isDark ? "dark" : "light";
+        await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", nextTheme);
+        await JS.InvokeVoidAsync("localStorage.setItem", "vessel3.theme", nextTheme);
+    }
+}

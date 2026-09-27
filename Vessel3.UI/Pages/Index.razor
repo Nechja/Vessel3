@@ -1,73 +1,319 @@
 @page "/"
-@using Amazon.S3
-@using Amazon.S3.Model
-@inject IAmazonS3 S3
+@inject IVesselClient Client
+@inject UiAuth Auth
+@inject UiNotifications Toast
 
-<div class="v3-page-head">
-    <div class="v3-kicker">object store</div>
-    <MudText Typo="Typo.h1">buckets</MudText>
-    <div class="v3-sub">@_summary</div>
+<div class="stack" style="gap: var(--space-6);">
+    <div class="row justify-between align-center">
+        <div>
+            <div class="eyebrow">object store</div>
+            <h1>Buckets</h1>
+            <p class="lead">@summary</p>
+        </div>
+        <div class="row">
+            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                <Icon Name="refresh" /> refresh
+            </button>
+            <button type="button" class="btn btn-primary" @onclick="@(() => showCreateModal = true)">
+                <Icon Name="bucket" /> new bucket
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-3">
+        <div class="stat-card">
+            <div class="stat-kicker">total buckets</div>
+            <div class="stat-value">@buckets.Count</div>
+            <div class="stat-sub">active in storage engine</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-kicker">caller identity</div>
+            <div class="stat-value">@(Auth.Caller?.Username ?? "anonymous")</div>
+            <div class="stat-sub">role: @(Auth.Caller?.Role ?? "admin")</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-kicker">wire protocol</div>
+            <div class="stat-value" style="color: var(--color-mint)">vessel3/v1</div>
+            <div class="stat-sub">rest + streaming json</div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="callout callout-danger">
+            <div>@errorMessage</div>
+        </div>
+    }
+
+    <div class="table-card">
+        <table>
+            <thead>
+                <tr>
+                    <th>name</th>
+                    <th>created</th>
+                    <th>owner</th>
+                    <th style="text-align: right;">actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (loading)
+                {
+                    <tr>
+                        <td colspan="4" class="empty-state">loading buckets...</td>
+                    </tr>
+                }
+                else if (buckets.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="empty-state">no buckets found. click "new bucket" to create one.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var b in buckets)
+                    {
+                        <tr>
+                            <td>
+                                <a href="buckets/@b.Name" class="row align-center" style="text-decoration:none; color:var(--color-text); font-weight:var(--weight-semibold); gap:var(--space-2);">
+                                    <Icon Name="bucket" Class="faint" />
+                                    <span class="mono">@b.Name</span>
+                                </a>
+                            </td>
+                            <td>
+                                <span class="mono muted">@b.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                            </td>
+                            <td>
+                                <span class="badge badge-neutral">@(b.OwnerId ?? "system")</span>
+                            </td>
+                            <td style="text-align: right;">
+                                <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                    <a href="buckets/@b.Name" class="btn btn-ghost btn-sm">
+                                        browse <Icon Name="arrow-right" />
+                                    </a>
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Bucket settings" @onclick="@(() => OpenSettings(b.Name))">
+                                        <Icon Name="gear" />
+                                    </button>
+                                    @if (armedDeleteBucket == b.Name)
+                                    {
+                                        <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteBucket(b.Name))">
+                                            confirm?
+                                        </button>
+                                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteBucket = null)">
+                                            cancel
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete bucket" @onclick="@(() => armedDeleteBucket = b.Name)">
+                                            <Icon Name="trash" />
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
 </div>
 
-@if (_error is not null)
-{
-    <MudAlert Severity="Severity.Error" Class="mb-4" Dense="true" Variant="Variant.Outlined">@_error</MudAlert>
-}
+<Modal IsOpen="showCreateModal" Title="Create Bucket" OnClose="@(() => showCreateModal = false)">
+    <ChildContent>
+        <div class="field">
+            <label>Bucket Name</label>
+            <input class="input mono" @bind="newBucketName" placeholder="my-new-bucket" />
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showCreateModal = false)">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="CreateBucket" disabled="@creating">
+            @(creating ? "creating..." : "create")
+        </button>
+    </FooterContent>
+</Modal>
 
-<NewBucketForm OnCreated="Refresh" />
+<Modal IsOpen="showSettingsModal" Title="@($"Settings: {activeSettingsBucket}")" OnClose="@(() => showSettingsModal = false)">
+    <ChildContent>
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="field">
+                <label>Access Policies</label>
+                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
+                    <input type="checkbox" id="chkPublic" @bind="publicRead" />
+                    <label for="chkPublic" style="text-transform:none; cursor:pointer;">Public Read (allows unauthenticated GET/HEAD)</label>
+                </div>
+                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
+                    <input type="checkbox" id="chkReadOnly" @bind="readOnly" />
+                    <label for="chkReadOnly" style="text-transform:none; cursor:pointer;">Read Only (blocks uploads and mutations)</label>
+                </div>
+            </div>
 
-<MudPaper Elevation="0" Class="v3-card">
-    <MudTable Items="_buckets" Loading="_loading" Hover="true" Dense="true" Striped="false" Bordered="false" Elevation="0" Class="v3-table">
-        <HeaderContent>
-            <MudTh>name</MudTh>
-            <MudTh>created</MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>
-                <MudLink Href="@($"buckets/{context.BucketName}")" Class="v3-mono">@context.BucketName</MudLink>
-            </MudTd>
-            <MudTd>
-                <span class="v3-mono v3-muted">@context.CreationDate?.ToString("yyyy-MM-dd HH:mm:ss")</span>
-            </MudTd>
-            <MudTd Style="text-align:right">
-                <MudLink Href="@($"buckets/{context.BucketName}")" Class="v3-mono v3-faint">browse →</MudLink>
-            </MudTd>
-        </RowTemplate>
-        <NoRecordsContent>
-            <div class="v3-empty">no buckets</div>
-        </NoRecordsContent>
-        <LoadingContent>
-            <div class="v3-empty">loading</div>
-        </LoadingContent>
-    </MudTable>
-</MudPaper>
+            <div class="field">
+                <label>Versioning</label>
+                <select class="select" @bind="versioningStatus">
+                    <option value="Suspended">Suspended</option>
+                    <option value="Enabled">Enabled</option>
+                </select>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showSettingsModal = false)">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="SaveSettings" disabled="@savingSettings">
+            @(savingSettings ? "saving..." : "save settings")
+        </button>
+    </FooterContent>
+</Modal>
 
 @code {
-    List<S3Bucket> _buckets = [];
-    bool _loading = true;
-    string? _error;
-    string _summary = "";
+    private List<BucketDto> buckets = [];
+    private bool loading = true;
+    private string summary = "";
+    private string? errorMessage;
+    private string? armedDeleteBucket;
+
+    private bool showCreateModal;
+    private string newBucketName = "";
+    private bool creating;
+
+    private bool showSettingsModal;
+    private string activeSettingsBucket = "";
+    private bool publicRead;
+    private bool readOnly;
+    private string versioningStatus = "Suspended";
+    private bool savingSettings;
 
     protected override Task OnInitializedAsync() => Refresh();
 
-    async Task Refresh()
+    private async Task Refresh()
     {
+        loading = true;
+        errorMessage = null;
         try
         {
-            var resp = await S3.ListBucketsAsync();
-            _buckets = resp.Buckets ?? [];
-            _summary = $"{_buckets.Count} bucket{(_buckets.Count == 1 ? "" : "s")}";
-            _error = null;
+            var res = await Client.ListBucketsAsync();
+            if (res.TryGetValue(out var list, out var err))
+            {
+                buckets = list.OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+                summary = $"{buckets.Count} bucket{(buckets.Count == 1 ? "" : "s")} available";
+            }
+            else
+            {
+                errorMessage = err.Message;
+                summary = "failed to load buckets";
+            }
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
-            _summary = "error";
+            errorMessage = ex.Message;
+            summary = "error connecting to server";
         }
         finally
         {
-            _loading = false;
+            loading = false;
+        }
+    }
+
+    private async Task CreateBucket()
+    {
+        var name = newBucketName.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        creating = true;
+        try
+        {
+            var res = await Client.CreateBucketAsync(name);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to create bucket: {err.Message}");
+                return;
+            }
+            Toast.Success($"Bucket '{name}' created");
+            newBucketName = "";
+            showCreateModal = false;
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Create error: {ex.Message}");
+        }
+        finally
+        {
+            creating = false;
+        }
+    }
+
+    private async Task DeleteBucket(string name)
+    {
+        armedDeleteBucket = null;
+        try
+        {
+            var res = await Client.DeleteBucketAsync(name);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to delete bucket: {err.Message}");
+                return;
+            }
+            Toast.Success($"Bucket '{name}' deleted");
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Delete error: {ex.Message}");
+        }
+    }
+
+    private async Task OpenSettings(string bucket)
+    {
+        activeSettingsBucket = bucket;
+        publicRead = false;
+        readOnly = false;
+        versioningStatus = "Suspended";
+
+        var accessRes = await Client.GetBucketAccessAsync(bucket);
+        if (accessRes.TryGetValue(out var access, out _))
+        {
+            publicRead = access.PublicRead;
+            readOnly = access.ReadOnly;
+        }
+
+        var verRes = await Client.GetBucketVersioningAsync(bucket);
+        if (verRes.TryGetValue(out var ver, out _))
+        {
+            versioningStatus = ver.Status;
+        }
+
+        showSettingsModal = true;
+    }
+
+    private async Task SaveSettings()
+    {
+        savingSettings = true;
+        try
+        {
+            var accessRes = await Client.SetBucketAccessAsync(activeSettingsBucket, new BucketAccessDto(publicRead, readOnly));
+            if (accessRes.TryGetError(out var aErr))
+            {
+                Toast.Error($"Failed to update access: {aErr.Message}");
+                return;
+            }
+
+            var verRes = await Client.SetBucketVersioningAsync(activeSettingsBucket, versioningStatus);
+            if (verRes.TryGetError(out var vErr))
+            {
+                Toast.Error($"Failed to update versioning: {vErr.Message}");
+                return;
+            }
+
+            Toast.Success($"Settings for '{activeSettingsBucket}' saved");
+            showSettingsModal = false;
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Settings error: {ex.Message}");
+        }
+        finally
+        {
+            savingSettings = false;
         }
     }
 }

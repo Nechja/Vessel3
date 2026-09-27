@@ -16,7 +16,7 @@ public interface IVesselClient : IDisposable
     Task<Result<BucketVersioningDto>> GetBucketVersioningAsync(string bucket, CancellationToken ct = default);
     Task<Result> SetBucketVersioningAsync(string bucket, string status, CancellationToken ct = default);
 
-    Task<Result<ObjectsPageDto>> ListObjectsAsync(string bucket, string? prefix = null, string? marker = null, int limit = 1000, CancellationToken ct = default);
+    Task<Result<ObjectsPageDto>> ListObjectsAsync(string bucket, string? prefix = null, string? delimiter = null, string? marker = null, int limit = 1000, CancellationToken ct = default);
     Task<Result<VesselObjectDownload>> GetObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default);
     Task<Result<ObjectSummaryDto>> StatObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default);
     Task<Result<PutObjectResultDto>> PutObjectAsync(string bucket, string key, Stream content, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);

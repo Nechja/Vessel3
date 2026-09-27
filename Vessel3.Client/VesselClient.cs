@@ -89,12 +89,14 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
     public async Task<Result<ObjectsPageDto>> ListObjectsAsync(
         string bucket,
         string? prefix = null,
+        string? delimiter = null,
         string? marker = null,
         int limit = 1000,
         CancellationToken ct = default)
     {
         var q = new List<string>();
         if (!string.IsNullOrEmpty(prefix)) q.Add($"prefix={Uri.EscapeDataString(prefix)}");
+        if (!string.IsNullOrEmpty(delimiter)) q.Add($"delimiter={Uri.EscapeDataString(delimiter)}");
         if (!string.IsNullOrEmpty(marker)) q.Add($"marker={Uri.EscapeDataString(marker)}");
         if (limit > 0) q.Add($"limit={limit}");
         var query = q.Count > 0 ? "?" + string.Join('&', q) : string.Empty;
