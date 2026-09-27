@@ -17,7 +17,8 @@ internal sealed record StagedChunk(
     long Size,
     string? Crc32 = null,
     string? Crc32C = null,
-    string? Sha1 = null);
+    string? Sha1 = null,
+    DateTimeOffset StagedAt = default);
 
 internal sealed record CommitChunksOutcome(
     string VersionId,

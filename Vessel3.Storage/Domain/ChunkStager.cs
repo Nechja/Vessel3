@@ -52,7 +52,8 @@ internal sealed class ChunkStager(
             blob.Size,
             blob.Crc32,
             blob.Crc32C,
-            blob.Sha1);
+            blob.Sha1,
+            DateTimeOffset.UtcNow);
 
         return WriteChunkFile(dir, chunk) is Result.Failure wf
             ? wf.Error

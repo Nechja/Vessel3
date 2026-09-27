@@ -102,7 +102,11 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
     public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId) =>
         stager.ListChunks(uploadId).Match<Result<IReadOnlyList<ListedPart>>>(
             chunks => chunks
-                .Select(c => new ListedPart(ParsePartNumber(c.Token), c.Md5, c.Size, DateTime.UtcNow))
+                .Select(c => new ListedPart(
+                    ParsePartNumber(c.Token),
+                    c.Md5,
+                    c.Size,
+                    c.StagedAt == default ? DateTimeOffset.UtcNow : c.StagedAt))
                 .OrderBy(p => p.Number)
                 .ToList(),
             err => err);

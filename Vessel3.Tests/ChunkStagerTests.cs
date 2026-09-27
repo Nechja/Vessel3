@@ -50,6 +50,7 @@ public sealed class ChunkStagerTests : IDisposable
         var chunks = Assert.IsType<Result<IReadOnlyList<StagedChunk>>.Success>(
             stager.ListChunks(session.SessionId)).Value;
         Assert.Equal(2, chunks.Count);
+        Assert.True(chunks[0].StagedAt > DateTimeOffset.MinValue);
 
         List<MultipartPart> parts =
         [
