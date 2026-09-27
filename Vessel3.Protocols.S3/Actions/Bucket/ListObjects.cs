@@ -8,7 +8,7 @@ internal sealed class ListObjects(IBucketLister lister, IS3XmlWriter xml, IHttpR
     {
         var (listReq, continuationToken) = ListObjectsQuery.Bind(bucket, ctx.Request.Query);
 
-        return lister.List(listReq, continuationToken).Match<Task<IResult>>(
+        return lister.List(listReq.ToStorageRequest(), continuationToken).Match<Task<IResult>>(
             async page =>
             {
                 ctx.Response.ContentType = "application/xml";

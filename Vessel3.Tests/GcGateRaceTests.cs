@@ -96,7 +96,7 @@ public class GcGateRaceTests : IDisposable
         var collector = NewCollector(registry);
 
         stalling.Arm();
-        var copyTask = Task.Run(() => copier.Copy("alpha-dest", "k", "zulu-src", "k", new HeaderDictionary(), null, null), ct);
+        var copyTask = Task.Run(() => copier.Copy("alpha-dest", "k", "zulu-src", "k"), ct);
         await entered.Task;
 
         Assert.IsType<Result<DeleteOutcome>.Success>(registry.HardDeleteVersion("zulu-src", "k", seeded.VersionId, false));

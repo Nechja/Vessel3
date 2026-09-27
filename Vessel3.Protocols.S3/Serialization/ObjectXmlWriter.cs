@@ -8,7 +8,7 @@ namespace Vessel3.Server.S3;
 
 internal sealed class ObjectXmlWriter : IObjectXmlWriter
 {
-    public async Task WriteListObjects(Stream output, ListRequest req, ListPage page, CancellationToken ct)
+    public async Task WriteListObjects(Stream output, S3ListObjectsRequest req, ListPage page, CancellationToken ct)
     {
         await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
         await w.WriteStartDocumentAsync();

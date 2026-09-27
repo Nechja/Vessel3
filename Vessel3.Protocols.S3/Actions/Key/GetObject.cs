@@ -12,7 +12,8 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
             {
                 var req = ctx.Request;
                 var res = ctx.Response;
-                var precond = pre.EvaluateForRead(req.Headers, ok.Etag, ok.LastModified);
+                var readPre = S3HeaderCodec.ExtractReadPreconditions(req.Headers);
+                var precond = pre.Evaluate(readPre, ok.Etag, ok.LastModified);
                 if (precond is Precondition.NotModified)
                 {
                     ok.Body.Dispose();

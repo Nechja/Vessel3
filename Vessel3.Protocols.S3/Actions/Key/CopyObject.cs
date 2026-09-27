@@ -33,7 +33,8 @@ internal sealed class CopyObject(IObjectStore objects, IS3XmlWriter xml, IHttpRe
             return http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
         }
 
-        var copied = await objects.Copy(bucket, key, srcBucket, srcKey, req.Headers, metadataOverride, tagsOverride);
+        var sourceConditions = S3HeaderCodec.ExtractCopySourcePreconditions(req.Headers);
+        var copied = await objects.Copy(bucket, key, srcBucket, srcKey, sourceConditions, metadataOverride, tagsOverride);
         return copied.Match<IResult>(
             outcome =>
             {

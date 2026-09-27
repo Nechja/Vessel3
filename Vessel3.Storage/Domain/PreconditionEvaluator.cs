@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Net.Http.Headers;
 
 namespace Vessel3.Storage;
 
@@ -12,101 +11,92 @@ internal enum Precondition
 
 internal interface IPreconditionEvaluator
 {
-    Precondition EvaluateForRead(IHeaderDictionary headers, string etag, DateTimeOffset lastModified);
-    Precondition EvaluateForWrite(IHeaderDictionary headers, string? currentEtag);
-    Precondition EvaluateCopySource(IHeaderDictionary headers, string etag, DateTimeOffset lastModified);
-    bool HasWriteConditions(IHeaderDictionary headers);
+    Precondition Evaluate(PreconditionRules rules, string etag, DateTimeOffset lastModified);
+    Precondition EvaluateForWrite(WritePreconditions rules, string? currentEtag);
+    bool HasWriteConditions(WritePreconditions rules);
 }
 
 internal sealed class PreconditionEvaluator : IPreconditionEvaluator
 {
-    public Precondition EvaluateForRead(IHeaderDictionary headers, string etag, DateTimeOffset lastModified) =>
-        EvaluateRead(
-            headers["If-Match"].ToString(),
-            headers["If-None-Match"].ToString(),
-            headers["If-Modified-Since"].ToString(),
-            headers["If-Unmodified-Since"].ToString(),
-            etag, lastModified);
+    private static readonly string[] DateFormats =
+    [
+        "r",
+        "ddd, dd MMM yyyy HH:mm:ss 'GMT'",
+        "dddd, dd-MMM-yy HH:mm:ss 'GMT'",
+        "ddd MMM d HH:mm:ss yyyy",
+        "ddd, d MMM yyyy HH:mm:ss 'GMT'",
+        "dd MMM yyyy HH:mm:ss 'GMT'",
+    ];
 
-    public Precondition EvaluateCopySource(IHeaderDictionary headers, string etag, DateTimeOffset lastModified) =>
-        EvaluateRead(
-            headers["x-amz-copy-source-if-match"].ToString(),
-            headers["x-amz-copy-source-if-none-match"].ToString(),
-            headers["x-amz-copy-source-if-modified-since"].ToString(),
-            headers["x-amz-copy-source-if-unmodified-since"].ToString(),
-            etag, lastModified);
-
-    public Precondition EvaluateForWrite(IHeaderDictionary headers, string? currentEtag)
-    {
-        var ifMatch = headers["If-Match"].ToString();
-        var ifNoneMatch = headers["If-None-Match"].ToString();
-
-        if (!string.IsNullOrEmpty(ifMatch) && ifMatch is not "*")
-        {
-            if (currentEtag is null) return Precondition.Failed;
-            if (!EtagListContains(ifMatch, currentEtag)) return Precondition.Failed;
-        }
-
-        if (!string.IsNullOrEmpty(ifNoneMatch))
-        {
-            if (ifNoneMatch is "*" && currentEtag is not null) return Precondition.Failed;
-            if (currentEtag is not null && EtagListContains(ifNoneMatch, currentEtag))
-                return Precondition.Failed;
-        }
-
-        return Precondition.Pass;
-    }
-
-    public bool HasWriteConditions(IHeaderDictionary headers) =>
-        !string.IsNullOrEmpty(headers["If-Match"].ToString())
-        || !string.IsNullOrEmpty(headers["If-None-Match"].ToString());
-
-    private Precondition EvaluateRead(string ifMatch, string ifNoneMatch, string ifModSince, string ifUnmodSince, string etag, DateTimeOffset lastModified)
+    public Precondition Evaluate(PreconditionRules rules, string etag, DateTimeOffset lastModified)
     {
         var lastModSec = TruncateToSecond(lastModified);
 
-        if (!string.IsNullOrEmpty(ifMatch) && ifMatch is not "*"
-            && !EtagListContains(ifMatch, etag))
-            return Precondition.Failed;
-
-        if (!string.IsNullOrEmpty(ifUnmodSince)
-            && TryParseHttpDate(ifUnmodSince, out var unmodSince)
-            && lastModSec > unmodSince)
-            return Precondition.Failed;
-
-        var noneMatchHit = !string.IsNullOrEmpty(ifNoneMatch)
-            && (ifNoneMatch is "*" || EtagListContains(ifNoneMatch, etag));
-        var modSinceHit = string.IsNullOrEmpty(ifNoneMatch)
-            && !string.IsNullOrEmpty(ifModSince)
-            && TryParseHttpDate(ifModSince, out var modSince)
-            && lastModSec <= modSince;
-
-        return noneMatchHit || modSinceHit ? Precondition.NotModified : Precondition.Pass;
+        return IsMatchFailed(rules.IfMatch, etag) || IsUnmodifiedFailed(rules.IfUnmodifiedSince, lastModSec)
+            ? Precondition.Failed
+            : IsNoneMatchHit(rules.IfNoneMatch, etag) || IsModifiedSinceHit(rules.IfNoneMatch, rules.IfModifiedSince, lastModSec)
+                ? Precondition.NotModified
+                : Precondition.Pass;
     }
+
+    public Precondition EvaluateForWrite(WritePreconditions rules, string? currentEtag) =>
+        IsWriteMatchFailed(rules.IfMatch, currentEtag) || IsWriteNoneMatchFailed(rules.IfNoneMatch, currentEtag)
+            ? Precondition.Failed
+            : Precondition.Pass;
+
+    public bool HasWriteConditions(WritePreconditions rules) =>
+        !string.IsNullOrEmpty(rules.IfMatch) || !string.IsNullOrEmpty(rules.IfNoneMatch);
+
+    private static bool IsMatchFailed(string? ifMatch, string etag) =>
+        !string.IsNullOrEmpty(ifMatch)
+        && ifMatch is not "*"
+        && !EtagListContains(ifMatch, etag);
+
+    private static bool IsUnmodifiedFailed(string? ifUnmodSince, DateTimeOffset lastModSec) =>
+        !string.IsNullOrEmpty(ifUnmodSince)
+        && TryParseHttpDate(ifUnmodSince, out var unmodSince)
+        && lastModSec > unmodSince;
+
+    private static bool IsNoneMatchHit(string? ifNoneMatch, string etag) =>
+        !string.IsNullOrEmpty(ifNoneMatch)
+        && (ifNoneMatch is "*" || EtagListContains(ifNoneMatch, etag));
+
+    private static bool IsModifiedSinceHit(string? ifNoneMatch, string? ifModSince, DateTimeOffset lastModSec) =>
+        string.IsNullOrEmpty(ifNoneMatch)
+        && !string.IsNullOrEmpty(ifModSince)
+        && TryParseHttpDate(ifModSince, out var modSince)
+        && lastModSec <= modSince;
+
+    private static bool IsWriteMatchFailed(string? ifMatch, string? currentEtag) =>
+        !string.IsNullOrEmpty(ifMatch)
+        && ifMatch is not "*"
+        && (currentEtag is null || !EtagListContains(ifMatch, currentEtag));
+
+    private static bool IsWriteNoneMatchFailed(string? ifNoneMatch, string? currentEtag) =>
+        currentEtag is not null
+        && !string.IsNullOrEmpty(ifNoneMatch)
+        && (ifNoneMatch is "*" || EtagListContains(ifNoneMatch, currentEtag));
 
     private static bool EtagListContains(string headerValue, string etag)
     {
         foreach (var raw in headerValue.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            var t = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
-            if (t.Length >= 2 && t[0] == '"' && t[^1] == '"') t = t[1..^1];
-            if (string.Equals(t, etag, StringComparison.Ordinal)) return true;
+            var token = NormalizeEtag(raw);
+            if (string.Equals(token, etag, StringComparison.Ordinal))
+                return true;
         }
         return false;
     }
 
-    private static bool TryParseHttpDate(string s, out DateTimeOffset dt)
+    private static string NormalizeEtag(string raw)
     {
-        if (HeaderUtilities.TryParseDate(s, out dt)) return true;
-        var afterDay = s.IndexOf(", ", StringComparison.Ordinal);
-        return afterDay >= 0
-            && DateTimeOffset.TryParseExact(
-                s[(afterDay + 2)..],
-                "dd MMM yyyy HH:mm:ss 'GMT'",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out dt);
+        var t = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
+        return t.Length >= 2 && t[0] is '"' && t[^1] is '"' ? t[1..^1] : t;
     }
+
+    private static bool TryParseHttpDate(string s, out DateTimeOffset dt) =>
+        DateTimeOffset.TryParseExact(s, DateFormats, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out dt);
 
     private static DateTimeOffset TruncateToSecond(DateTimeOffset value)
     {

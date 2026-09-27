@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Vessel3.Server.S3;
 
-internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null, long? decodedLength = null) : Stream, ITrailerStream
+internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null, long? decodedLength = null) : Stream, ITrailerStream, ITrailingChecksumProvider
 {
     private const string EmptyStringSha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     private const int ReadBlock = 81920;
@@ -19,6 +19,17 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
     private readonly Dictionary<string, string> trailers = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<string, string> Trailers => trailers;
+
+    public ChecksumSet TrailingChecksums => new(
+        DecodeTrailer(ChecksumHeaders.HeaderCrc32),
+        DecodeTrailer(ChecksumHeaders.HeaderCrc32C),
+        DecodeTrailer(ChecksumHeaders.HeaderSha1),
+        DecodeTrailer(ChecksumHeaders.HeaderSha256));
+
+    private string? DecodeTrailer(string name) =>
+        trailers.TryGetValue(name, out var raw) && !string.IsNullOrEmpty(raw)
+            ? ChecksumAlgorithms.Base64ToHex(raw)
+            : null;
 
     public override bool CanRead => true;
     public override bool CanSeek => false;

@@ -6,7 +6,7 @@ internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(ObjectPutRequest request);
     Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null);
-    Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride);
+    Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null);
     Result<StoredObject> Get(string bucket, string key, string? versionId = null);
     Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
     Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null);
@@ -101,28 +101,22 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) =>
         registry.DeleteBatch(bucket, items);
 
-    public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride)
+    public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null)
     {
         using var lease = await gate.Writing();
-        return CopyUnderGate(destBucket, destKey, srcBucket, srcKey, copyHeaders, metadataOverride, tagsOverride);
+        return CopyUnderGate(destBucket, destKey, srcBucket, srcKey, sourceConditions, metadataOverride, tagsOverride);
     }
 
-    private Result<CopyOutcome> CopyUnderGate(string destBucket, string destKey, string srcBucket, string srcKey, IHeaderDictionary copyHeaders, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride)
+    private Result<CopyOutcome> CopyUnderGate(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions, IReadOnlyDictionary<string, string>? metadataOverride, IReadOnlyDictionary<string, string>? tagsOverride)
     {
         if (!registry.GetCurrentPut(srcBucket, srcKey).TryGetValue(out var srcEntry, out var err))
-        {
             return err;
-        }
 
         if (srcEntry is null)
-        {
             return new NoSuchKeyError(srcKey);
-        }
 
-        if (pre.EvaluateCopySource(copyHeaders, srcEntry.Md5, srcEntry.At) is Precondition.Failed)
-        {
+        if (sourceConditions is { } cond && pre.Evaluate(cond, srcEntry.Md5, srcEntry.At) is Precondition.Failed)
             return new PreconditionFailedError($"{srcBucket}/{srcKey}");
-        }
 
         var putReq = new PutRequest(
             BlobSha: srcEntry.BlobSha,

@@ -80,4 +80,25 @@ internal static class S3HeaderCodec
             }
         }
     }
+
+    public static PreconditionRules ExtractReadPreconditions(IHeaderDictionary headers) =>
+        new(
+            IfMatch: NullIfEmpty(headers["If-Match"].ToString()),
+            IfNoneMatch: NullIfEmpty(headers["If-None-Match"].ToString()),
+            IfModifiedSince: NullIfEmpty(headers["If-Modified-Since"].ToString()),
+            IfUnmodifiedSince: NullIfEmpty(headers["If-Unmodified-Since"].ToString()));
+
+    public static PreconditionRules ExtractCopySourcePreconditions(IHeaderDictionary headers) =>
+        new(
+            IfMatch: NullIfEmpty(headers["x-amz-copy-source-if-match"].ToString()),
+            IfNoneMatch: NullIfEmpty(headers["x-amz-copy-source-if-none-match"].ToString()),
+            IfModifiedSince: NullIfEmpty(headers["x-amz-copy-source-if-modified-since"].ToString()),
+            IfUnmodifiedSince: NullIfEmpty(headers["x-amz-copy-source-if-unmodified-since"].ToString()));
+
+    public static WritePreconditions ExtractWritePreconditions(IHeaderDictionary headers) =>
+        new(
+            IfMatch: NullIfEmpty(headers["If-Match"].ToString()),
+            IfNoneMatch: NullIfEmpty(headers["If-None-Match"].ToString()));
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 }
