@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -20,17 +21,39 @@ internal sealed class S3BucketActionDispatcher(
 
     public Task<IResult> Dispatch(string method, string bucket, HttpContext ctx)
     {
-        if (IsBlockedByReadOnlyAccess(method, bucket))
-        {
-            return Reject(new BucketIsReadOnlyError(bucket));
-        }
-
         var sub = subresourceResolver.ResolveBucket(ctx.Request.Query);
 
-        return TryResolveEntry(method, sub, out var entry)
-            ? Invoke(entry, bucket, ctx)
-            : Reject(new MethodNotAllowedError($"{method} on bucket with subresource {sub}"));
+        if (!TryResolveEntry(method, sub, out var entry))
+        {
+            return Reject(new MethodNotAllowedError($"{method} on bucket with subresource {sub}"));
+        }
+
+        var caller = ctx.GetCaller();
+        if (registry is not null && entry.Action is not Bucket.CreateBucket)
+        {
+            if (caller is not null)
+            {
+                var capability = ResolveRequiredCapability(method, sub);
+                if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
+                {
+                    return Reject(f.Error);
+                }
+            }
+            else if (IsBlockedByReadOnlyAccess(method, bucket))
+            {
+                return Reject(new BucketIsReadOnlyError(bucket));
+            }
+        }
+
+        return Invoke(entry, bucket, ctx);
     }
+
+    private static BucketCapability ResolveRequiredCapability(string method, S3BucketSubresource sub) =>
+        HttpMethods.IsGet(method) || HttpMethods.IsHead(method)
+            ? BucketCapability.Read
+            : sub is S3BucketSubresource.Delete
+                ? BucketCapability.Write
+                : BucketCapability.Admin;
 
     private Task<IResult> Reject(Error error) => Task.FromResult(http.Map(error));
 

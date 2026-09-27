@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -9,17 +10,18 @@ internal sealed record SignatureContext(
     string Signature,
     byte[] SigningKey,
     string AmzDate,
-    string Scope);
+    string Scope,
+    CallerIdentity? Caller = null);
 
 internal interface ISigV4Verifier
 {
     Result<SignatureContext> Verify(HttpRequest req);
 }
 
-internal sealed class AlwaysPassVerifier : ISigV4Verifier
+internal sealed class AlwaysPassVerifier(CallerIdentity? defaultCaller = null) : ISigV4Verifier
 {
-    private static readonly SignatureContext Empty = new(string.Empty, [], string.Empty, string.Empty);
-    public Result<SignatureContext> Verify(HttpRequest req) => Empty;
+    private readonly SignatureContext empty = new(string.Empty, [], string.Empty, string.Empty, defaultCaller ?? CallerIdentity.System);
+    public Result<SignatureContext> Verify(HttpRequest req) => empty;
 }
 
 internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion region, TimeProvider clock) : ISigV4Verifier
@@ -91,7 +93,7 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
-            ? new SignatureContext(signature, signingKey, amzDate, scope)
+            ? new SignatureContext(signature, signingKey, amzDate, scope, cred.Caller ?? CallerIdentity.System)
             : (Result<SignatureContext>)new SignatureDoesNotMatchError();
     }
 
@@ -157,7 +159,7 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
-            ? new SignatureContext(signature, signingKey, amzDate, scope)
+            ? new SignatureContext(signature, signingKey, amzDate, scope, cred.Caller ?? CallerIdentity.System)
             : (Result<SignatureContext>)new SignatureDoesNotMatchError();
     }
 

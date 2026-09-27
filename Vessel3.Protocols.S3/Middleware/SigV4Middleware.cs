@@ -23,6 +23,10 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
         }
 
         ctx.Items["sigctx"] = sigCtx;
+        if (sigCtx.Caller is not null)
+        {
+            ctx.Items["CallerIdentity"] = sigCtx.Caller;
+        }
         await next(ctx);
     }
 }

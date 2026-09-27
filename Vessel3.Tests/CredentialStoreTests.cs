@@ -1,4 +1,6 @@
+using Vessel3.Primitives;
 using Vessel3.Server.S3;
+using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -77,5 +79,99 @@ public class CredentialStoreTests
         clock.Now = T0 + TimeSpan.FromHours(1);
 
         Assert.Same(session, store.Find(session.AccessKey));
+    }
+
+    [Fact]
+    public void Find_resolves_credentials_from_IdentityRegistry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
+        try
+        {
+            var clock = new TestClock(T0);
+            using var identity = new IdentityRegistry(new IdentityOptions(tempDir), clock);
+            var user = ((Result<User>.Success)identity.CreateUser("alice", UserRole.Member)).Value;
+            var key = ((Result<AccessKey>.Success)identity.CreateAccessKey(user.Id)).Value;
+
+            var store = new CredentialStore(Root, identity, clock);
+            var found = store.Find(key.Id);
+
+            Assert.NotNull(found);
+            Assert.Equal(key.Id, found.AccessKey);
+            Assert.Equal(key.SecretKey, found.Secret);
+            Assert.NotNull(found.Caller);
+            Assert.Equal("alice", found.Caller.Username);
+            Assert.Equal(UserRole.Member, found.Caller.Role);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Find_returns_null_for_revoked_key_in_IdentityRegistry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
+        try
+        {
+            var clock = new TestClock(T0);
+            using var identity = new IdentityRegistry(new IdentityOptions(tempDir), clock);
+            var user = ((Result<User>.Success)identity.CreateUser("bob")).Value;
+            var key = ((Result<AccessKey>.Success)identity.CreateAccessKey(user.Id)).Value;
+            identity.RevokeAccessKey(key.Id);
+
+            var store = new CredentialStore(Root, identity, clock);
+            Assert.Null(store.Find(key.Id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Find_returns_null_for_expired_key_in_IdentityRegistry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
+        try
+        {
+            var clock = new TestClock(T0);
+            using var identity = new IdentityRegistry(new IdentityOptions(tempDir), clock);
+            var user = ((Result<User>.Success)identity.CreateUser("charlie")).Value;
+            var key = ((Result<AccessKey>.Success)identity.CreateAccessKey(user.Id, ttl: TimeSpan.FromMinutes(10))).Value;
+
+            var store = new CredentialStore(Root, identity, clock);
+            Assert.NotNull(store.Find(key.Id));
+
+            clock.Now += TimeSpan.FromMinutes(11);
+            Assert.Null(store.Find(key.Id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Find_returns_null_for_suspended_user_in_IdentityRegistry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
+        try
+        {
+            var clock = new TestClock(T0);
+            using var identity = new IdentityRegistry(new IdentityOptions(tempDir), clock);
+            var user = ((Result<User>.Success)identity.CreateUser("david")).Value;
+            var key = ((Result<AccessKey>.Success)identity.CreateAccessKey(user.Id)).Value;
+
+            var store = new CredentialStore(Root, identity, clock);
+            Assert.NotNull(store.Find(key.Id));
+
+            identity.UpdateUserStatus(user.Id, UserStatus.Suspended);
+            Assert.Null(store.Find(key.Id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
     }
 }
