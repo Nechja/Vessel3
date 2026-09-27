@@ -3,38 +3,22 @@
 @inject UiAuth Auth
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-6);">
-    <div class="row justify-between align-center">
-        <div>
-            <div class="eyebrow">object store</div>
-            <h1>Buckets</h1>
-            <p class="lead">@summary</p>
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">Buckets</span>
+            <span class="counter">@filteredBuckets.Count()</span>
         </div>
-        <div class="row">
+        <div class="toolbar-search">
+            <input class="input" type="search" placeholder="Filter buckets..." @bind="searchFilter" @bind:event="oninput" />
+        </div>
+        <div class="toolbar-actions">
             <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
                 <Icon Name="refresh" /> refresh
             </button>
             <button type="button" class="btn btn-primary" @onclick="@(() => showCreateModal = true)">
-                <Icon Name="bucket" /> new bucket
+                <Icon Name="bucket" /> create bucket
             </button>
-        </div>
-    </div>
-
-    <div class="grid grid-3">
-        <div class="stat-card">
-            <div class="stat-kicker">total buckets</div>
-            <div class="stat-value">@buckets.Count</div>
-            <div class="stat-sub">active in storage engine</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-kicker">caller identity</div>
-            <div class="stat-value">@(Auth.Caller?.Username ?? "anonymous")</div>
-            <div class="stat-sub">role: @(Auth.Caller?.Role ?? "admin")</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-kicker">wire protocol</div>
-            <div class="stat-value" style="color: var(--color-mint)">vessel3/v1</div>
-            <div class="stat-sub">rest + streaming json</div>
         </div>
     </div>
 
@@ -62,15 +46,17 @@
                         <td colspan="4" class="empty-state">loading buckets...</td>
                     </tr>
                 }
-                else if (buckets.Count == 0)
+                else if (!filteredBuckets.Any())
                 {
                     <tr>
-                        <td colspan="4" class="empty-state">no buckets found. click "new bucket" to create one.</td>
+                        <td colspan="4" class="empty-state">
+                            @(string.IsNullOrEmpty(searchFilter) ? "no buckets found. create one above." : "no matching buckets found.")
+                        </td>
                     </tr>
                 }
                 else
                 {
-                    @foreach (var b in buckets)
+                    @foreach (var b in filteredBuckets)
                     {
                         <tr>
                             <td>
@@ -171,6 +157,11 @@
     private string summary = "";
     private string? errorMessage;
     private string? armedDeleteBucket;
+    private string searchFilter = "";
+
+    private IEnumerable<BucketDto> filteredBuckets => string.IsNullOrWhiteSpace(searchFilter)
+        ? buckets
+        : buckets.Where(b => b.Name.Contains(searchFilter, StringComparison.OrdinalIgnoreCase));
 
     private bool showCreateModal;
     private string newBucketName = "";

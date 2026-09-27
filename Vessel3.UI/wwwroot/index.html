@@ -19,5 +19,17 @@
         <a class="dismiss">×</a>
     </div>
     <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.addEventListener('keydown', function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                var el = document.getElementById('globalSearchInput');
+                if (el) {
+                    e.preventDefault();
+                    el.focus();
+                    el.select();
+                }
+            }
+        });
+    </script>
 </body>
 </html>

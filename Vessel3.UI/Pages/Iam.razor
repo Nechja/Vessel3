@@ -4,19 +4,18 @@
 @inject IJSRuntime JS
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-6);">
-    <div class="row justify-between align-center">
-        <div>
-            <div class="eyebrow">identity & access</div>
-            <h1>IAM Directory</h1>
-            <p class="lead">Manage users, capability scopes, and access keys across your Vessel3 cluster.</p>
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">IAM Directory</span>
+            <span class="counter">@users.Count users</span>
         </div>
-        <div class="row">
+        <div class="toolbar-actions">
             <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
                 <Icon Name="refresh" /> refresh
             </button>
             <button type="button" class="btn btn-primary" @onclick="@(() => showNewUserModal = true)">
-                <Icon Name="user" /> new user
+                <Icon Name="user" /> create user
             </button>
         </div>
     </div>

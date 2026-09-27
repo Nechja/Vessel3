@@ -4,74 +4,202 @@
 @inject Login Login
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject IVesselClient Client
 
-<nav class="nav">
-    <a href="" class="wordmark wordmark--nav">ves<span class="wm-accent">s</span>el<span class="wm-zero">3</span></a>
-
-    <div class="nav-links">
-        <NavLink href="" Match="NavLinkMatch.All" class="nav-link">
-            <Icon Name="bucket" /> buckets
-        </NavLink>
-        <NavLink href="uploads" class="nav-link">
-            <Icon Name="upload" /> uploads
-        </NavLink>
-        <NavLink href="iam" class="nav-link">
-            <Icon Name="user" /> iam
-        </NavLink>
-        <NavLink href="admin" class="nav-link">
-            <Icon Name="gear" /> maintenance
-        </NavLink>
-    </div>
-
-    <div class="nav-right">
-        @if (Auth.Caller is { } caller)
-        {
-            <span class="badge badge-accent">
-                <Icon Name="user" /> @caller.Username (@caller.Role)
-            </span>
-        }
-        else if (Auth.IsAnonymous)
-        {
-            <span class="badge badge-neutral">open dev</span>
-        }
-
-        <span class="badge badge-mint">@Config.Region</span>
-
-        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Toggle theme" @onclick="ToggleTheme">
-            <Icon Name="@(isDark ? "sun" : "moon")" />
-        </button>
-
-        @if (Auth.Session is { } session && Config.Oidc is not null)
-        {
-            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Login.SignOut(session))">
-                <Icon Name="logout" /> sign out
+<div class="app-shell @(isCollapsed ? "app-shell--collapsed" : "") @(isMobileOpen ? "app-shell--mobile-open" : "")">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <a href="" class="wordmark wordmark--sidebar" @onclick="CloseMobileMenu">
+                ves<span class="wm-accent">s</span>el<span class="wm-zero">3</span>
+            </a>
+            <button type="button" class="sidebar-collapse-btn" title="Toggle sidebar" @onclick="ToggleSidebar">
+                <Icon Name="@(isCollapsed ? "chevron-right" : "chevron-left")" />
             </button>
-        }
-        else if (Auth.SignedOut)
-        {
-            <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => Login.Begin(prompt: true))">
-                <Icon Name="login" /> sign in
-            </button>
-        }
-    </div>
-</nav>
-
-<main class="wrap">
-    @if (Auth.Error is { } error)
-    {
-        <div class="callout callout-danger" style="margin-bottom: var(--space-5);">
-            <div>@error</div>
-            <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" style="margin-left: auto; color: inherit; text-decoration: underline;">retry</a>
         </div>
-    }
 
-    @Body
-</main>
+        <div class="sidebar-scroll">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Storage</div>
+                <NavLink href="" Match="NavLinkMatch.All" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="bucket" />
+                    <span class="sidebar-label">Buckets</span>
+                </NavLink>
+                <NavLink href="uploads" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="upload" />
+                    <span class="sidebar-label">Uploads</span>
+                </NavLink>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Access</div>
+                <NavLink href="iam" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="user" />
+                    <span class="sidebar-label">IAM &amp; Keys</span>
+                </NavLink>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">System</div>
+                <NavLink href="admin" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="gear" />
+                    <span class="sidebar-label">Maintenance</span>
+                </NavLink>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <span class="sidebar-meta mono">s3-api</span>
+        </div>
+    </aside>
+
+    <div class="sidebar-backdrop" @onclick="CloseMobileMenu"></div>
+
+    <div class="workspace">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button type="button" class="mobile-toggle" @onclick="ToggleMobileMenu" title="Menu">
+                    <Icon Name="bars" />
+                </button>
+
+                <div class="global-search">
+                    <div class="global-search-bar">
+                        <Icon Name="search" Class="search-bar-icon" />
+                        <input id="globalSearchInput"
+                               class="search-bar-input"
+                               type="search"
+                               placeholder="Search buckets, objects, pages..."
+                               @bind="searchQuery"
+                               @bind:event="oninput"
+                               @onfocus="OnSearchFocus"
+                               @onblur="OnSearchBlur"
+                               @onkeydown="HandleKeyDown"
+                               autocomplete="off" />
+                        <span class="search-bar-kbd mono">Ctrl+K</span>
+                    </div>
+
+                    @if (searchFocused && SearchResults.Count > 0)
+                    {
+                        <div class="search-dropdown">
+                            @foreach (var group in SearchResults.GroupBy(r => r.Category))
+                            {
+                                <div class="search-group-header">@group.Key</div>
+                                @foreach (var item in group)
+                                {
+                                    <div class="search-item" @onmousedown="@(() => SelectResult(item.Path))">
+                                        <Icon Name="@item.IconName" Class="search-item-icon" />
+                                        <div class="search-item-info">
+                                            <div class="search-item-title">@item.Title</div>
+                                            <div class="search-item-sub">@item.Subtitle</div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="topbar-right">
+                @if (Auth.Caller is { } caller)
+                {
+                    <span class="nav-meta-item">
+                        <Icon Name="user" />
+                        <span class="mono">@caller.Username</span>
+                        <span class="muted" style="font-size: 11px;">(@caller.Role.ToString().ToLowerInvariant())</span>
+                    </span>
+                }
+                else if (Auth.IsAnonymous)
+                {
+                    <span class="nav-meta-item mono muted">open dev</span>
+                }
+
+                <span class="nav-meta-item mono muted" title="Server Region">
+                    @Config.Region
+                </span>
+
+                <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Toggle theme" @onclick="ToggleTheme">
+                    <Icon Name="@(isDark ? "sun" : "moon")" />
+                </button>
+
+                @if (Auth.Session is { } session && Config.Oidc is not null)
+                {
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Login.SignOut(session))">
+                        <Icon Name="logout" /> sign out
+                    </button>
+                }
+                else if (Auth.SignedOut)
+                {
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => Login.Begin(prompt: true))">
+                        <Icon Name="login" /> sign in
+                    </button>
+                }
+            </div>
+        </header>
+
+        <main class="page-content">
+            @if (Auth.Error is { } error)
+            {
+                <div class="callout callout-danger" style="margin-bottom: var(--space-5);">
+                    <div>@error</div>
+                    <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" style="margin-left: auto; color: inherit; text-decoration: underline;">retry</a>
+                </div>
+            }
+
+            @Body
+        </main>
+    </div>
+</div>
 
 <ToastProvider />
 
 @code {
     private bool isDark;
+    private bool isCollapsed;
+    private bool isMobileOpen;
+    private string searchQuery = "";
+    private bool searchFocused;
+    private List<BucketDto> allBuckets = [];
+
+    private sealed record SearchResult(string Title, string Subtitle, string Path, string IconName, string Category);
+
+    private List<SearchResult> SearchResults
+    {
+        get
+        {
+            var query = searchQuery.Trim();
+            if (string.IsNullOrEmpty(query)) return [];
+
+            var results = new List<SearchResult>();
+
+            if ("buckets".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Buckets", "Storage buckets overview", "", "bucket", "Navigation"));
+            }
+            if ("uploads".Contains(query, StringComparison.OrdinalIgnoreCase) || "multipart".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Uploads", "Active multipart uploads", "uploads", "upload", "Navigation"));
+            }
+            if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("IAM & Keys", "Access control & service accounts", "iam", "user", "Navigation"));
+            }
+            if ("maintenance".Contains(query, StringComparison.OrdinalIgnoreCase) || "admin".Contains(query, StringComparison.OrdinalIgnoreCase) || "system".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Maintenance", "Cluster configuration & maintenance", "admin", "gear", "Navigation"));
+            }
+
+            var matchingBuckets = allBuckets
+                .Where(b => b.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Take(8);
+
+            foreach (var b in matchingBuckets)
+            {
+                results.Add(new SearchResult(b.Name, $"Bucket ({b.CreatedAt:yyyy-MM-dd})", $"buckets/{b.Name}", "bucket", "Buckets"));
+            }
+
+            return results;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,6 +219,79 @@
         }
         catch
         {
+        }
+
+        await LoadBuckets();
+    }
+
+    private async Task LoadBuckets()
+    {
+        try
+        {
+            var res = await Client.ListBucketsAsync();
+            if (res.TryGetValue(out var list, out _))
+            {
+                allBuckets = list.OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private void ToggleSidebar()
+    {
+        isCollapsed = !isCollapsed;
+    }
+
+    private void ToggleMobileMenu()
+    {
+        isMobileOpen = !isMobileOpen;
+    }
+
+    private void CloseMobileMenu()
+    {
+        isMobileOpen = false;
+    }
+
+    private async Task OnSearchFocus()
+    {
+        searchFocused = true;
+        if (allBuckets.Count == 0)
+        {
+            await LoadBuckets();
+        }
+    }
+
+    private async Task OnSearchBlur()
+    {
+        await Task.Delay(200);
+        searchFocused = false;
+    }
+
+    private void SelectResult(string path)
+    {
+        searchQuery = "";
+        searchFocused = false;
+        Nav.NavigateTo(path);
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            searchQuery = "";
+            searchFocused = false;
+            return;
+        }
+
+        if (e.Key == "Enter")
+        {
+            var list = SearchResults;
+            if (list.Count > 0)
+            {
+                SelectResult(list[0].Path);
+            }
         }
     }
 

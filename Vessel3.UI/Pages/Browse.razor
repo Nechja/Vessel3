@@ -4,14 +4,15 @@
 @inject IJSRuntime JS
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-5);">
-    <div class="row justify-between align-center">
-        <div>
-            <div class="eyebrow">bucket</div>
-            <h1>@Bucket</h1>
-            <p class="lead">@summary</p>
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
         </div>
-        <div class="row">
+        <div class="toolbar-search">
+            <input class="input" type="search" placeholder="Filter objects..." @bind="searchFilter" @bind:event="oninput" />
+        </div>
+        <div class="toolbar-actions">
             <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
                 <Icon Name="refresh" /> refresh
             </button>
@@ -20,8 +21,6 @@
             </a>
         </div>
     </div>
-
-    <BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -47,15 +46,17 @@
                         <td colspan="4" class="empty-state">loading objects...</td>
                     </tr>
                 }
-                else if (rows.Count == 0)
+                else if (!filteredRows.Any())
                 {
                     <tr>
-                        <td colspan="4" class="empty-state">folder is empty. click "upload" to add files.</td>
+                        <td colspan="4" class="empty-state">
+                            @(string.IsNullOrEmpty(searchFilter) ? "folder is empty. click \"upload\" to add files." : "no matching objects found.")
+                        </td>
                     </tr>
                 }
                 else
                 {
-                    @foreach (var row in rows)
+                    @foreach (var row in filteredRows)
                     {
                         <tr>
                             <td>
@@ -155,6 +156,11 @@
     private string? armedDeleteKey;
     private string? openKey;
     private (string Bucket, string Prefix)? loadedState;
+    private string searchFilter = "";
+
+    private IEnumerable<Row> filteredRows => string.IsNullOrWhiteSpace(searchFilter)
+        ? rows
+        : rows.Where(r => r.Name.Contains(searchFilter, StringComparison.OrdinalIgnoreCase));
 
     protected override async Task OnParametersSetAsync()
     {
