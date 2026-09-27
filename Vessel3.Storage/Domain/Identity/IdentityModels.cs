@@ -35,6 +35,9 @@ internal sealed record CallerIdentity(
     UserRole Role,
     string AccessKeyId)
 {
+    public static readonly CallerIdentity System = new("usr_system", "system", UserRole.Admin, "V3AKSYSTEM0000000000");
+
     public bool IsAdmin => Role == UserRole.Admin;
     public bool CanWrite => Role != UserRole.ReadOnly;
 }
+
