@@ -1,8 +1,13 @@
 namespace Vessel3.Primitives;
 
-internal abstract record Error(string Code, string Message)
+public record Error(string Code, string Message)
 {
-    public abstract int Status { get; }
+    public virtual int Status => 400;
+}
+
+public sealed record HttpError(string Code, string Message, int StatusCode = 400) : Error(Code, Message)
+{
+    public override int Status => StatusCode;
 }
 
 internal sealed record NotFoundError(string Resource)
@@ -157,7 +162,7 @@ internal sealed record AccessDeniedError(string Detail)
     : Error("AccessDenied", Detail)
 { public override int Status => 403; }
 
-internal abstract record Result
+public abstract record Result
 {
     public abstract TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure);
 
@@ -167,12 +172,12 @@ internal abstract record Result
         error = null; return false;
     }
 
-    internal sealed record OkResult : Result
+    public sealed record OkResult : Result
     {
         public override TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure) => onSuccess();
     }
 
-    internal sealed record Failure(Error Error) : Result
+    public sealed record Failure(Error Error) : Result
     {
         public override TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure) => onFailure(Error);
     }
@@ -181,7 +186,7 @@ internal abstract record Result
     public static implicit operator Result(Error error) => new Failure(error);
 }
 
-internal abstract record Result<T>
+public abstract record Result<T>
 {
     public abstract TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure);
 
@@ -191,12 +196,12 @@ internal abstract record Result<T>
         value = default; error = ((Failure)this).Error; return false;
     }
 
-    internal sealed record Success(T Value) : Result<T>
+    public sealed record Success(T Value) : Result<T>
     {
         public override TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure) => onSuccess(Value);
     }
 
-    internal sealed record Failure(Error Error) : Result<T>
+    public sealed record Failure(Error Error) : Result<T>
     {
         public override TOut Match<TOut>(Func<T, TOut> onSuccess, Func<Error, TOut> onFailure) => onFailure(Error);
     }

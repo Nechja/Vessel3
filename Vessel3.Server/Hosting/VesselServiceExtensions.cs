@@ -72,6 +72,10 @@ internal static class VesselServiceExtensions
         var s3 = new S3Protocol();
         services.AddSingleton<IVesselProtocol>(s3);
         s3.ConfigureServices(services, config);
+
+        var native = new NativeProtocol();
+        services.AddSingleton<IVesselProtocol>(native);
+        native.ConfigureServices(services, config);
     }
 
     private static void AddVesselTelemetry(this IServiceCollection services)

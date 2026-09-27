@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vessel3.Protocols.S3" />
+    <InternalsVisibleTo Include="Vessel3.Protocols.Native" />
     <InternalsVisibleTo Include="vessel3" />
     <InternalsVisibleTo Include="Vessel3.Server" />
     <InternalsVisibleTo Include="Vessel3.Tests" />

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Vessel3.Client</RootNamespace>
+    <AssemblyName>Vessel3.Client</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vessel3.Tests" />
+    <InternalsVisibleTo Include="Vessel3.UI" />
+  </ItemGroup>
+
+</Project>

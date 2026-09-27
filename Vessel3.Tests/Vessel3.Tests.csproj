@@ -10,7 +10,7 @@
     <EnableAotAnalyzer>false</EnableAotAnalyzer>
     <RootNamespace>Vessel3.Tests</RootNamespace>
     <!-- xUnit naming and inline-array idioms collide with the repo-wide CA/IDE rules. -->
-    <NoWarn>$(NoWarn);CA1707;CA1861;IDE0300;CA1305</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA1861;IDE0300;CA1305;xUnit1051</NoWarn>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <AnalysisLevel>none</AnalysisLevel>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
@@ -24,6 +24,8 @@
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
+    <ProjectReference Include="..\Vessel3.Client\Vessel3.Client.csproj" />
     <ProjectReference Include="..\Vessel3.Server\Vessel3.Server.csproj" />
   </ItemGroup>
 
