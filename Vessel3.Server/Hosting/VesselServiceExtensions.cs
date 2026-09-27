@@ -18,10 +18,9 @@ internal static class VesselServiceExtensions
     {
         services.AddVesselConfiguration(config);
         services.AddVesselStorage(config);
-        services.AddVesselS3Protocol();
-        services.AddVesselAuth(config);
         services.AddVesselTelemetry();
-        services.AddVesselMiddlewares(config);
+        services.AddVesselHostMiddlewares();
+        services.AddVesselProtocols(config);
         return services;
     }
 
@@ -32,7 +31,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new VirtualHostOptions(config.BaseDomains));
         services.AddSingleton(new BlobPoolOptions(Path.Combine(config.DataRoot, "blobs")));
         services.AddSingleton(new BucketRegistryOptions(config.DataRoot));
-        services.AddSingleton(new MultipartStoreOptions(Path.Combine(config.DataRoot, "uploads")));
+        services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, "uploads")));
         services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
@@ -46,7 +45,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IBlobPool, BlobPool>();
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IObjectStore, ObjectStore>();
-        services.AddSingleton<IMultipartStore, MultipartStore>();
+        services.AddSingleton<IChunkStager, ChunkStager>();
         services.AddSingleton<IGcGate, GcGate>();
         services.AddSingleton<IGarbageCollector, GarbageCollector>();
         services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
@@ -58,61 +57,11 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IAdminService, AdminService>();
     }
 
-    private static void AddVesselS3Protocol(this IServiceCollection services)
+    private static void AddVesselProtocols(this IServiceCollection services, VesselConfig config)
     {
-        services.AddSingleton<BucketXmlWriter>();
-        services.AddSingleton<ObjectXmlWriter>();
-        services.AddSingleton<S3ErrorXmlWriter>();
-        services.AddSingleton<IBucketXmlWriter>(sp => sp.GetRequiredService<BucketXmlWriter>());
-        services.AddSingleton<IObjectXmlWriter>(sp => sp.GetRequiredService<ObjectXmlWriter>());
-        services.AddSingleton<IS3ErrorXmlWriter>(sp => sp.GetRequiredService<S3ErrorXmlWriter>());
-        services.AddSingleton<S3XmlWriter>();
-        services.AddSingleton<IS3XmlWriter>(sp => sp.GetRequiredService<S3XmlWriter>());
-
-        services.AddSingleton<BucketXmlReader>();
-        services.AddSingleton<ObjectXmlReader>();
-        services.AddSingleton<IBucketXmlReader>(sp => sp.GetRequiredService<BucketXmlReader>());
-        services.AddSingleton<IObjectXmlReader>(sp => sp.GetRequiredService<ObjectXmlReader>());
-        services.AddSingleton<S3XmlReader>();
-        services.AddSingleton<IS3XmlReader>(sp => sp.GetRequiredService<S3XmlReader>());
-        services.AddSingleton<IHttpResultMapper, HttpResultMapper>();
-        services.AddSingleton<IWebsiteService, WebsiteService>();
-        services.AddVesselS3Actions();
-        services.AddSingleton<IS3SubresourceResolver, S3SubresourceResolver>();
-        services.AddSingleton<IVirtualHostResolver, VirtualHostResolver>();
-        services.AddSingleton<IS3BucketActionDispatcher, S3BucketActionDispatcher>();
-        services.AddSingleton<IS3KeyActionDispatcher, S3KeyActionDispatcher>();
-    }
-
-    private static void AddVesselAuth(this IServiceCollection services, VesselConfig config)
-    {
-        var rootCredential = config.AccessKey is not null && config.SecretKey is not null
-            ? new Credential(config.AccessKey, config.SecretKey, SessionToken: null, ExpiresAt: null)
-            : null;
-
-        services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<ICredentialStore>(sp => new CredentialStore(rootCredential, sp.GetRequiredService<TimeProvider>()));
-
-        if (config.Oidc is not null)
-        {
-            services.AddSingleton(config.Oidc);
-            services.AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
-            services.AddSingleton<IOidcDiscovery, OidcDiscovery>();
-            services.AddSingleton<ISigningKeys, JwksSigningKeys>();
-            services.AddSingleton<ITokenVerifier, TokenVerifier>();
-            services.AddSingleton<ISecurityTokenXmlWriter, SecurityTokenXmlWriter>();
-            services.AddSingleton<ISecurityTokenService, SecurityTokenService>();
-            services.AddSingleton<StsEndpointMiddleware>();
-        }
-
-        if (rootCredential is not null || config.Oidc is not null)
-        {
-            services.AddSingleton<ISigV4Verifier, SigV4Verifier>();
-        }
-        else
-        {
-            services.AddSingleton<ISigV4Verifier, AlwaysPassVerifier>();
-        }
+        var s3 = new S3Protocol();
+        services.AddSingleton<IVesselProtocol>(s3);
+        s3.ConfigureServices(services, config);
     }
 
     private static void AddVesselTelemetry(this IServiceCollection services)
@@ -127,16 +76,11 @@ internal static class VesselServiceExtensions
             TimeSpan.FromSeconds(60)));
     }
 
-    private static void AddVesselMiddlewares(this IServiceCollection services, VesselConfig config)
+    private static void AddVesselHostMiddlewares(this IServiceCollection services)
     {
         services.AddSingleton<RequestTelemetry>();
-        services.AddSingleton<CorsAndAccessMiddleware>();
-        services.AddSingleton<SigV4Middleware>();
         services.AddSingleton<MetricsEndpointMiddleware>();
         services.AddSingleton<AdminHostRedirectMiddleware>();
-        services.AddSingleton<VirtualHostBucketMiddleware>();
-        services.AddSingleton<WebsiteServingMiddleware>();
-        services.AddSingleton<VirtualHostS3DispatchMiddleware>();
 #if VESSEL3_UI
         services.AddSingleton<UiServingMiddleware>();
 #endif

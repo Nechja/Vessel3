@@ -17,7 +17,7 @@ internal interface IGarbageCollector
     Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge);
 }
 
-internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry, IMultipartStore multipart, IGcGate gate, GcOptions options) : IGarbageCollector
+internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry, IChunkStager stager, IGcGate gate, GcOptions options) : IGarbageCollector
 {
     public async Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge)
     {
@@ -47,7 +47,7 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
                 }
             }
 
-            var reaped = multipart.ReapAbandonedUploads(uploadCutoff);
+            var reaped = stager.ReapAbandonedSessions(uploadCutoff);
             var tempBlobsReaped = blobs.ReapAbandonedTempFiles(blobCutoff);
             return new GcReport(deleted, reaped, TimedOut: false, TempBlobsReaped: tempBlobsReaped);
         }
@@ -59,7 +59,6 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Best-effort scratch cleanup
             }
         }
     }
@@ -69,7 +68,7 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
         var writers = new Dictionary<string, StreamWriter>(StringComparer.Ordinal);
         try
         {
-            foreach (var sha in multipart.EnumerateInFlightPartShas()) Spill(writers, scratch, sha);
+            foreach (var sha in stager.EnumerateInFlightChunkShas()) Spill(writers, scratch, sha);
             foreach (var sha in registry.AllReferencedBlobs()) Spill(writers, scratch, sha);
         }
         finally

@@ -1,6 +1,5 @@
 using Vessel3.Server.Configuration;
-using Vessel3.Server.Oidc;
-using Vessel3.Server.S3;
+using Vessel3.Server.Hosting;
 #if VESSEL3_UI
 using Vessel3.Server.Ui;
 #endif
@@ -19,15 +18,9 @@ internal static class VesselPipelineExtensions
         app.UseMiddleware<UiServingMiddleware>();
 #endif
 
-        if (config.Oidc is not null)
+        foreach (var protocol in app.Services.GetServices<IVesselProtocol>())
         {
-            app.UseMiddleware<StsEndpointMiddleware>();
+            protocol.ConfigurePipeline(app, config);
         }
-
-        app.UseMiddleware<VirtualHostBucketMiddleware>();
-        app.UseMiddleware<CorsAndAccessMiddleware>();
-        app.UseMiddleware<WebsiteServingMiddleware>();
-        app.UseMiddleware<SigV4Middleware>();
-        app.UseMiddleware<VirtualHostS3DispatchMiddleware>();
     }
 }
