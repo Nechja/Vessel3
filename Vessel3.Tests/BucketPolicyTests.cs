@@ -81,7 +81,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void ReadOnly_Bucket_Blocks_Writes_For_Owner_And_Members_Except_Admin()
+    public void ReadOnly_Bucket_Blocks_Writes_For_All_Callers_Including_Admin()
     {
         var readOnlyAccess = new BucketAccess(PublicRead: false, ReadOnly: true);
 
@@ -90,8 +90,12 @@ public class BucketPolicyTests
         Assert.True(BucketPolicy.Allows(Alice, "usr_alice", readOnlyAccess, BucketCapability.Admin));
 
         Assert.True(BucketPolicy.Allows(Admin, "usr_alice", readOnlyAccess, BucketCapability.Read));
-        Assert.True(BucketPolicy.Allows(Admin, "usr_alice", readOnlyAccess, BucketCapability.Write));
+        Assert.False(BucketPolicy.Allows(Admin, "usr_alice", readOnlyAccess, BucketCapability.Write));
         Assert.True(BucketPolicy.Allows(Admin, "usr_alice", readOnlyAccess, BucketCapability.Admin));
+
+        var authRes = BucketPolicy.Authorize(Admin, "usr_alice", readOnlyAccess, "test-bucket", BucketCapability.Write);
+        Assert.True(authRes is Result.Failure);
+        Assert.IsType<BucketIsReadOnlyError>(((Result.Failure)authRes).Error);
     }
 
     [Fact]
