@@ -28,20 +28,18 @@ internal sealed class S3BucketActionDispatcher(
             return Reject(new MethodNotAllowedError($"{method} on bucket with subresource {sub}"));
         }
 
-        var caller = ctx.GetCaller();
-        if (registry is not null && entry.Action is not Bucket.CreateBucket)
+        if (entry.Action is not Bucket.CreateBucket && IsBlockedByReadOnlyAccess(method, bucket))
         {
-            if (caller is not null)
+            return Reject(new BucketIsReadOnlyError(bucket));
+        }
+
+        var caller = ctx.GetCaller();
+        if (registry is not null && entry.Action is not Bucket.CreateBucket && caller is not null)
+        {
+            var capability = ResolveRequiredCapability(method, sub);
+            if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
             {
-                var capability = ResolveRequiredCapability(method, sub);
-                if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
-                {
-                    return Reject(f.Error);
-                }
-            }
-            else if (IsBlockedByReadOnlyAccess(method, bucket))
-            {
-                return Reject(new BucketIsReadOnlyError(bucket));
+                return Reject(f.Error);
             }
         }
 
