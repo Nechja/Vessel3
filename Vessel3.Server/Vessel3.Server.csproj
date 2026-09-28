@@ -51,7 +51,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*" />
+    <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*;..\Vessel3.Client\**\*.cs;..\Vessel3.Client\**\*.csproj" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*;..\Vessel3.Client\bin\**\*;..\Vessel3.Client\obj\**\*" />
   </ItemGroup>
 
   <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
