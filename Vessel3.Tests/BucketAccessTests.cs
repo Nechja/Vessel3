@@ -116,6 +116,27 @@ public class BucketAccessTests : IDisposable
 
         var delBRes = await bucketDispatcher.Dispatch(HttpMethods.Delete, "ro-bucket", new DefaultHttpContext());
         Assert.IsType<S3ErrorResult>(delBRes);
+
+        var adminCtx = new DefaultHttpContext();
+        adminCtx.Items["CallerIdentity"] = CallerIdentity.System;
+
+        var putAdminRes = await keyDispatcher.Dispatch(HttpMethods.Put, "ro-bucket", "file.txt", adminCtx);
+        var errPutAdmin = Assert.IsType<S3ErrorResult>(putAdminRes);
+        var ctxPutAdmin = new DefaultHttpContext();
+        var msAdmin = new MemoryStream();
+        ctxPutAdmin.Response.Body = msAdmin;
+        await errPutAdmin.ExecuteAsync(ctxPutAdmin);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctxPutAdmin.Response.StatusCode);
+        msAdmin.Position = 0;
+        var xmlBody = Encoding.UTF8.GetString(msAdmin.ToArray());
+        Assert.Contains("AccessDenied", xmlBody);
+        Assert.Contains("read-only mode", xmlBody);
+
+        var delAdminRes = await keyDispatcher.Dispatch(HttpMethods.Delete, "ro-bucket", "file.txt", adminCtx);
+        Assert.IsType<S3ErrorResult>(delAdminRes);
+
+        var delBAdminRes = await bucketDispatcher.Dispatch(HttpMethods.Delete, "ro-bucket", adminCtx);
+        Assert.IsType<S3ErrorResult>(delBAdminRes);
     }
 
     [Fact]

@@ -12,21 +12,13 @@ internal static class BucketPolicy
     public static bool Allows(CallerIdentity? caller, Bucket bucket, BucketCapability capability) =>
         Allows(caller, bucket.GetOwner(), bucket.Access, capability);
 
-    public static bool Allows(CallerIdentity? caller, string? ownerId, BucketAccess access, BucketCapability capability)
-    {
-        if (capability is BucketCapability.Write && access.ReadOnly)
-            return false;
-
-        if (capability is BucketCapability.Read && access.PublicRead)
-            return true;
-
-        if (caller is null)
-            return false;
-
-        return caller.IsAdmin
-            || ((capability is BucketCapability.Read || caller.CanWrite)
-                && string.Equals(ownerId, caller.UserId, StringComparison.Ordinal));
-    }
+    public static bool Allows(CallerIdentity? caller, string? ownerId, BucketAccess access, BucketCapability capability) =>
+        !(capability is BucketCapability.Write && access.ReadOnly)
+        && ((capability is BucketCapability.Read && access.PublicRead)
+            || (caller is not null
+                && (caller.IsAdmin
+                    || ((capability is BucketCapability.Read || caller.CanWrite)
+                        && string.Equals(ownerId, caller.UserId, StringComparison.Ordinal)))));
 
     public static Result Authorize(CallerIdentity? caller, Bucket bucket, BucketCapability capability) =>
         Authorize(caller, bucket.GetOwner(), bucket.Access, bucket.Name, capability);
