@@ -21,23 +21,21 @@ internal sealed class S3KeyActionDispatcher(
 
     public async Task<IResult> Dispatch(string method, string bucket, string key, HttpContext ctx)
     {
+        if (IsBlockedByReadOnlyAccess(method, bucket))
+        {
+            return http.Map(new BucketIsReadOnlyError(bucket));
+        }
+
         var caller = ctx.GetCaller();
-        if (registry is not null)
+        if (registry is not null && caller is not null)
         {
             var capability = HttpMethods.IsGet(method) || HttpMethods.IsHead(method)
                 ? BucketCapability.Read
                 : BucketCapability.Write;
 
-            if (caller is not null)
+            if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
             {
-                if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
-                {
-                    return http.Map(f.Error);
-                }
-            }
-            else if (IsBlockedByReadOnlyAccess(method, bucket))
-            {
-                return http.Map(new BucketIsReadOnlyError(bucket));
+                return http.Map(f.Error);
             }
         }
 
