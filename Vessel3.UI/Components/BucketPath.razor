@@ -1,23 +1,23 @@
-<div class="v3-path">
-    <MudLink Href="">buckets</MudLink>
+<div class="breadcrumb">
+    <a href="">buckets</a>
     <span class="sep">/</span>
     @if (string.IsNullOrEmpty(Prefix))
     {
-        <span class="here">@Bucket</span>
+        <span class="current">@Bucket</span>
     }
     else
     {
-        <MudLink Href="@($"buckets/{Bucket}")">@Bucket</MudLink>
+        <a href="@($"buckets/{Bucket}")">@Bucket</a>
         @foreach (var (label, prefix, isLast) in Crumbs())
         {
             <span class="sep">/</span>
             @if (isLast)
             {
-                <span class="here">@label</span>
+                <span class="current">@label</span>
             }
             else
             {
-                <MudLink Href="@($"buckets/{Bucket}?prefix={Uri.EscapeDataString(prefix)}")">@label</MudLink>
+                <a href="@($"buckets/{Bucket}?prefix={Uri.EscapeDataString(prefix)}")">@label</a>
             }
         }
     }
@@ -27,7 +27,7 @@
     [Parameter] public string Bucket { get; set; } = "";
     [Parameter] public string Prefix { get; set; } = "";
 
-    IEnumerable<(string Label, string Prefix, bool IsLast)> Crumbs()
+    private IEnumerable<(string Label, string Prefix, bool IsLast)> Crumbs()
     {
         var parts = Prefix.TrimEnd('/').Split('/');
         var acc = "";

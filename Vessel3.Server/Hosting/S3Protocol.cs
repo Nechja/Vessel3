@@ -61,7 +61,9 @@ internal sealed class S3Protocol : IVesselProtocol
         {
             RequestTrace.SetAction("ListBuckets");
             ctx.Response.ContentType = "application/xml";
-            await xml.WriteListBuckets(ctx.Response.Body, registry.List(), ctx.RequestAborted);
+            var caller = ctx.GetCaller();
+            var buckets = caller is not null ? registry.List(caller) : registry.List();
+            await xml.WriteListBuckets(ctx.Response.Body, buckets, ctx.RequestAborted);
         });
 
         endpoints.MapGet("/{bucket}", static async (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
@@ -132,7 +134,10 @@ internal sealed class S3Protocol : IVesselProtocol
             : null;
 
         services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<ICredentialStore>(sp => new CredentialStore(rootCredential, sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<ICredentialStore>(sp => new CredentialStore(
+            rootCredential,
+            sp.GetRequiredService<IIdentityRegistry>(),
+            sp.GetRequiredService<TimeProvider>()));
 
         if (config.Oidc is not null)
         {

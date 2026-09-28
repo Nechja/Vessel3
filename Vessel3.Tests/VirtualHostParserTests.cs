@@ -21,9 +21,11 @@ public class VirtualHostResolverTests
 
         public Result<bool> Exists(string bucket) => existingBuckets.Contains(bucket);
 
-        public Result<bool> Create(string bucket) => true;
+        public Result<bool> Create(string bucket, string? ownerId = null) => true;
         public Result Delete(string bucket) => Result.Ok;
-        public IEnumerable<BucketInfo> List() => [];
+        public IEnumerable<BucketInfo> List(string? ownerId = null) => [];
+        public Result<string?> GetOwner(string bucket) => (string?)null;
+        public Result SetOwner(string bucket, string newOwnerId) => Result.Ok;
         public Result<PutEntry?> GetCurrentPut(string bucket, string key) => (PutEntry?)null;
         public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) => (PutEntry?)null;
         public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) => throw new NotImplementedException();

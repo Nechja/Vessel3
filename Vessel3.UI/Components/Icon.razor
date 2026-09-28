@@ -1,0 +1,85 @@
+@switch (Name)
+{
+    case "bucket":
+        <CircleStackIcon class="@CssClass" />
+        break;
+    case "folder":
+        <FolderIcon class="@CssClass" />
+        break;
+    case "file":
+        <DocumentTextIcon class="@CssClass" />
+        break;
+    case "download":
+        <ArrowDownTrayIcon class="@CssClass" />
+        break;
+    case "upload":
+        <ArrowUpTrayIcon class="@CssClass" />
+        break;
+    case "trash":
+        <TrashIcon class="@CssClass" />
+        break;
+    case "gear":
+        <Cog6ToothIcon class="@CssClass" />
+        break;
+    case "copy":
+        <ClipboardDocumentIcon class="@CssClass" />
+        break;
+    case "check":
+        <CheckCircleIcon class="@CssClass" />
+        break;
+    case "user":
+        <UserIcon class="@CssClass" />
+        break;
+    case "key":
+        <KeyIcon class="@CssClass" />
+        break;
+    case "sun":
+        <SunIcon class="@CssClass" />
+        break;
+    case "moon":
+        <MoonIcon class="@CssClass" />
+        break;
+    case "logout":
+        <ArrowRightStartOnRectangleIcon class="@CssClass" />
+        break;
+    case "login":
+        <ArrowRightEndOnRectangleIcon class="@CssClass" />
+        break;
+    case "refresh":
+        <ArrowPathIcon class="@CssClass" />
+        break;
+    case "arrow-right":
+        <ArrowRightIcon class="@CssClass" />
+        break;
+    case "close":
+        <XCircleIcon class="@CssClass" />
+        break;
+    case "shield":
+        <ShieldCheckIcon class="@CssClass" />
+        break;
+    case "search":
+        <MagnifyingGlassCircleIcon class="@CssClass" />
+        break;
+    case "bars":
+        <Bars3Icon class="@CssClass" />
+        break;
+    case "chevron-left":
+        <ChevronLeftIcon class="@CssClass" />
+        break;
+    case "chevron-right":
+        <ChevronRightIcon class="@CssClass" />
+        break;
+    case "server":
+        <ServerStackIcon class="@CssClass" />
+        break;
+    default:
+        <CircleStackIcon class="@CssClass" />
+        break;
+}
+
+@code {
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public string Class { get; set; } = "";
+
+    private string CssClass => string.IsNullOrEmpty(Class) ? "icon" : $"icon {Class}";
+}

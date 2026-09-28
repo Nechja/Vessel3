@@ -2,7 +2,6 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Xml.Linq;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
@@ -16,7 +15,6 @@ internal sealed class Login(IJSRuntime js, NavigationManager nav, UiOidc? oidc)
     private const string FlowKey = "vessel3.login";
     private const string SignedOutKey = "vessel3.signedout";
     private const int SessionSeconds = 43200;
-    private static readonly XNamespace Sts = "https://sts.amazonaws.com/doc/2011-06-15/";
     private readonly HttpClient http = new();
     private bool redirecting;
     private string? pendingReturn;
@@ -24,7 +22,6 @@ internal sealed class Login(IJSRuntime js, NavigationManager nav, UiOidc? oidc)
     private sealed record Flow(string Verifier, string State, string Nonce, string ReturnTo);
 
     private string RedirectUri => nav.BaseUri;
-    private string Origin => new Uri(nav.BaseUri).GetLeftPart(UriPartial.Authority);
 
     public async Task<UiSession?> Restore()
     {
@@ -58,7 +55,7 @@ internal sealed class Login(IJSRuntime js, NavigationManager nav, UiOidc? oidc)
         if (Str(claims, "nonce") != flow.Nonce) throw new LoginException("login nonce mismatch");
         var subject = Str(claims, "preferred_username") ?? Str(claims, "email") ?? Str(claims, "sub") ?? "?";
 
-        var session = await Exchange(idToken, subject);
+        var session = new UiSession(idToken, null, null, subject, DateTimeOffset.UtcNow.AddSeconds(SessionSeconds));
         await js.InvokeVoidAsync("sessionStorage.setItem", SessionKey, JsonSerializer.Serialize(session));
         return session;
     }
@@ -97,7 +94,7 @@ internal sealed class Login(IJSRuntime js, NavigationManager nav, UiOidc? oidc)
         await js.InvokeVoidAsync("sessionStorage.removeItem", SessionKey);
         await js.InvokeVoidAsync("sessionStorage.setItem", SignedOutKey, "1");
         var target = oidc?.EndSessionEndpoint is { } end
-            ? end + "?id_token_hint=" + Uri.EscapeDataString(session.IdToken) + "&post_logout_redirect_uri=" + Uri.EscapeDataString(RedirectUri)
+            ? end + "?id_token_hint=" + Uri.EscapeDataString(session.BearerToken ?? "") + "&post_logout_redirect_uri=" + Uri.EscapeDataString(RedirectUri)
             : RedirectUri;
         await js.InvokeVoidAsync("location.assign", target);
     }
@@ -125,34 +122,6 @@ internal sealed class Login(IJSRuntime js, NavigationManager nav, UiOidc? oidc)
         if (!resp.IsSuccessStatusCode) throw new LoginException($"token endpoint {(int)resp.StatusCode}: {body}");
         using var doc = JsonDocument.Parse(body);
         return Str(doc.RootElement, "id_token") ?? throw new LoginException("token endpoint returned no id_token");
-    }
-
-    private async Task<UiSession> Exchange(string idToken, string subject)
-    {
-        using var resp = await http.PostAsync(Origin + "/", new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["Action"] = "AssumeRoleWithWebIdentity",
-            ["WebIdentityToken"] = idToken,
-            ["DurationSeconds"] = SessionSeconds.ToString(),
-        }));
-        if (resp.Content.Headers.ContentType?.MediaType is not ("text/xml" or "application/xml"))
-            throw new LoginException($"exchange {(int)resp.StatusCode}");
-        var doc = XDocument.Parse(await resp.Content.ReadAsStringAsync());
-        if (doc.Root is null) throw new LoginException("empty exchange response");
-        if (doc.Root.Name.LocalName == "ErrorResponse")
-        {
-            var err = doc.Root.Element(Sts + "Error");
-            throw new LoginException($"{err?.Element(Sts + "Code")?.Value}: {err?.Element(Sts + "Message")?.Value}");
-        }
-        var creds = doc.Root.Element(Sts + "AssumeRoleWithWebIdentityResult")?.Element(Sts + "Credentials")
-            ?? throw new LoginException("exchange response had no credentials");
-        return new UiSession(
-            creds.Element(Sts + "AccessKeyId")!.Value,
-            creds.Element(Sts + "SecretAccessKey")!.Value,
-            creds.Element(Sts + "SessionToken")!.Value,
-            DateTimeOffset.Parse(creds.Element(Sts + "Expiration")!.Value, null, System.Globalization.DateTimeStyles.AssumeUniversal),
-            subject,
-            idToken);
     }
 
     private static T? Parse<T>(string raw) where T : class

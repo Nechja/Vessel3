@@ -172,10 +172,12 @@ public class GcGateRaceTests : IDisposable
         }
 
         public bool IsValidName(string bucket) => inner.IsValidName(bucket);
-        public Result<bool> Create(string bucket) => inner.Create(bucket);
+        public Result<bool> Create(string bucket, string? ownerId = null) => inner.Create(bucket, ownerId);
         public Result Delete(string bucket) => inner.Delete(bucket);
         public Result<bool> Exists(string bucket) => inner.Exists(bucket);
-        public IEnumerable<BucketInfo> List() => inner.List();
+        public IEnumerable<BucketInfo> List(string? ownerId = null) => inner.List(ownerId);
+        public Result<string?> GetOwner(string bucket) => inner.GetOwner(bucket);
+        public Result SetOwner(string bucket, string newOwnerId) => inner.SetOwner(bucket, newOwnerId);
         public Result<PutEntry?> GetCurrentPut(string bucket, string key) => inner.GetCurrentPut(bucket, key);
         public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) => inner.GetVersion(bucket, key, versionId);
         public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) => inner.AppendDelete(bucket, key, bypassGovernance);

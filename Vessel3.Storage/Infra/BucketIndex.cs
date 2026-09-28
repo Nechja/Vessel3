@@ -162,6 +162,26 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    public string? GetOwner()
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT value FROM meta WHERE key = 'owner'";
+        var result = cmd.ExecuteScalar();
+        return result is null or DBNull ? null : Convert.ToString(result, CultureInfo.InvariantCulture);
+    }
+
+    public void SetOwner(string ownerId)
+    {
+        using var cmd = WriteCmd();
+        cmd.CommandText = """
+            INSERT INTO meta(key, value) VALUES('owner', @ownerId)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """;
+        cmd.Parameters.AddWithValue("@ownerId", ownerId);
+        cmd.ExecuteNonQuery();
+    }
+
     public void SnapshotTo(string path)
     {
         using var cmd = writeConn!.CreateCommand();

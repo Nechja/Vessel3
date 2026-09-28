@@ -1,9 +1,18 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using Vessel3.Primitives;
+using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
-internal sealed record Credential(string AccessKey, string Secret, string? SessionToken, DateTimeOffset? ExpiresAt, string? Subject = null, string? AccountId = null);
+internal sealed record Credential(
+    string AccessKey,
+    string Secret,
+    string? SessionToken,
+    DateTimeOffset? ExpiresAt,
+    string? Subject = null,
+    string? AccountId = null,
+    CallerIdentity? Caller = null);
 
 internal interface ICredentialStore
 {
@@ -11,17 +20,38 @@ internal interface ICredentialStore
     Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null);
 }
 
-internal sealed class CredentialStore(Credential? root, TimeProvider clock) : ICredentialStore
+internal sealed class CredentialStore(Credential? root, IIdentityRegistry? identity, TimeProvider clock) : ICredentialStore
 {
     private const string SessionKeyPrefix = "ASIA";
     private const string KeyAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     private readonly ConcurrentDictionary<string, Credential> sessions = new(StringComparer.Ordinal);
 
+    public CredentialStore(Credential? root, TimeProvider clock) : this(root, null, clock) { }
+
     public Credential? Find(string accessKey)
     {
-        return root is not null && accessKey == root.AccessKey ? root
-            : sessions.TryGetValue(accessKey, out var session) ? session
-            : null;
+        if (root is not null && string.Equals(accessKey, root.AccessKey, StringComparison.Ordinal))
+            return root;
+
+        if (sessions.TryGetValue(accessKey, out var session))
+            return session;
+
+        if (identity is not null)
+        {
+            if (identity.GetAccessKey(accessKey) is Result<AccessKey?>.Success { Value: { } key }
+                && !key.IsRevoked
+                && (key.ExpiresAt is null || key.ExpiresAt > clock.GetUtcNow()))
+            {
+                if (identity.GetUser(key.UserId) is Result<User?>.Success { Value: { } user }
+                    && user.Status is UserStatus.Active)
+                {
+                    var caller = new CallerIdentity(user.Id, user.Username, user.Role, key.Id);
+                    return new Credential(key.Id, key.SecretKey, null, key.ExpiresAt, user.Username, null, caller);
+                }
+            }
+        }
+
+        return null;
     }
 
     public Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null)
@@ -30,13 +60,16 @@ internal sealed class CredentialStore(Credential? root, TimeProvider clock) : IC
         Sweep(now);
         while (true)
         {
+            var ak = SessionKeyPrefix + RandomNumberGenerator.GetString(KeyAlphabet, 16);
+            var caller = new CallerIdentity(subject, subject, UserRole.Member, ak);
             var cred = new Credential(
-                SessionKeyPrefix + RandomNumberGenerator.GetString(KeyAlphabet, 16),
+                ak,
                 RandomToken(30),
                 RandomToken(32),
                 now + ttl,
                 subject,
-                accountId);
+                accountId,
+                caller);
             if (sessions.TryAdd(cred.AccessKey, cred)) return cred;
         }
     }

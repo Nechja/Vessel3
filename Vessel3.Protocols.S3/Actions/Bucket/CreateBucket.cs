@@ -4,6 +4,12 @@ internal sealed class CreateBucket(IBucketRegistry registry, IHttpResultMapper h
 {
     public S3BucketRoute Route => new(HttpMethods.Put, S3BucketSubresource.None);
 
-    public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
-        Task.FromResult(registry.Create(bucket).Match<IResult>(_ => Results.Ok(), http.Map));
+    public Task<IResult> Invoke(string bucket, HttpContext ctx)
+    {
+        var caller = ctx.GetCaller();
+        var result = caller is not null
+            ? registry.Create(bucket, caller)
+            : registry.Create(bucket);
+        return Task.FromResult(result.Match<IResult>(_ => Results.Ok(), http.Map));
+    }
 }

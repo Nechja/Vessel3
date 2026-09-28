@@ -1,0 +1,475 @@
+@page "/iam"
+@inject IVesselClient Client
+@inject UiAuth Auth
+@inject IJSRuntime JS
+@inject UiNotifications Toast
+
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">IAM Directory</span>
+            <span class="counter">@users.Count users</span>
+        </div>
+        <div class="toolbar-actions">
+            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                <Icon Name="refresh" /> refresh
+            </button>
+            <button type="button" class="btn btn-primary" @onclick="@(() => showNewUserModal = true)">
+                <Icon Name="user" /> create user
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="callout callout-danger">
+            <div>@errorMessage</div>
+        </div>
+    }
+
+    <div>
+        <h2>Users</h2>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>username</th>
+                        <th>role</th>
+                        <th>status</th>
+                        <th>created</th>
+                        <th style="text-align: right;">actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (loading)
+                    {
+                        <tr>
+                            <td colspan="5" class="empty-state">loading users...</td>
+                        </tr>
+                    }
+                    else if (users.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="5" class="empty-state">no users found.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var u in users)
+                        {
+                            <tr style="@(selectedUser is { } sel && sel.Id == u.Id ? "background: var(--color-surface-hover);" : "")">
+                                <td>
+                                    <div class="row align-center" style="gap: var(--space-2);">
+                                        <Icon Name="user" Class="faint" />
+                                        <span class="mono" style="font-weight: var(--weight-semibold);">@u.Username</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge @(u.Role == "Admin" ? "badge-accent" : u.Role == "Member" ? "badge-mint" : "badge-neutral")">
+                                        @u.Role
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge @(u.Status == "Active" ? "badge-mint" : "badge-danger")">
+                                        @u.Status
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="mono muted">@u.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                </td>
+                                <td style="text-align: right;">
+                                    <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                        <button type="button" class="btn btn-ghost btn-sm @(selectedUser is { } s && s.Id == u.Id ? "btn-primary" : "")" @onclick="@(() => SelectUser(u))">
+                                            keys <Icon Name="arrow-right" />
+                                        </button>
+                                        @if (armedDeleteUser == u.Id)
+                                        {
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteUser(u.Id))">
+                                                confirm?
+                                            </button>
+                                            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteUser = null)">
+                                                cancel
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete user" @onclick="@(() => armedDeleteUser = u.Id)">
+                                                <Icon Name="trash" />
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (selectedUser is { } su)
+    {
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="row justify-between align-center">
+                <div>
+                    <h2>Access Keys: <span class="mono">@su.Username</span></h2>
+                    <p class="lead">API keys for programmatic and S3/SigV4 protocol access.</p>
+                </div>
+                <button type="button" class="btn btn-primary" @onclick="@(() => showNewKeyModal = true)">
+                    <Icon Name="key" /> generate key
+                </button>
+            </div>
+
+            @if (newlyCreatedKey is { } createdKey)
+            {
+                <div class="callout callout-info stack" style="gap: var(--space-3);">
+                    <div style="font-weight: var(--weight-bold); font-size: var(--text-md);">
+                        Secret Key Generated — Save It Now!
+                    </div>
+                    <div>This secret key will never be shown again. Copy and store it securely.</div>
+                    <div class="grid grid-2">
+                        <div class="field">
+                            <label>Access Key ID</label>
+                            <input class="input mono" readonly value="@createdKey.Id" />
+                        </div>
+                        <div class="field">
+                            <label>Secret Access Key</label>
+                            <div class="row" style="gap: var(--space-2);">
+                                <input class="input mono" readonly value="@createdKey.SecretKey" style="flex: 1;" />
+                                <button type="button" class="btn btn-ghost" @onclick="CopySecretKey">
+                                    <Icon Name="copy" /> copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" style="align-self: flex-start;" @onclick="@(() => newlyCreatedKey = null)">
+                        dismiss
+                    </button>
+                </div>
+            }
+
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>key id</th>
+                            <th>description</th>
+                            <th>status</th>
+                            <th>created</th>
+                            <th style="text-align: right;">actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (loadingKeys)
+                        {
+                            <tr>
+                                <td colspan="5" class="empty-state">loading keys...</td>
+                            </tr>
+                        }
+                        else if (keys.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="empty-state">no access keys found for this user.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var k in keys)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="row align-center" style="gap: var(--space-2);">
+                                            <Icon Name="key" Class="faint" />
+                                            <span class="mono" style="font-weight: var(--weight-semibold);">@k.Id</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="muted">@(string.IsNullOrEmpty(k.Description) ? "—" : k.Description)</span>
+                                    </td>
+                                    <td>
+                                        @if (k.IsRevoked)
+                                        {
+                                            <span class="badge badge-danger">revoked</span>
+                                        }
+                                        else if (k.ExpiresAt is not null && k.ExpiresAt < DateTimeOffset.UtcNow)
+                                        {
+                                            <span class="badge badge-warning">expired</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge badge-mint">active</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="mono muted">@k.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                    </td>
+                                    <td style="text-align: right;">
+                                        @if (!k.IsRevoked)
+                                        {
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => RevokeKey(k.Id))">
+                                                revoke
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<Modal IsOpen="showNewUserModal" Title="Create User" OnClose="@(() => showNewUserModal = false)">
+    <ChildContent>
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="field">
+                <label>Username</label>
+                <input class="input mono" @bind="newUsername" placeholder="username" />
+            </div>
+            <div class="field">
+                <label>Role</label>
+                <select class="select" @bind="newUserRole">
+                    <option value="Member">Member (Read / Write owned buckets)</option>
+                    <option value="Admin">Admin (Full administrative privileges)</option>
+                    <option value="ReadOnly">ReadOnly (Read only access)</option>
+                </select>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showNewUserModal = false)">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="CreateUser" disabled="@creatingUser">
+            @(creatingUser ? "creating..." : "create user")
+        </button>
+    </FooterContent>
+</Modal>
+
+<Modal IsOpen="showNewKeyModal" Title="@($"Generate Access Key: {(selectedUser.HasValue ? selectedUser.Value.Username : "")}")" OnClose="@(() => showNewKeyModal = false)">
+    <ChildContent>
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="field">
+                <label>Description (Optional)</label>
+                <input class="input" @bind="newKeyDescription" placeholder="e.g. CLI or CI token" />
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showNewKeyModal = false)">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="CreateAccessKey" disabled="@creatingKey">
+            @(creatingKey ? "generating..." : "generate key")
+        </button>
+    </FooterContent>
+</Modal>
+
+@code {
+    private List<UserDto> users = [];
+    private bool loading = true;
+    private string? errorMessage;
+    private string? armedDeleteUser;
+
+    private UserDto? selectedUser;
+    private List<AccessKeyDto> keys = [];
+    private bool loadingKeys;
+
+    private bool showNewUserModal;
+    private string newUsername = "";
+    private string newUserRole = "Member";
+    private bool creatingUser;
+
+    private bool showNewKeyModal;
+    private string newKeyDescription = "";
+    private bool creatingKey;
+    private AccessKeyDto? newlyCreatedKey;
+
+    protected override Task OnInitializedAsync() => Refresh();
+
+    private async Task Refresh()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            var res = await Client.ListUsersAsync();
+            if (res.TryGetValue(out var list, out var err))
+            {
+                users = list.OrderBy(u => u.Username, StringComparer.Ordinal).ToList();
+                if (selectedUser is { } su)
+                {
+                    var found = users.FirstOrDefault(u => u.Id == su.Id);
+                    if (found != default)
+                    {
+                        selectedUser = found;
+                        await LoadKeysForUser(found.Id);
+                    }
+                    else
+                    {
+                        selectedUser = null;
+                    }
+                }
+                else if (users.Count > 0)
+                {
+                    await SelectUser(users[0]);
+                }
+            }
+            else
+            {
+                errorMessage = err.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SelectUser(UserDto user)
+    {
+        selectedUser = user;
+        await LoadKeysForUser(user.Id);
+    }
+
+    private async Task LoadKeysForUser(string userId)
+    {
+        loadingKeys = true;
+        try
+        {
+            var res = await Client.ListAccessKeysAsync(userId);
+            if (res.TryGetValue(out var list, out var err))
+            {
+                keys = list.ToList();
+            }
+            else
+            {
+                Toast.Error($"Failed to load keys: {err.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to load keys: {ex.Message}");
+        }
+        finally
+        {
+            loadingKeys = false;
+        }
+    }
+
+    private async Task CreateUser()
+    {
+        var name = newUsername.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        creatingUser = true;
+        try
+        {
+            var res = await Client.CreateUserAsync(name, newUserRole);
+            if (!res.TryGetValue(out _, out var err))
+            {
+                Toast.Error($"Failed to create user: {err.Message}");
+                return;
+            }
+            Toast.Success($"User '{name}' created");
+            newUsername = "";
+            showNewUserModal = false;
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Create error: {ex.Message}");
+        }
+        finally
+        {
+            creatingUser = false;
+        }
+    }
+
+    private async Task DeleteUser(string userId)
+    {
+        armedDeleteUser = null;
+        try
+        {
+            var res = await Client.DeleteUserAsync(userId);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to delete user: {err.Message}");
+                return;
+            }
+            Toast.Success("User deleted");
+            if (selectedUser is { } su && su.Id == userId) selectedUser = null;
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Delete error: {ex.Message}");
+        }
+    }
+
+    private async Task CreateAccessKey()
+    {
+        if (selectedUser is not { } su) return;
+        creatingKey = true;
+        try
+        {
+            var res = await Client.CreateAccessKeyAsync(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
+            if (!res.TryGetValue(out var key, out var err))
+            {
+                Toast.Error($"Failed to generate key: {err.Message}");
+                return;
+            }
+
+            newlyCreatedKey = key;
+            keys.Insert(0, key);
+            showNewKeyModal = false;
+            newKeyDescription = "";
+            Toast.Success("Access key generated successfully");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Generate error: {ex.Message}");
+        }
+        finally
+        {
+            creatingKey = false;
+        }
+    }
+
+    private async Task RevokeKey(string keyId)
+    {
+        try
+        {
+            var res = await Client.RevokeAccessKeyAsync(keyId);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to revoke key: {err.Message}");
+                return;
+            }
+            Toast.Success("Access key revoked");
+            if (selectedUser is { } su)
+            {
+                await LoadKeysForUser(su.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Revoke error: {ex.Message}");
+        }
+    }
+
+    private async Task CopySecretKey()
+    {
+        if (newlyCreatedKey is not { } created) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", created.SecretKey);
+            Toast.Success("Secret key copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy error: {ex.Message}");
+        }
+    }
+}

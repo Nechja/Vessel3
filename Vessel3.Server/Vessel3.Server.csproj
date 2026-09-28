@@ -33,6 +33,7 @@
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -50,12 +51,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*" />
+    <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*;..\Vessel3.Client\**\*.cs;..\Vessel3.Client\**\*.csproj" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*;..\Vessel3.Client\bin\**\*;..\Vessel3.Client\obj\**\*" />
   </ItemGroup>
 
   <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; -p:BaseIntermediateOutputPath=&quot;$(UIPublishDir)obj/&quot; -p:MSBuildProjectExtensionsPath=&quot;$(UIPublishDir)obj/&quot; -p:BaseOutputPath=&quot;$(UIPublishDir)bin/&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
   </Target>
 
   <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="PrepareForBuild">

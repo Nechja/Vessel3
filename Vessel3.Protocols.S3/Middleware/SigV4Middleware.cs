@@ -5,6 +5,15 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
+        if (ctx.Request.Path.StartsWithSegments("/v1")
+            || ctx.Request.Path.StartsWithSegments("/_admin")
+            || ctx.Request.Path.StartsWithSegments("/_ui")
+            || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
+        {
+            await next(ctx);
+            return;
+        }
+
         if (ctx.Items.ContainsKey("AnonymousAllowed"))
         {
             var hasAuth = ctx.Request.Headers.ContainsKey("Authorization")
@@ -23,6 +32,10 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
         }
 
         ctx.Items["sigctx"] = sigCtx;
+        if (sigCtx.Caller is not null)
+        {
+            ctx.Items["CallerIdentity"] = sigCtx.Caller;
+        }
         await next(ctx);
     }
 }

@@ -1,0 +1,34 @@
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="HandleBackdropClick">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <div class="modal-title">@Title</div>
+                <button type="button" class="btn btn-ghost btn-icon" @onclick="Close">
+                    <Icon Name="close" />
+                </button>
+            </div>
+            <div class="modal-body">
+                @ChildContent
+            </div>
+            @if (FooterContent is not null)
+            {
+                <div class="modal-foot">
+                    @FooterContent
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private Task HandleBackdropClick() => OnClose.InvokeAsync();
+}

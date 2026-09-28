@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -23,6 +24,19 @@ internal sealed class S3KeyActionDispatcher(
         if (IsBlockedByReadOnlyAccess(method, bucket))
         {
             return http.Map(new BucketIsReadOnlyError(bucket));
+        }
+
+        var caller = ctx.GetCaller();
+        if (registry is not null && caller is not null)
+        {
+            var capability = HttpMethods.IsGet(method) || HttpMethods.IsHead(method)
+                ? BucketCapability.Read
+                : BucketCapability.Write;
+
+            if (registry.AuthorizeAccess(bucket, caller, capability) is Result.Failure f)
+            {
+                return http.Map(f.Error);
+            }
         }
 
         var sub = subresourceResolver.ResolveKey(ctx.Request.Query);

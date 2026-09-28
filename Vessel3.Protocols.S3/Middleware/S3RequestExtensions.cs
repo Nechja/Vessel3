@@ -1,3 +1,5 @@
+using Vessel3.Storage;
+
 namespace Vessel3.Server.S3;
 
 internal static class S3RequestExtensions
@@ -17,4 +19,10 @@ internal static class S3RequestExtensions
 
     public static string? CurrentVersionOf(this IBucketRegistry registry, string bucket, string key) =>
         registry.GetCurrentPut(bucket, key).TryGetValue(out var cur, out _) ? cur?.VersionId : null;
+
+    public static CallerIdentity? GetCaller(this HttpContext ctx) =>
+        ctx.Items.TryGetValue("CallerIdentity", out var obj) && obj is CallerIdentity caller ? caller : null;
+
+    public static void SetCaller(this HttpContext ctx, CallerIdentity caller) =>
+        ctx.Items["CallerIdentity"] = caller;
 }
