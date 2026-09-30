@@ -3,6 +3,7 @@
   <PropertyGroup>
     <RootNamespace>Vessel3.Protocols.Native</RootNamespace>
     <AssemblyName>Vessel3.Protocols.Native</AssemblyName>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>
