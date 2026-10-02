@@ -30,6 +30,10 @@ public readonly record struct GcReportDto(int BlobsDeleted, int UploadsReaped);
 
 public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
 
+public readonly record struct ContainerCatalogDto(IReadOnlyList<string> Repositories);
+
+public readonly record struct ContainerTagsDto(string Name, IReadOnlyList<string> Tags);
+
 public sealed record VesselObjectDownload(
     Stream Content,
     string ContentType,
@@ -65,4 +69,6 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(ErrorDto))]
 [JsonSerializable(typeof(GcReportDto))]
 [JsonSerializable(typeof(SweepReportDto))]
+[JsonSerializable(typeof(ContainerCatalogDto))]
+[JsonSerializable(typeof(ContainerTagsDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;

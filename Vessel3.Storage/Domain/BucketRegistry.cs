@@ -8,8 +8,10 @@ internal sealed record BucketRegistryOptions(string Root);
 internal sealed record VersionsPage(IReadOnlyList<AllVersionsEntry> Entries, bool IsTruncated);
 internal sealed record CurrentPage(IReadOnlyList<VersionListEntry> Entries, bool IsTruncated);
 
-internal interface IBucketRegistry : IDisposable
+internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
 {
+    string IBlobReferenceSource.ProtocolName => "S3";
+
     bool IsValidName(string bucket);
 
     Result<bool> Create(string bucket, string? ownerId = null);
@@ -96,7 +98,6 @@ internal interface IBucketRegistry : IDisposable
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
     Result PutLegalHold(string bucket, string key, string versionId, bool on);
     Result<bool> GetLegalHold(string bucket, string key, string versionId);
-    IEnumerable<string> AllReferencedBlobs();
 }
 
 internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync, IDurableWrite durableWrite) : IBucketRegistry

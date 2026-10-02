@@ -34,6 +34,7 @@
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.Oci\Vessel3.Protocols.Oci.csproj" />
   </ItemGroup>
 
   <ItemGroup>

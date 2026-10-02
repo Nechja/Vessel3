@@ -31,4 +31,8 @@ public interface IVesselClient : IDisposable
 
     Task<Result<GcReportDto>> RunGcAsync(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default);
     Task<Result<SweepReportDto>> RunSweepAsync(string? nowOverride = null, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<string>>> ListContainerTagsAsync(string repo, int limit = 100, string? last = null, CancellationToken ct = default);
+    Task<Result> DeleteContainerManifestAsync(string repo, string reference, CancellationToken ct = default);
 }

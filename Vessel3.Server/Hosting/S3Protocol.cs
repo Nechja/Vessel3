@@ -70,61 +70,61 @@ internal sealed class S3Protocol : IVesselProtocol
         {
             var result = await dispatch.Dispatch(HttpMethods.Get, bucket, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapPut("/{bucket}", static async (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Put, bucket, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapDelete("/{bucket}", static async (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Delete, bucket, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapPost("/{bucket}", static async (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Post, bucket, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapMethods("/{bucket}", ["HEAD"], static async (string bucket, HttpContext ctx, IS3BucketActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Head, bucket, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapGet("/{bucket}/{**key}", static async (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Get, bucket, key, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapPut("/{bucket}/{**key}", static async (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Put, bucket, key, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapDelete("/{bucket}/{**key}", static async (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Delete, bucket, key, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapPost("/{bucket}/{**key}", static async (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Post, bucket, key, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
 
         endpoints.MapMethods("/{bucket}/{**key}", ["HEAD"], static async (string bucket, string key, HttpContext ctx, IS3KeyActionDispatcher dispatch) =>
         {
             var result = await dispatch.Dispatch(HttpMethods.Head, bucket, key, ctx);
             await result.ExecuteAsync(ctx);
-        });
+        }).WithOrder(100);
     }
 
     private static void AddS3Auth(IServiceCollection services, VesselConfig config)

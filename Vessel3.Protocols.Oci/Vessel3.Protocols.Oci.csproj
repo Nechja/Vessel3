@@ -1,27 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>Vessel3.Storage</RootNamespace>
-    <AssemblyName>Vessel3.Storage</AssemblyName>
+    <RootNamespace>Vessel3.Protocols.Oci</RootNamespace>
+    <AssemblyName>Vessel3.Protocols.Oci</AssemblyName>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+    <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
     <PackageReference Include="Ulid" Version="*" />
-    <PackageReference Include="System.IO.Hashing" Version="*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="*" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="*" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Vessel3.Protocols.S3" />
-    <InternalsVisibleTo Include="Vessel3.Protocols.Native" />
-    <InternalsVisibleTo Include="Vessel3.Protocols.Oci" />
     <InternalsVisibleTo Include="vessel3" />
     <InternalsVisibleTo Include="Vessel3.Server" />
     <InternalsVisibleTo Include="Vessel3.Tests" />

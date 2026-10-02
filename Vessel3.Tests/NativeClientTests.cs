@@ -344,4 +344,51 @@ public class NativeClientTests : IAsyncDisposable
         Assert.False(anonWhoAmI.TryGetValue(out _, out var anonErr));
         Assert.Equal(401, anonErr.Status);
     }
+
+    [Fact]
+    public async Task ContainerRepos_ClientMethods_ListAndTagsAndDelete()
+    {
+        var (app, client) = await StartServer(
+            "client-container-repos",
+            accessKey: "root-key",
+            secretKey: "root-secret",
+            clientAccessKey: "root-key",
+            clientSecretKey: "root-secret");
+
+        // 1. Initial list of repos is empty
+        var initialRepos = await client.ListContainerReposAsync();
+        Assert.True(initialRepos.TryGetValue(out var emptyList, out _));
+        Assert.Empty(emptyList);
+
+        // 2. Put a manifest via OCI catalog directly
+        var catalog = app.Services.GetRequiredService<Vessel3.Protocols.Oci.IContainerRepoCatalog>();
+        var manifestBytes = Encoding.UTF8.GetBytes("""
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "layers": []
+        }
+        """);
+        var putRes = catalog.PutManifest("my-service", "v1.0.0", "application/vnd.docker.distribution.manifest.v2+json", manifestBytes, []);
+        Assert.True(putRes.TryGetValue(out _, out _));
+
+        // 3. ListContainerReposAsync returns the repo
+        var reposRes = await client.ListContainerReposAsync();
+        Assert.True(reposRes.TryGetValue(out var repos, out _));
+        Assert.Contains("my-service", repos);
+
+        // 4. ListContainerTagsAsync returns the tag
+        var tagsRes = await client.ListContainerTagsAsync("my-service");
+        Assert.True(tagsRes.TryGetValue(out var tags, out _));
+        Assert.Contains("v1.0.0", tags);
+
+        // 5. DeleteContainerManifestAsync deletes the tag
+        var delRes = await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+        Assert.True(delRes is Result.OkResult);
+
+        // 6. ListContainerTagsAsync now has 0 tags
+        var afterTagsRes = await client.ListContainerTagsAsync("my-service");
+        Assert.True(afterTagsRes.TryGetValue(out var afterTags, out _));
+        Assert.Empty(afterTags);
+    }
 }

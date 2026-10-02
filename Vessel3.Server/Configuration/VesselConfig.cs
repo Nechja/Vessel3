@@ -18,7 +18,8 @@ internal sealed record VesselConfig(
     TimeSpan SlowRequestThreshold,
     string? MetricsToken,
     bool MetricsAllowAnonymous,
-    OidcOptions? Oidc)
+    OidcOptions? Oidc,
+    bool ContainerReposEnabled = true)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -60,6 +61,10 @@ internal sealed record VesselConfig(
         var metricsToken = ReadString("VESSEL3_METRICS_TOKEN");
         var metricsAllowAnon = ReadBool("VESSEL3_METRICS_ALLOW_ANONYMOUS");
 
+        var ociDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_CONTAINER_REPOS_ENABLED"), "false", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Environment.GetEnvironmentVariable("VESSEL3_OCI_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
+        var containerReposEnabled = !ociDisabled;
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -73,7 +78,8 @@ internal sealed record VesselConfig(
             TimeSpan.FromMilliseconds(slowMs),
             metricsToken,
             metricsAllowAnon,
-            oidc);
+            oidc,
+            containerReposEnabled);
 
         error = null;
         return true;

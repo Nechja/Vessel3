@@ -6,6 +6,7 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
         if (ctx.Request.Path.StartsWithSegments("/v1")
+            || ctx.Request.Path.StartsWithSegments("/v2")
             || ctx.Request.Path.StartsWithSegments("/_admin")
             || ctx.Request.Path.StartsWithSegments("/_ui")
             || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))

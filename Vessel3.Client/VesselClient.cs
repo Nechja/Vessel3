@@ -252,6 +252,35 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return await ReadJson(res, VesselJsonContext.Default.SweepReportDto, ct);
     }
 
+    public async Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default)
+    {
+        var query = $"?n={limit}" + (last is not null ? $"&last={Uri.EscapeDataString(last)}" : "");
+        using var req = CreateRequest(HttpMethod.Get, $"v2/_catalog{query}");
+        using var res = await http.SendAsync(req, ct);
+        var parsed = await ReadJson(res, VesselJsonContext.Default.ContainerCatalogDto, ct);
+        return parsed.TryGetValue(out var dto, out var err)
+            ? new Result<IReadOnlyList<string>>.Success(dto.Repositories)
+            : new Result<IReadOnlyList<string>>.Failure(err);
+    }
+
+    public async Task<Result<IReadOnlyList<string>>> ListContainerTagsAsync(string repo, int limit = 100, string? last = null, CancellationToken ct = default)
+    {
+        var query = $"?n={limit}" + (last is not null ? $"&last={Uri.EscapeDataString(last)}" : "");
+        using var req = CreateRequest(HttpMethod.Get, $"v2/{Uri.EscapeDataString(repo)}/tags/list{query}");
+        using var res = await http.SendAsync(req, ct);
+        var parsed = await ReadJson(res, VesselJsonContext.Default.ContainerTagsDto, ct);
+        return parsed.TryGetValue(out var dto, out var err)
+            ? new Result<IReadOnlyList<string>>.Success(dto.Tags)
+            : new Result<IReadOnlyList<string>>.Failure(err);
+    }
+
+    public async Task<Result> DeleteContainerManifestAsync(string repo, string reference, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, $"v2/{Uri.EscapeDataString(repo)}/manifests/{Uri.EscapeDataString(reference)}");
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, path);

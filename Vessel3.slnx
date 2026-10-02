@@ -3,6 +3,7 @@
   <Project Path="Vessel3.Storage/Vessel3.Storage.csproj" />
   <Project Path="Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj" />
   <Project Path="Vessel3.Protocols.Native/Vessel3.Protocols.Native.csproj" />
+  <Project Path="Vessel3.Protocols.Oci/Vessel3.Protocols.Oci.csproj" />
   <Project Path="Vessel3.Client/Vessel3.Client.csproj" />
   <Project Path="Vessel3.Server/Vessel3.Server.csproj" />
   <Project Path="Vessel3.UI/Vessel3.UI.csproj" />

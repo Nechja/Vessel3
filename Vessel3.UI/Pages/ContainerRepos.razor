@@ -1,0 +1,319 @@
+@page "/container-repos"
+@inject IVesselClient Client
+@inject UiAuth Auth
+@inject UiNotifications Toast
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">Container Repos</span>
+            <span class="counter">@filteredRepos.Count</span>
+        </div>
+        <div class="toolbar-search">
+            <input class="input" type="search" placeholder="Filter container repos..." @bind="searchFilter" @bind:event="oninput" />
+        </div>
+        <div class="toolbar-actions">
+            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                <Icon Name="refresh" /> refresh
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="callout callout-danger">
+            <div>@errorMessage</div>
+        </div>
+    }
+
+    <div class="table-card">
+        <table>
+            <thead>
+                <tr>
+                    <th>repo name</th>
+                    <th>tags</th>
+                    <th style="text-align: right;">actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (loading)
+                {
+                    <tr>
+                        <td colspan="3" class="empty-state">loading container repos...</td>
+                    </tr>
+                }
+                else if (!filteredRepos.Any())
+                {
+                    <tr>
+                        <td colspan="3" class="empty-state">
+                            @(string.IsNullOrEmpty(searchFilter) ? "no container repos found. push an image using docker or podman." : "no matching container repos found.")
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var repo in filteredRepos)
+                    {
+                        var isExpanded = expandedRepos.Contains(repo);
+                        var tags = repoTags.TryGetValue(repo, out var list) ? list : null;
+                        var isLoadingTags = loadingTagsRepos.Contains(repo);
+
+                        <tr>
+                            <td>
+                                <div class="row align-center" style="gap: var(--space-2); cursor: pointer;" @onclick="@(() => ToggleRepo(repo))">
+                                    <Icon Name="@(isExpanded ? "chevron-down" : "chevron-right")" Class="faint" />
+                                    <Icon Name="server" Class="faint" />
+                                    <span class="mono" style="font-weight: var(--weight-semibold); color: var(--color-text);">@repo</span>
+                                </div>
+                            </td>
+                            <td>
+                                @if (tags is not null)
+                                {
+                                    <span class="badge badge-neutral">@tags.Count tags</span>
+                                }
+                                else
+                                {
+                                    <span class="mono muted" style="font-size: var(--text-xs);">click to view tags</span>
+                                }
+                            </td>
+                            <td style="text-align: right;">
+                                <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => ToggleRepo(repo))">
+                                        @(isExpanded ? "hide tags" : "view tags")
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+
+                        @if (isExpanded)
+                        {
+                            <tr>
+                                <td colspan="3" style="padding: 0; background: var(--color-surface-hover);">
+                                    <div style="padding: var(--space-3) var(--space-4);">
+                                        @if (isLoadingTags)
+                                        {
+                                            <div class="muted mono" style="font-size: var(--text-xs); padding: var(--space-2) 0;">loading tags...</div>
+                                        }
+                                        else if (tags is null || tags.Count == 0)
+                                        {
+                                            <div class="muted mono" style="font-size: var(--text-xs); padding: var(--space-2) 0;">no tags found in this repo.</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="stack" style="gap: var(--space-2);">
+                                                @foreach (var tag in tags)
+                                                {
+                                                    var pullCommand = GetPullCommand(repo, tag);
+                                                    <div class="row align-center justify-between" style="padding: var(--space-2) var(--space-3); background: var(--color-surface); border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                                                        <div class="row align-center" style="gap: var(--space-3);">
+                                                            <span class="badge badge-mint mono">@tag</span>
+                                                            <span class="mono faint" style="font-size: var(--text-xs);">@pullCommand</span>
+                                                        </div>
+                                                        <div class="row align-center" style="gap: var(--space-2);">
+                                                            <button type="button" class="btn btn-ghost btn-sm" title="Copy pull command" @onclick="@(() => CopyCommand(pullCommand))">
+                                                                <Icon Name="copy" /> copy
+                                                            </button>
+                                                            @if (armedDeleteTag == $"{repo}:{tag}")
+                                                            {
+                                                                <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteTag(repo, tag))">
+                                                                    confirm?
+                                                                </button>
+                                                                <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteTag = null)">
+                                                                    cancel
+                                                                </button>
+                                                            }
+                                                            else
+                                                            {
+                                                                <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete tag" @onclick="@(() => armedDeleteTag = $"{repo}:{tag}")">
+                                                                    <Icon Name="trash" />
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel stack" style="gap: var(--space-3);">
+        <div class="row align-center" style="gap: var(--space-2);">
+            <Icon Name="server" />
+            <span style="font-weight: var(--weight-bold); font-size: var(--text-md);">Using Vessel3 Container Repos</span>
+        </div>
+        <p class="muted" style="font-size: var(--text-sm); line-height: 1.5;">
+            Vessel3 implements the standard OCI (Docker Registry v2) Distribution Specification. You can push and pull container images using standard container runtimes like Docker, Podman, Skopeo, or ORAS.
+        </p>
+        <div class="grid grid-2" style="gap: var(--space-3);">
+            <div class="field">
+                <label>1. Authenticate with Docker / Podman</label>
+                <div class="row" style="gap: var(--space-2);">
+                    <input class="input mono" readonly value="@GetLoginCommand()" style="flex: 1; font-size: var(--text-xs);" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopyCommand(GetLoginCommand()))">
+                        <Icon Name="copy" />
+                    </button>
+                </div>
+            </div>
+            <div class="field">
+                <label>2. Push an image</label>
+                <div class="row" style="gap: var(--space-2);">
+                    <input class="input mono" readonly value="@GetPushExampleCommand()" style="flex: 1; font-size: var(--text-xs);" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopyCommand(GetPushExampleCommand()))">
+                        <Icon Name="copy" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool loading = true;
+    private string errorMessage = "";
+    private string searchFilter = "";
+    private List<string> allRepos = [];
+    private readonly HashSet<string> expandedRepos = [];
+    private readonly Dictionary<string, List<string>> repoTags = [];
+    private readonly HashSet<string> loadingTagsRepos = [];
+    private string? armedDeleteTag;
+
+    private List<string> filteredRepos => string.IsNullOrWhiteSpace(searchFilter)
+        ? allRepos
+        : allRepos.Where(r => r.Contains(searchFilter.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        loading = true;
+        errorMessage = "";
+        try
+        {
+            var res = await Client.ListContainerReposAsync();
+            if (res.TryGetValue(out var repos, out var err))
+            {
+                allRepos = repos.OrderBy(r => r, StringComparer.Ordinal).ToList();
+            }
+            else
+            {
+                errorMessage = $"Failed to load container repos: {err.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ToggleRepo(string repo)
+    {
+        if (expandedRepos.Contains(repo))
+        {
+            expandedRepos.Remove(repo);
+            return;
+        }
+
+        expandedRepos.Add(repo);
+        if (!repoTags.ContainsKey(repo))
+        {
+            await LoadTags(repo);
+        }
+    }
+
+    private async Task LoadTags(string repo)
+    {
+        loadingTagsRepos.Add(repo);
+        try
+        {
+            var res = await Client.ListContainerTagsAsync(repo);
+            if (res.TryGetValue(out var tags, out var err))
+            {
+                repoTags[repo] = tags.OrderBy(t => t, StringComparer.Ordinal).ToList();
+            }
+            else
+            {
+                Toast.Error($"Failed to load tags for {repo}: {err.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error loading tags: {ex.Message}");
+        }
+        finally
+        {
+            loadingTagsRepos.Remove(repo);
+        }
+    }
+
+    private async Task DeleteTag(string repo, string tag)
+    {
+        armedDeleteTag = null;
+        try
+        {
+            var res = await Client.DeleteContainerManifestAsync(repo, tag);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to delete tag {tag}: {err.Message}");
+                return;
+            }
+
+            Toast.Success($"Tag '{tag}' deleted from '{repo}'");
+            if (repoTags.TryGetValue(repo, out var tags))
+            {
+                tags.Remove(tag);
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Delete error: {ex.Message}");
+        }
+    }
+
+    private string GetHost()
+    {
+        try
+        {
+            var uri = new Uri(Nav.BaseUri);
+            return uri.Authority;
+        }
+        catch
+        {
+            return "localhost:8080";
+        }
+    }
+
+    private string GetPullCommand(string repo, string tag) => $"docker pull {GetHost()}/{repo}:{tag}";
+
+    private string GetLoginCommand() => $"docker login {GetHost()} -u <accessKey> -p <secretKey>";
+
+    private string GetPushExampleCommand() => $"docker push {GetHost()}/my-app:v1.0.0";
+
+    private async Task CopyCommand(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success("Copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy error: {ex.Message}");
+        }
+    }
+}

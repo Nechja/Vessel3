@@ -19,10 +19,11 @@ Built for homelab and single app use.
 - Built-in multi-user IAM: local SQLite identity store (`iam.db`), roles (`Admin`, `Member`, `ReadOnly`), user status (`Active`/`Suspended`), and scoped access keys with TTL and revocation.
 - Bucket ownership & capability isolation: tenants only see and manage their own buckets; capability checks (`Read`, `Write`, `Admin`); canned ACLs (`public-read`, `private`).
 - Dual protocol: S3 wire protocol alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
+- Multi-protocol container registry: OCI Distribution Spec / Docker Registry v2 (`/v2/...`) for storing and serving container images directly from the shared blob pool.
 - Virtual-host routing, static website hosting, lifecycle rules, multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
 - Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
 - Atomic overwrites. A reader looking up a key during a concurrent same-key overwrite sees the old value or the new value, never absence.
-- Embedded Web UI (`/_ui`) with bucket browsing, file inspection, uploads, Admin tools, and IAM Directory.
+- Embedded Web UI (`/_ui`) with bucket browsing, container repo exploration, file inspection, uploads, Admin tools, and IAM Directory.
 - Cool.
 
 ## What it isn't
@@ -46,6 +47,7 @@ Full documentation is available in the [`docs/`](docs/README.md) directory:
 | [**IAM & Access Control**](docs/iam-and-access-control.md) | Multi-user identity model, roles, access key management, bucket ownership, and policy evaluation. |
 | [**Native REST API**](docs/native-api.md) | Specification for the `/v1/...` REST API for IAM, buckets, objects, and administrative sweeps. |
 | [**C# .NET Client SDK**](docs/client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient`). |
+| [**Container Repos (OCI Registry)**](docs/container-repos.md) | OCI / Docker Registry v2 container repo distribution specification, auth, and usage recipes. |
 | [**Environment Variables Cheat Sheet**](docs/env-cheat-sheet.md) | Complete environment variable reference, category breakdown, and copy-paste `.env` profiles. |
 | [**Deployment & Operations**](docs/deployment-and-operations.md) | Docker, Kubernetes, systemd service, reverse proxy setup (Caddy), compaction, and GC. |
 | [**OIDC & Single Sign-On**](docs/oidc-and-sso.md) | OpenID Connect federation, STS AssumeRoleWithWebIdentity, JIT provisioning, and Web UI PKCE. |

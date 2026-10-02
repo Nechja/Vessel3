@@ -24,6 +24,7 @@ All configuration in Vessel3 is supplied via environment variables. No configura
 | `VESSEL3_OIDC_CLIENT_ID` | String | *unset* | OIDC | Client ID that tokens must be issued for. Required when `VESSEL3_OIDC_ISSUER` is set. |
 | `VESSEL3_OIDC_AUDIENCE` | String | *unset* | OIDC | Optional secondary audience allowed in JWTs. |
 | `VESSEL3_OIDC_REQUIRE_CLAIM` | `key=val` | *unset* | OIDC | Restricts login to tokens containing `key=val` (as a string or array element). |
+| `VESSEL3_CONTAINER_REPOS_ENABLED` | Boolean | `true` | Container Repos | Enables OCI / Docker Registry v2 container repository protocol (`/v2/...`). Also accepts `VESSEL3_OCI_ENABLED`. |
 | `ASPNETCORE_URLS` | URLs | `http://127.0.0.1:9000` | Server | Kestrel listen addresses (e.g. `http://0.0.0.0:9000`). Alternately set via CLI `--urls`. |
 
 ---
