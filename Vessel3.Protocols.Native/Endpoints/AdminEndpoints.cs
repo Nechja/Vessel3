@@ -16,6 +16,7 @@ internal static class AdminEndpoints
     {
         endpoints.MapPost("/v1/admin/gc", static async (HttpContext ctx, IGarbageCollector gc) =>
         {
+            RequestTrace.SetTarget("AdminGc");
             var caller = ctx.GetCaller();
             if (caller is null || !caller.IsAdmin)
             {
@@ -30,6 +31,7 @@ internal static class AdminEndpoints
 
         endpoints.MapPost("/v1/admin/sweep", static (HttpContext ctx, ILifecycleSweeper sweeper) =>
         {
+            RequestTrace.SetTarget("AdminSweep");
             var caller = ctx.GetCaller();
             if (caller is null || !caller.IsAdmin)
             {

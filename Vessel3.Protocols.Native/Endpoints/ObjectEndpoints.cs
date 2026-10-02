@@ -19,6 +19,7 @@ internal static class ObjectEndpoints
             IBucketLister lister,
             IBucketRegistry registry) =>
         {
+            RequestTrace.SetTarget("ListObjects", bucket);
             var caller = ctx.GetCaller();
             if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
             {
@@ -53,6 +54,7 @@ internal static class ObjectEndpoints
             IObjectStore objects,
             IBucketRegistry registry) =>
         {
+            RequestTrace.SetTarget("GetObject", bucket, key);
             var caller = ctx.GetCaller();
             if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
             {
@@ -79,6 +81,7 @@ internal static class ObjectEndpoints
             IObjectStore objects,
             IBucketRegistry registry) =>
         {
+            RequestTrace.SetTarget("HeadObject", bucket, key);
             var caller = ctx.GetCaller();
             if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
             {
@@ -105,6 +108,7 @@ internal static class ObjectEndpoints
             IObjectStore objects,
             IBucketRegistry registry) =>
         {
+            RequestTrace.SetTarget("PutObject", bucket, key);
             var caller = ctx.GetCaller();
             if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
             {
@@ -138,6 +142,7 @@ internal static class ObjectEndpoints
             IObjectStore objects,
             IBucketRegistry registry) =>
         {
+            RequestTrace.SetTarget("DeleteObject", bucket, key);
             var caller = ctx.GetCaller();
             if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
             {
