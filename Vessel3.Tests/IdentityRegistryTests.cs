@@ -232,4 +232,24 @@ public class IdentityRegistryTests : IDisposable
         Assert.True(authResult.TryGetValue(out var caller, out _));
         Assert.Equal("grace", caller.Username);
     }
+
+    [Fact]
+    public void EnsureAdminUsers_Promotes_Matching_Users_By_Substring_And_CaseInsensitive()
+    {
+        var reg = CreateRegistry();
+        var u1 = ((Result<User>.Success)reg.CreateUser("acct_kayla.dIftEd_eU48bcFmhcaiAJA", UserRole.Member)).Value;
+        var u2 = ((Result<User>.Success)reg.CreateUser("bob_standard", UserRole.Member)).Value;
+        var u3 = ((Result<User>.Success)reg.CreateUser("super_ALICE_user", UserRole.ReadOnly)).Value;
+
+        var res = reg.EnsureAdminUsers(["kayla", "alice"]);
+        Assert.Same(Result.Ok, res);
+
+        var refreshedU1 = ((Result<User?>.Success)reg.GetUser(u1.Id)).Value!;
+        var refreshedU2 = ((Result<User?>.Success)reg.GetUser(u2.Id)).Value!;
+        var refreshedU3 = ((Result<User?>.Success)reg.GetUser(u3.Id)).Value!;
+
+        Assert.Equal(UserRole.Admin, refreshedU1.Role);
+        Assert.Equal(UserRole.Member, refreshedU2.Role);
+        Assert.Equal(UserRole.Admin, refreshedU3.Role);
+    }
 }

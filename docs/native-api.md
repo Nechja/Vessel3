@@ -118,6 +118,33 @@ DELETE /v1/iam/users/{userId}
 ```
 **Response: `204 No Content`**
 
+### Update User Role (Admin only)
+```http
+PUT /v1/iam/users/{userId}/role
+Content-Type: application/json
+
+{
+  "role": "Admin"
+}
+```
+*`role` can be `"Admin"`, `"Member"`, or `"ReadOnly"`.*
+
+**Response: `204 No Content`**
+
+### Update User Status (Admin only)
+```http
+PUT /v1/iam/users/{userId}/status
+Content-Type: application/json
+
+{
+  "status": "Suspended"
+}
+```
+*`status` can be `"Active"` or `"Suspended"`.*
+
+**Response: `204 No Content`**
+
+
 ### List Access Keys for User
 ```http
 GET /v1/iam/users/{userId}/keys

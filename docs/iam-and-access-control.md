@@ -89,19 +89,46 @@ When an S3 client sets a canned ACL via `x-amz-acl`, Vessel3 translates it direc
 
 ---
 
-## Bootstrapping Initial Admin
+## Bootstrapping & Promoting Administrators
 
+Vessel3 offers both declarative configuration and runtime management to establish and promote administrators:
+
+### 1. Declarative Admin Users (`VESSEL3_ADMIN_USERS`)
+Specify a comma-separated list of usernames or substrings in your environment:
+```env
+VESSEL3_ADMIN_USERS=admin
+```
+- **"Contains-Name" Matching**: Matches both exact usernames and case-insensitive substrings. For example, `person` will match OIDC/SSO subjects like `acct_person.dIftEd_eU48bcFmhcaiAJA` or `person@example.com`.
+- **Startup Reconciliation**: On server boot, Vessel3 scans `iam.db` and immediately promotes any matching users to the `Admin` role.
+- **Login Capture**: When users authenticate via OIDC, matching subjects are automatically provisioned as or promoted to `Admin`.
+
+### 2. Root Access Key Bootstrap
 When Vessel3 starts with `VESSEL3_ACCESS_KEY` and `VESSEL3_SECRET_KEY` configured:
 1. It inspects `iam/iam.db` for a user with `username = 'admin'`.
 2. If missing, it creates the `admin` user with role `Admin` and status `Active`.
 3. If an access key with the specified ID does not exist, it inserts the bootstrap key paired with the provided secret.
 
-Subsequent users and keys can then be created via the Native API or the Web UI.
+### 3. Web UI IAM Directory (`/_ui/iam`)
+Administrators can manage users and credentials visually:
+- **Role & Status Editing**: Click **edit** on any user row to switch their role (`Admin`, `Member`, `ReadOnly`) or status (`Active`, `Suspended`).
+- **User Creation & Deletion**: Create new local users with specific initial roles, or remove accounts.
+- **Access Key Management**: Generate new access keys with optional descriptions and TTL expirations, or revoke active keys instantly.
 
----
+### 4. Native REST API Role Management
+Administrators can update user roles and statuses programmatically:
+```http
+PUT /v1/iam/users/{userId}/role
+Content-Type: application/json
+Authorization: Vessel <admin-key>:<secret>
 
-## Web UI IAM Directory
+{"role": "Admin"}
+```
 
-The embedded Web UI (`/_ui`) provides an **IAM Directory** (`/_ui/iam`):
-- **User Management**: View user list, roles, creation dates, and statuses. Create new users with role assignments, or delete users.
-- **Access Key Management**: Select any user to inspect their active access keys, view creation and expiration dates, issue new keys with optional TTL, and immediately revoke active credentials.
+```http
+PUT /v1/iam/users/{userId}/status
+Content-Type: application/json
+Authorization: Vessel <admin-key>:<secret>
+
+{"status": "Suspended"}
+```
+

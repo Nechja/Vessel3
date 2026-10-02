@@ -22,6 +22,7 @@ internal sealed class OciDispatcher(
 {
     public async Task DispatchAsync(string path, HttpContext ctx)
     {
+        ctx.Response.Headers.Append("Docker-Distribution-API-Version", "registry/2.0");
         var cleanPath = path.Trim('/');
         var method = ctx.Request.Method;
 
@@ -148,7 +149,7 @@ internal sealed class OciDispatcher(
 
         var ttl = TimeSpan.FromHours(1);
         var token = tokenService.CreateToken(userId, grantedScopes, ttl);
-        var nowIso = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        var nowIso = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
         var responseDto = new TokenResponseDto(
             Token: token,
@@ -318,7 +319,7 @@ internal sealed class OciDispatcher(
 
             ctx.Response.StatusCode = StatusCodes.Status202Accepted;
             ctx.Response.Headers.Append("Location", $"/v2/{repo}/blobs/uploads/{session.Id}");
-            ctx.Response.Headers.Append("Range", "bytes=0-0");
+            ctx.Response.Headers.Append("Range", "0-0");
             ctx.Response.Headers.Append("Docker-Upload-UUID", session.Id);
             return;
         }
@@ -350,7 +351,7 @@ internal sealed class OciDispatcher(
 
             ctx.Response.StatusCode = StatusCodes.Status202Accepted;
             ctx.Response.Headers.Append("Location", $"/v2/{repo}/blobs/uploads/{uploadId}");
-            ctx.Response.Headers.Append("Range", $"bytes=0-{Math.Max(0, totalBytes - 1)}");
+            ctx.Response.Headers.Append("Range", $"0-{Math.Max(0, totalBytes - 1)}");
             ctx.Response.Headers.Append("Docker-Upload-UUID", uploadId);
             return;
         }
@@ -418,7 +419,7 @@ internal sealed class OciDispatcher(
             }
 
             ctx.Response.StatusCode = StatusCodes.Status204NoContent;
-            ctx.Response.Headers.Append("Range", $"bytes=0-{Math.Max(0, session.BytesReceived - 1)}");
+            ctx.Response.Headers.Append("Range", $"0-{Math.Max(0, session.BytesReceived - 1)}");
             ctx.Response.Headers.Append("Docker-Upload-UUID", uploadId);
             return;
         }

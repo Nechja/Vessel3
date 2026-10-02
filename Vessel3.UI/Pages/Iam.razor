@@ -82,6 +82,9 @@
                                         <button type="button" class="btn btn-ghost btn-sm @(selectedUser is { } s && s.Id == u.Id ? "btn-primary" : "")" @onclick="@(() => SelectUser(u))">
                                             keys <Icon Name="arrow-right" />
                                         </button>
+                                        <button type="button" class="btn btn-ghost btn-sm" title="Edit user" @onclick="@(() => OpenEditUserModal(u))">
+                                            edit
+                                        </button>
                                         @if (armedDeleteUser == u.Id)
                                         {
                                             <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteUser(u.Id))">
@@ -246,6 +249,34 @@
     </FooterContent>
 </Modal>
 
+<Modal IsOpen="showEditUserModal" Title="@($"Edit User: {(editingUser.HasValue ? editingUser.Value.Username : "")}")" OnClose="@(() => showEditUserModal = false)">
+    <ChildContent>
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="field">
+                <label>Role</label>
+                <select class="select" @bind="editUserRole">
+                    <option value="Member">Member (Read / Write owned buckets)</option>
+                    <option value="Admin">Admin (Full administrative privileges)</option>
+                    <option value="ReadOnly">ReadOnly (Read only access)</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Status</label>
+                <select class="select" @bind="editUserStatus">
+                    <option value="Active">Active</option>
+                    <option value="Suspended">Suspended</option>
+                </select>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showEditUserModal = false)">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="SaveEditUser" disabled="@savingUser">
+            @(savingUser ? "saving..." : "save changes")
+        </button>
+    </FooterContent>
+</Modal>
+
 <Modal IsOpen="showNewKeyModal" Title="@($"Generate Access Key: {(selectedUser.HasValue ? selectedUser.Value.Username : "")}")" OnClose="@(() => showNewKeyModal = false)">
     <ChildContent>
         <div class="stack" style="gap: var(--space-4);">
@@ -277,6 +308,12 @@
     private string newUsername = "";
     private string newUserRole = "Member";
     private bool creatingUser;
+
+    private bool showEditUserModal;
+    private UserDto? editingUser;
+    private string editUserRole = "Member";
+    private string editUserStatus = "Active";
+    private bool savingUser;
 
     private bool showNewKeyModal;
     private string newKeyDescription = "";
@@ -405,6 +442,52 @@
         catch (Exception ex)
         {
             Toast.Error($"Delete error: {ex.Message}");
+        }
+    }
+
+    private void OpenEditUserModal(UserDto u)
+    {
+        editingUser = u;
+        editUserRole = u.Role;
+        editUserStatus = u.Status;
+        showEditUserModal = true;
+    }
+
+    private async Task SaveEditUser()
+    {
+        if (editingUser is not { } eu) return;
+        savingUser = true;
+        try
+        {
+            if (editUserRole != eu.Role)
+            {
+                var r = await Client.UpdateUserRoleAsync(eu.Id, editUserRole);
+                if (r.TryGetError(out var roleErr))
+                {
+                    Toast.Error($"Failed to update role: {roleErr.Message}");
+                    return;
+                }
+            }
+            if (editUserStatus != eu.Status)
+            {
+                var r = await Client.UpdateUserStatusAsync(eu.Id, editUserStatus);
+                if (r.TryGetError(out var statusErr))
+                {
+                    Toast.Error($"Failed to update status: {statusErr.Message}");
+                    return;
+                }
+            }
+            Toast.Success($"Updated user '{eu.Username}'");
+            showEditUserModal = false;
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Save error: {ex.Message}");
+        }
+        finally
+        {
+            savingUser = false;
         }
     }
 

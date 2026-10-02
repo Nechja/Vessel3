@@ -286,6 +286,56 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         }
     }
 
+    public Result EnsureAdminUsers(IReadOnlyList<string> adminPatterns)
+    {
+        if (adminPatterns is null || adminPatterns.Count == 0)
+            return Result.Ok;
+
+        lock (gate)
+        {
+            EnsureOpen();
+            using var cmd = conn!.CreateCommand();
+            cmd.CommandText = "SELECT id, username, role FROM users;";
+            using var reader = cmd.ExecuteReader();
+            List<string> toPromote = [];
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                var username = reader.GetString(1);
+                var role = (UserRole)reader.GetInt32(2);
+                if (role != UserRole.Admin && MatchesAdminPattern(username, adminPatterns))
+                {
+                    toPromote.Add(id);
+                }
+            }
+            reader.Close();
+
+            foreach (var id in toPromote)
+            {
+                using var updateCmd = conn.CreateCommand();
+                updateCmd.CommandText = "UPDATE users SET role = @role WHERE id = @id;";
+                updateCmd.Parameters.AddWithValue("@role", (int)UserRole.Admin);
+                updateCmd.Parameters.AddWithValue("@id", id);
+                updateCmd.ExecuteNonQuery();
+            }
+
+            return Result.Ok;
+        }
+    }
+
+    public static bool MatchesAdminPattern(string username, IReadOnlyList<string>? patterns)
+    {
+        if (patterns is null || patterns.Count == 0) return false;
+        foreach (var raw in patterns)
+        {
+            var p = raw.Trim();
+            if (string.IsNullOrEmpty(p)) continue;
+            if (username.Contains(p, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
     private User FindOrCreateAdminUser()
     {
         using var checkCmd = conn!.CreateCommand();

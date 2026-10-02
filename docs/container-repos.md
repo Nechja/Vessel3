@@ -39,33 +39,33 @@ docker login localhost:9000 -u <VESSEL3_ACCESS_KEY> -p <VESSEL3_SECRET_KEY>
 
 Tag an image for your Vessel3 instance:
 ```bash
-docker tag my-service:latest localhost:9000/my-service:v1.0.0
+docker tag drummer:latest localhost:9000/drummer:v1.0.0
 ```
 
 Push the image:
 ```bash
-docker push localhost:9000/my-service:v1.0.0
+docker push localhost:9000/drummer:v1.0.0
 ```
 
 Pull the image:
 ```bash
-docker pull localhost:9000/my-service:v1.0.0
+docker pull localhost:9000/drummer:v1.0.0
 ```
 
 ### 2. Podman
 
 ```bash
 podman login localhost:9000 --tls-verify=false -u <VESSEL3_ACCESS_KEY> -p <VESSEL3_SECRET_KEY>
-podman push --tls-verify=false my-service:latest localhost:9000/my-service:v1.0.0
-podman pull --tls-verify=false localhost:9000/my-service:v1.0.0
+podman push --tls-verify=false drummer:latest localhost:9000/drummer:v1.0.0
+podman pull --tls-verify=false localhost:9000/drummer:v1.0.0
 ```
 
 ### 3. ORAS (OCI Registry As Storage)
 
 Push arbitrary files or OCI artifacts:
 ```bash
-oras push localhost:9000/my-artifacts:v1.0.0 ./sample-artifact.tar.gz
-oras pull localhost:9000/my-artifacts:v1.0.0
+oras push localhost:9000/rainier:v1.0.0 ./sample-artifact.tar.gz
+oras pull localhost:9000/rainier:v1.0.0
 ```
 
 ---
@@ -121,5 +121,5 @@ if (reposResult.TryGetValue(out var repos, out var err))
 }
 
 // Delete a container manifest/tag
-await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+await client.DeleteContainerManifestAsync("drummer", "v1.0.0");
 ```

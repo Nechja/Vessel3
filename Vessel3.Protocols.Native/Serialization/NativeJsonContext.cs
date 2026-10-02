@@ -18,6 +18,10 @@ public readonly record struct UserDto(string Id, string Username, string Role, s
 
 public readonly record struct CreateUserRequest(string Username, string Role);
 
+public readonly record struct UpdateUserRoleRequest(string Role);
+
+public readonly record struct UpdateUserStatusRequest(string Status);
+
 public readonly record struct AccessKeyDto(string Id, string SecretKey, string UserId, string? Description, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, bool IsRevoked);
 
 public readonly record struct CreateAccessKeyRequest(string? Description, long? TtlSeconds);
@@ -43,6 +47,8 @@ public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
 [JsonSerializable(typeof(IReadOnlyList<UserDto>))]
 [JsonSerializable(typeof(List<UserDto>))]
 [JsonSerializable(typeof(CreateUserRequest))]
+[JsonSerializable(typeof(UpdateUserRoleRequest))]
+[JsonSerializable(typeof(UpdateUserStatusRequest))]
 [JsonSerializable(typeof(AccessKeyDto))]
 [JsonSerializable(typeof(IReadOnlyList<AccessKeyDto>))]
 [JsonSerializable(typeof(List<AccessKeyDto>))]

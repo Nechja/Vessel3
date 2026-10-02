@@ -2,9 +2,11 @@ using System.Buffers.Text;
 using System.Text;
 using System.Text.Json;
 
+using Vessel3.Storage;
+
 namespace Vessel3.Server.Oidc;
 
-internal sealed record VerifiedIdentity(string Subject, IReadOnlyList<string> Audiences);
+internal sealed record VerifiedIdentity(string Subject, IReadOnlyList<string> Audiences, bool IsAdmin = false);
 
 internal interface ITokenVerifier
 {
@@ -61,16 +63,19 @@ internal sealed class TokenVerifier(OidcOptions options, ISigningKeys keys, Time
         var audiences = Strings(claims, "aud");
         var subject = Str(claims, "sub") ?? Str(claims, "client_id");
         var now = clock.GetUtcNow();
-        return Str(claims, "iss")?.TrimEnd('/') != options.Issuer ? new InvalidIdentityTokenError("issuer mismatch")
-            : !AudienceAccepted(audiences) ? new InvalidIdentityTokenError("audience mismatch")
-            : Long(claims, "exp") is not { } exp ? new InvalidIdentityTokenError("token has no exp")
-            : now >= DateTimeOffset.FromUnixTimeSeconds(exp) + Leeway ? new ExpiredIdentityTokenError()
-            : Long(claims, "nbf") is { } nbf && now + Leeway < DateTimeOffset.FromUnixTimeSeconds(nbf)
-                ? new InvalidIdentityTokenError("token is not yet valid")
-            : string.IsNullOrEmpty(subject) ? new InvalidIdentityTokenError("token has no subject")
-            : options.RequiredClaim is { } required && !Strings(claims, required.Name).Contains(required.Value, StringComparer.Ordinal)
-                ? new AccessDeniedError($"token lacks required claim {required.Name}={required.Value}")
-            : new VerifiedIdentity(subject, audiences);
+        if (Str(claims, "iss")?.TrimEnd('/') != options.Issuer) return new InvalidIdentityTokenError("issuer mismatch");
+        if (!AudienceAccepted(audiences)) return new InvalidIdentityTokenError("audience mismatch");
+        if (Long(claims, "exp") is not { } exp) return new InvalidIdentityTokenError("token has no exp");
+        if (now >= DateTimeOffset.FromUnixTimeSeconds(exp) + Leeway) return new ExpiredIdentityTokenError();
+        if (Long(claims, "nbf") is { } nbf && now + Leeway < DateTimeOffset.FromUnixTimeSeconds(nbf)) return new InvalidIdentityTokenError("token is not yet valid");
+        if (string.IsNullOrEmpty(subject)) return new InvalidIdentityTokenError("token has no subject");
+        if (options.RequiredClaim is { } required && !Strings(claims, required.Name).Contains(required.Value, StringComparer.Ordinal))
+            return new AccessDeniedError($"token lacks required claim {required.Name}={required.Value}");
+
+        var isAdmin = (options.AdminClaim is { } adminClaim && Strings(claims, adminClaim.Name).Contains(adminClaim.Value, StringComparer.OrdinalIgnoreCase))
+            || IdentityRegistry.MatchesAdminPattern(subject, options.AdminUsers);
+
+        return new VerifiedIdentity(subject, audiences, isAdmin);
     }
 
     private bool AudienceAccepted(IReadOnlyList<string> audiences) =>

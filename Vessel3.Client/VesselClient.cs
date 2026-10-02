@@ -207,6 +207,22 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return await ReadJson(res, VesselJsonContext.Default.UserDto, ct);
     }
 
+    public async Task<Result> UpdateUserRoleAsync(string userId, string role, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Put, $"v1/iam/users/{Uri.EscapeDataString(userId)}/role");
+        req.Content = CreateJsonContent(new UpdateUserRoleRequest(role), VesselJsonContext.Default.UpdateUserRoleRequest);
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
+    public async Task<Result> UpdateUserStatusAsync(string userId, string status, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Put, $"v1/iam/users/{Uri.EscapeDataString(userId)}/status");
+        req.Content = CreateJsonContent(new UpdateUserStatusRequest(status), VesselJsonContext.Default.UpdateUserStatusRequest);
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
     public async Task<Result> DeleteUserAsync(string userId, CancellationToken ct = default)
     {
         using var req = CreateRequest(HttpMethod.Delete, $"v1/iam/users/{Uri.EscapeDataString(userId)}");

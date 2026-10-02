@@ -11,6 +11,7 @@ All configuration in Vessel3 is supplied via environment variables. No configura
 | `VESSEL3_DATA` | Path | `data` next to binary | Storage | Root data directory for blobs, buckets, uploads, and IAM database. |
 | `VESSEL3_ACCESS_KEY` | String | *unset* (auth disabled) | Auth / IAM | Root SigV4 access key ID. Automatically provisions the bootstrap `admin` user. |
 | `VESSEL3_SECRET_KEY` | String | *unset* (auth disabled) | Auth / IAM | Secret key paired with `VESSEL3_ACCESS_KEY`. |
+| `VESSEL3_ADMIN_USERS` | List (csv) | *unset* | Auth / IAM | Comma-separated list of usernames or substrings (e.g. `admin,kayla`) auto-promoted to `Admin`. |
 | `VESSEL3_REGION` | String | `us-east-1` | S3 Protocol | Region identifier used for SigV4 signature verification and `GetBucketLocation`. |
 | `VESSEL3_DOMAIN` | List (csv) | *unset* (path-style only) | Routing | Base domains for virtual-host routing (`s3.local,localhost`). `admin.<domain>` routes to the Web UI. |
 | `VESSEL3_METRICS_TOKEN` | String | *unset* | Telemetry | Bearer token required to access `/metrics` from non-loopback IP addresses. |
@@ -24,6 +25,7 @@ All configuration in Vessel3 is supplied via environment variables. No configura
 | `VESSEL3_OIDC_CLIENT_ID` | String | *unset* | OIDC | Client ID that tokens must be issued for. Required when `VESSEL3_OIDC_ISSUER` is set. |
 | `VESSEL3_OIDC_AUDIENCE` | String | *unset* | OIDC | Optional secondary audience allowed in JWTs. |
 | `VESSEL3_OIDC_REQUIRE_CLAIM` | `key=val` | *unset* | OIDC | Restricts login to tokens containing `key=val` (as a string or array element). |
+| `VESSEL3_OIDC_ADMIN_CLAIM` | `key=val` | *unset* | OIDC | Tokens containing `key=val` automatically receive the `Admin` role. |
 | `VESSEL3_CONTAINER_REPOS_ENABLED` | Boolean | `true` | Container Repos | Enables OCI / Docker Registry v2 container repository protocol (`/v2/...`). Also accepts `VESSEL3_OCI_ENABLED`. |
 | `ASPNETCORE_URLS` | URLs | `http://127.0.0.1:9000` | Server | Kestrel listen addresses (e.g. `http://0.0.0.0:9000`). Alternately set via CLI `--urls`. |
 

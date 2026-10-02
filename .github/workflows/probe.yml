@@ -175,3 +175,24 @@ jobs:
       - name: Server log on failure
         if: failure()
         run: tail -200 /tmp/vessel3-anon-server.log || true
+
+  container-repos:
+    runs-on: ubuntu-latest
+    name: probe (container repos)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build server (Release)
+        run: dotnet build Vessel3.Server -c Release --nologo
+
+      - name: Run container repos probe
+        run: bash tests/container-repos.sh
+
+      - name: Server log on failure
+        if: failure()
+        run: tail -200 /tmp/vessel3-oci-server.log || true
+

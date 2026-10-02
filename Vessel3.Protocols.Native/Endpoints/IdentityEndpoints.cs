@@ -85,6 +85,42 @@ internal static class IdentityEndpoints
             return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
         });
 
+        endpoints.MapPut("/v1/iam/users/{userId}/role", static async (string userId, HttpContext ctx, IIdentityRegistry identity) =>
+        {
+            var caller = ctx.GetCaller();
+            if (caller is null || !caller.IsAdmin)
+            {
+                return new AccessDeniedError("Admin role required").ToHttpResult();
+            }
+
+            var body = await ctx.Request.ReadFromJsonAsync(NativeJsonContext.Default.UpdateUserRoleRequest);
+            if (string.IsNullOrWhiteSpace(body.Role) || !Enum.TryParse<UserRole>(body.Role, ignoreCase: true, out var role))
+            {
+                return new InvalidArgumentError("Invalid role. Must be Admin, Member, or ReadOnly").ToHttpResult();
+            }
+
+            var result = identity.UpdateUserRole(userId, role);
+            return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        });
+
+        endpoints.MapPut("/v1/iam/users/{userId}/status", static async (string userId, HttpContext ctx, IIdentityRegistry identity) =>
+        {
+            var caller = ctx.GetCaller();
+            if (caller is null || !caller.IsAdmin)
+            {
+                return new AccessDeniedError("Admin role required").ToHttpResult();
+            }
+
+            var body = await ctx.Request.ReadFromJsonAsync(NativeJsonContext.Default.UpdateUserStatusRequest);
+            if (string.IsNullOrWhiteSpace(body.Status) || !Enum.TryParse<UserStatus>(body.Status, ignoreCase: true, out var status))
+            {
+                return new InvalidArgumentError("Invalid status. Must be Active or Suspended").ToHttpResult();
+            }
+
+            var result = identity.UpdateUserStatus(userId, status);
+            return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        });
+
         endpoints.MapGet("/v1/iam/users/{userId}/keys", static (string userId, HttpContext ctx, IIdentityRegistry identity) =>
         {
             var caller = ctx.GetCaller();

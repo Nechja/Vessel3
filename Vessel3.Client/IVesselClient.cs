@@ -24,6 +24,8 @@ public interface IVesselClient : IDisposable
 
     Task<Result<IReadOnlyList<UserDto>>> ListUsersAsync(CancellationToken ct = default);
     Task<Result<UserDto>> CreateUserAsync(string username, string role = "Member", CancellationToken ct = default);
+    Task<Result> UpdateUserRoleAsync(string userId, string role, CancellationToken ct = default);
+    Task<Result> UpdateUserStatusAsync(string userId, string status, CancellationToken ct = default);
     Task<Result> DeleteUserAsync(string userId, CancellationToken ct = default);
     Task<Result<AccessKeyDto>> CreateAccessKeyAsync(string userId, string? description = null, TimeSpan? ttl = null, CancellationToken ct = default);
     Task<Result<IReadOnlyList<AccessKeyDto>>> ListAccessKeysAsync(string userId, CancellationToken ct = default);

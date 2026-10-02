@@ -17,4 +17,5 @@ internal interface IIdentityRegistry : IDisposable
 
     Result<CallerIdentity> AuthenticateAccessKey(string accessKeyId);
     Result EnsureBootstrapAdmin(string? accessKey, string? secretKey);
+    Result EnsureAdminUsers(IReadOnlyList<string> adminPatterns);
 }
