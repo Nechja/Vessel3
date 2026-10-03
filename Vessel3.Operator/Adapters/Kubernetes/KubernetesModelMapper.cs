@@ -20,7 +20,7 @@ internal static class KubernetesModelMapper
 
     public static BucketDeclaration ToDeclaration(VesselBucketCustomResource cr)
     {
-        var bucketNs = string.IsNullOrWhiteSpace(cr.Metadata.Namespace) ? "default" : cr.Metadata.Namespace;
+        var bucketNs = string.IsNullOrWhiteSpace(cr.Metadata.Namespace) ? KubernetesConstants.DefaultNamespace : cr.Metadata.Namespace;
         var serverNs = string.IsNullOrWhiteSpace(cr.Spec.ServerRef.Namespace) ? bucketNs : cr.Spec.ServerRef.Namespace;
 
         BucketWebsiteDefinition? website = cr.Spec.Website is { } site
@@ -39,7 +39,7 @@ internal static class KubernetesModelMapper
 
     public static UserDeclaration ToDeclaration(VesselUserCustomResource cr)
     {
-        var userNs = string.IsNullOrWhiteSpace(cr.Metadata.Namespace) ? "default" : cr.Metadata.Namespace;
+        var userNs = string.IsNullOrWhiteSpace(cr.Metadata.Namespace) ? KubernetesConstants.DefaultNamespace : cr.Metadata.Namespace;
         var serverNs = string.IsNullOrWhiteSpace(cr.Spec.ServerRef.Namespace) ? userNs : cr.Spec.ServerRef.Namespace;
 
         var secretOutput = new SecretOutputDefinition(
@@ -65,7 +65,7 @@ internal static class KubernetesModelMapper
             Endpoint = status.Endpoint,
             AdminSecret = status.AdminSecret,
             ReadyReplicas = status.ReadyReplicas,
-            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+            Conditions = ToAdapterConditions(status.Conditions)
         });
 
     public static BucketStatusPatch ToPatch(BucketResourceStatus status) =>
@@ -74,7 +74,7 @@ internal static class KubernetesModelMapper
             Phase = status.Phase,
             SizeBytes = status.SizeBytes,
             ObjectCount = status.ObjectCount,
-            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+            Conditions = ToAdapterConditions(status.Conditions)
         });
 
     public static UserStatusPatch ToPatch(UserResourceStatus status) =>
@@ -83,8 +83,11 @@ internal static class KubernetesModelMapper
             Phase = status.Phase,
             UserId = status.UserId,
             SecretRef = status.SecretRef,
-            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+            Conditions = ToAdapterConditions(status.Conditions)
         });
+
+    private static List<Models.ResourceCondition>? ToAdapterConditions(IReadOnlyList<Domain.Models.ResourceCondition>? conditions) =>
+        conditions is { Count: > 0 } ? [.. conditions.Select(ToAdapterCondition)] : null;
 
     private static Models.ResourceCondition ToAdapterCondition(Domain.Models.ResourceCondition c) =>
         new()

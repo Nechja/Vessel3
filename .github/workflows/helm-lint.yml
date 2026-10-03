@@ -1,0 +1,52 @@
+name: Helm & Kubernetes Manifests
+
+on:
+  push:
+    branches:
+      - main
+      - ops
+    paths:
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - '.github/workflows/helm-lint.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+      - 'deploy/**'
+      - 'examples/**'
+      - '.github/workflows/helm-lint.yml'
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Lint Vessel3 Server Chart
+        run: helm lint charts/vessel3
+
+      - name: Lint Vessel3 Operator Chart
+        run: helm lint charts/vessel3-operator
+
+      - name: Template Render Test - Vessel3 Server
+        run: helm template test-vessel3 charts/vessel3 --dry-run
+
+      - name: Template Render Test - Vessel3 Operator
+        run: helm template test-operator charts/vessel3-operator --dry-run
+
+      - name: Run C# Manifest & Chart Tests
+        run: dotnet test --filter-class Vessel3.Tests.KubernetesManifestAndChartTests

@@ -16,14 +16,11 @@ public sealed class VesselHttpAdapter(IVesselClient client) : IVesselPort
         return exists ? Result.Ok : await client.CreateBucketAsync(bucket, ct);
     }
 
-    public async Task<Result> ConfigureVersioning(string bucket, string status, CancellationToken ct = default) =>
-        await client.SetBucketVersioningAsync(bucket, status, ct);
+    public Task<Result> ConfigureVersioning(string bucket, string status, CancellationToken ct = default) =>
+        client.SetBucketVersioningAsync(bucket, status, ct);
 
-    public async Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDefinition website, CancellationToken ct = default)
-    {
-        var dto = new BucketWebsiteDto(website.IndexDocument, website.ErrorDocument);
-        return await client.SetBucketWebsiteAsync(bucket, dto, ct);
-    }
+    public Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDefinition website, CancellationToken ct = default) =>
+        client.SetBucketWebsiteAsync(bucket, new BucketWebsiteDto(website.IndexDocument, website.ErrorDocument), ct);
 
     public async Task<Result> ConfigureAccess(string bucket, string access, CancellationToken ct = default)
     {
@@ -47,8 +44,8 @@ public sealed class VesselHttpAdapter(IVesselClient client) : IVesselPort
         return new BucketStatsSummary(totalSize, totalCount);
     }
 
-    public async Task<Result> DeleteBucket(string bucket, CancellationToken ct = default) =>
-        await client.DeleteBucketAsync(bucket, ct);
+    public Task<Result> DeleteBucket(string bucket, CancellationToken ct = default) =>
+        client.DeleteBucketAsync(bucket, ct);
 
     public async Task<Result> EnsureUser(string username, string role, CancellationToken ct = default)
     {

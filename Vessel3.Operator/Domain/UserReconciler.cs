@@ -42,13 +42,13 @@ public sealed partial class UserReconciler(
             if (user.SecretOutput is { } secret)
             {
                 secretName = secret.Name;
-                var endpoint = $"http://{user.ServerReference.Name}.{user.ServerReference.Namespace}.svc:9000";
+                var endpoint = user.ServerReference.BuildClusterEndpoint();
                 var secretData = new Dictionary<string, string>
                 {
                     [secret.AccessKeyField] = accessKey.AccessKeyId,
                     [secret.SecretKeyField] = accessKey.SecretAccessKey,
                     [secret.EndpointField] = endpoint,
-                    [secret.RegionField] = "us-east-1"
+                    [secret.RegionField] = ServerRegion.Default
                 };
 
                 var writeResult = await k8s.WriteUserSecret(secret.Namespace, secret.Name, secretData, ct);
@@ -78,14 +78,7 @@ public sealed partial class UserReconciler(
             userId,
             secretRef,
             errorMessage,
-            Conditions: [
-                new(
-                    ConditionTypes.Ready,
-                    phase == PhaseNames.Ready ? ConditionTypes.StatusTrue : ConditionTypes.StatusFalse,
-                    phase == PhaseNames.Ready ? ConditionTypes.ReasonReconciled : ConditionTypes.ReasonReconcileFailed,
-                    errorMessage ?? string.Empty
-                )
-            ]);
+            Conditions: [ResourceCondition.Ready(phase == PhaseNames.Ready, errorMessage)]);
 
         await k8s.UpdateUserStatus(id, status, ct);
     }

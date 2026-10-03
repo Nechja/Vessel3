@@ -29,7 +29,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
             return ReconciliationOutcome.Failure(workloadFailure.Error.Message);
         }
 
-        var endpoint = $"http://{server.Identity.Name}.{server.Identity.Namespace}.svc:{server.Port}";
+        var endpoint = server.Identity.BuildClusterEndpoint(server.Port);
         await UpdateStatus(server.Identity, PhaseNames.Ready, endpoint, secretName, null, ct);
         return ReconciliationOutcome.Success();
     }
@@ -47,14 +47,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
             endpoint,
             adminSecret,
             ReadyReplicas: phase == PhaseNames.Ready ? 1 : 0,
-            Conditions: [
-                new(
-                    ConditionTypes.Ready,
-                    phase == PhaseNames.Ready ? ConditionTypes.StatusTrue : ConditionTypes.StatusFalse,
-                    phase == PhaseNames.Ready ? ConditionTypes.ReasonReconciled : ConditionTypes.ReasonReconcileFailed,
-                    errorMessage ?? string.Empty
-                )
-            ]);
+            Conditions: [ResourceCondition.Ready(phase == PhaseNames.Ready, errorMessage)]);
 
         await k8s.UpdateServerStatus(id, status, ct);
     }

@@ -68,14 +68,7 @@ public sealed partial class BucketReconciler(
             sizeBytes,
             objectCount,
             errorMessage,
-            Conditions: [
-                new(
-                    ConditionTypes.Ready,
-                    phase == PhaseNames.Ready ? ConditionTypes.StatusTrue : ConditionTypes.StatusFalse,
-                    phase == PhaseNames.Ready ? ConditionTypes.ReasonReconciled : ConditionTypes.ReasonReconcileFailed,
-                    errorMessage ?? string.Empty
-                )
-            ]);
+            Conditions: [ResourceCondition.Ready(phase == PhaseNames.Ready, errorMessage)]);
 
         await k8s.UpdateBucketStatus(id, status, ct);
     }

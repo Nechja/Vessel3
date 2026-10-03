@@ -15,18 +15,40 @@ namespace Vessel3.Operator.Adapters.Kubernetes;
 
 public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 {
-    public async Task<IReadOnlyList<ServerDeclaration>> ListServers(CancellationToken ct = default)
+    public Task<IReadOnlyList<ServerDeclaration>> ListServers(CancellationToken ct = default) =>
+        ListCustomObjects(KubernetesConstants.ServerPlural, OperatorJsonContext.Default.VesselServerCustomResource, KubernetesModelMapper.ToDeclaration, ct);
+
+    public Task<IReadOnlyList<BucketDeclaration>> ListBuckets(CancellationToken ct = default) =>
+        ListCustomObjects(KubernetesConstants.BucketPlural, OperatorJsonContext.Default.VesselBucketCustomResource, KubernetesModelMapper.ToDeclaration, ct);
+
+    public Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default) =>
+        ListCustomObjects(KubernetesConstants.UserPlural, OperatorJsonContext.Default.VesselUserCustomResource, KubernetesModelMapper.ToDeclaration, ct);
+
+    public Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default) =>
+        PatchCustomObjectStatus(id, KubernetesConstants.ServerPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.ServerStatusPatch, ct);
+
+    public Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketResourceStatus status, CancellationToken ct = default) =>
+        PatchCustomObjectStatus(id, KubernetesConstants.BucketPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.BucketStatusPatch, ct);
+
+    public Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default) =>
+        PatchCustomObjectStatus(id, KubernetesConstants.UserPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.UserStatusPatch, ct);
+
+    private async Task<IReadOnlyList<TDeclaration>> ListCustomObjects<TResource, TDeclaration>(
+        string plural,
+        JsonTypeInfo<TResource> typeInfo,
+        Func<TResource, TDeclaration> mapper,
+        CancellationToken ct)
     {
         try
         {
             var raw = await client.CustomObjects.ListClusterCustomObjectAsync(
                 KubernetesConstants.Group,
                 KubernetesConstants.Version,
-                KubernetesConstants.ServerPlural,
+                plural,
                 cancellationToken: ct);
 
-            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselServerCustomResource);
-            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
+            var items = ExtractItems(raw, typeInfo);
+            return [.. items.Select(mapper)];
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -34,50 +56,16 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<IReadOnlyList<BucketDeclaration>> ListBuckets(CancellationToken ct = default)
+    private async Task<Result> PatchCustomObjectStatus<TPatch>(
+        ResourceIdentity id,
+        string plural,
+        TPatch patchDoc,
+        JsonTypeInfo<TPatch> typeInfo,
+        CancellationToken ct)
     {
         try
         {
-            var raw = await client.CustomObjects.ListClusterCustomObjectAsync(
-                KubernetesConstants.Group,
-                KubernetesConstants.Version,
-                KubernetesConstants.BucketPlural,
-                cancellationToken: ct);
-
-            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselBucketCustomResource);
-            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return [];
-        }
-    }
-
-    public async Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default)
-    {
-        try
-        {
-            var raw = await client.CustomObjects.ListClusterCustomObjectAsync(
-                KubernetesConstants.Group,
-                KubernetesConstants.Version,
-                KubernetesConstants.UserPlural,
-                cancellationToken: ct);
-
-            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselUserCustomResource);
-            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return [];
-        }
-    }
-
-    public async Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default)
-    {
-        try
-        {
-            var patchDoc = KubernetesModelMapper.ToPatch(status);
-            var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.ServerStatusPatch);
+            var patchJson = JsonSerializer.Serialize(patchDoc, typeInfo);
             var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
 
             await client.CustomObjects.PatchNamespacedCustomObjectStatusAsync(
@@ -85,57 +73,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 KubernetesConstants.Group,
                 KubernetesConstants.Version,
                 id.Namespace,
-                KubernetesConstants.ServerPlural,
-                id.Name,
-                cancellationToken: ct);
-
-            return Result.Ok;
-        }
-        catch (Exception ex)
-        {
-            return new Error("Unexpected", ex.Message);
-        }
-    }
-
-    public async Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketResourceStatus status, CancellationToken ct = default)
-    {
-        try
-        {
-            var patchDoc = KubernetesModelMapper.ToPatch(status);
-            var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.BucketStatusPatch);
-            var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
-
-            await client.CustomObjects.PatchNamespacedCustomObjectStatusAsync(
-                patch,
-                KubernetesConstants.Group,
-                KubernetesConstants.Version,
-                id.Namespace,
-                KubernetesConstants.BucketPlural,
-                id.Name,
-                cancellationToken: ct);
-
-            return Result.Ok;
-        }
-        catch (Exception ex)
-        {
-            return new Error("Unexpected", ex.Message);
-        }
-    }
-
-    public async Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default)
-    {
-        try
-        {
-            var patchDoc = KubernetesModelMapper.ToPatch(status);
-            var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.UserStatusPatch);
-            var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
-
-            await client.CustomObjects.PatchNamespacedCustomObjectStatusAsync(
-                patch,
-                KubernetesConstants.Group,
-                KubernetesConstants.Version,
-                id.Namespace,
-                KubernetesConstants.UserPlural,
+                plural,
                 id.Name,
                 cancellationToken: ct);
 
@@ -149,20 +87,10 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
     public async Task<Result<ServerCredentials>> EnsureServerSecret(ResourceIdentity id, string secretName, CancellationToken ct = default)
     {
-        try
+        var existing = await TryReadServerCredentials(id.Namespace, secretName, ct);
+        if (existing is not null)
         {
-            var existing = await client.CoreV1.ReadNamespacedSecretAsync(secretName, id.Namespace, cancellationToken: ct);
-            if (existing.Data is not null
-                && existing.Data.TryGetValue(KubernetesConstants.AccessKeyField, out var akBytes)
-                && existing.Data.TryGetValue(KubernetesConstants.SecretKeyField, out var skBytes))
-            {
-                var ak = Encoding.UTF8.GetString(akBytes);
-                var sk = Encoding.UTF8.GetString(skBytes);
-                return new ServerCredentials(ak, sk);
-            }
-        }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
+            return existing;
         }
 
         var newAccessKey = GenerateRandomKey("V3AK", 16);
@@ -171,7 +99,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         var secret = new V1Secret
         {
             Metadata = new V1ObjectMeta { Name = secretName, NamespaceProperty = id.Namespace },
-            Type = "Opaque",
+            Type = KubernetesConstants.SecretTypeOpaque,
             StringData = new Dictionary<string, string>
             {
                 [KubernetesConstants.AccessKeyField] = newAccessKey,
@@ -194,17 +122,10 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
     {
         try
         {
-            var secret = await client.CoreV1.ReadNamespacedSecretAsync(secretName, id.Namespace, cancellationToken: ct);
-            if (secret.Data is not null
-                && secret.Data.TryGetValue(KubernetesConstants.AccessKeyField, out var akBytes)
-                && secret.Data.TryGetValue(KubernetesConstants.SecretKeyField, out var skBytes))
-            {
-                var ak = Encoding.UTF8.GetString(akBytes);
-                var sk = Encoding.UTF8.GetString(skBytes);
-                return new ServerCredentials(ak, sk);
-            }
-
-            return new Error("NotFound", $"Secret {secretName} is missing credentials keys");
+            var creds = await TryReadServerCredentials(id.Namespace, secretName, ct);
+            return creds is not null
+                ? creds
+                : new Error("NotFound", $"Secret {secretName} is missing credentials keys");
         }
         catch (Exception ex)
         {
@@ -214,80 +135,14 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
     public async Task<Result> ReconcileServerWorkload(ServerDeclaration server, ServerCredentials credentials, CancellationToken ct = default)
     {
-        var ns = server.Identity.Namespace;
-        var name = server.Identity.Name;
-        var port = server.Port;
-        var labels = new Dictionary<string, string> { ["app.kubernetes.io/name"] = "vessel3", ["app.kubernetes.io/instance"] = name };
-
-        var service = new V1Service
-        {
-            Metadata = new V1ObjectMeta { Name = name, NamespaceProperty = ns, Labels = labels },
-            Spec = new V1ServiceSpec
-            {
-                Type = "ClusterIP",
-                Selector = labels,
-                Ports = [new V1ServicePort { Name = "http-s3", Port = port, TargetPort = port }]
-            }
-        };
-
-        var statefulSet = new V1StatefulSet
-        {
-            Metadata = new V1ObjectMeta { Name = name, NamespaceProperty = ns, Labels = labels },
-            Spec = new V1StatefulSetSpec
-            {
-                ServiceName = name,
-                Replicas = server.Replicas,
-                Selector = new V1LabelSelector { MatchLabels = labels },
-                Template = new V1PodTemplateSpec
-                {
-                    Metadata = new V1ObjectMeta { Labels = labels },
-                    Spec = new V1PodSpec
-                    {
-                        SecurityContext = new V1PodSecurityContext { FsGroup = 10001, RunAsUser = 10001, RunAsNonRoot = true },
-                        Containers = [
-                            new V1Container
-                            {
-                                Name = "vessel3",
-                                Image = server.Image,
-                                ImagePullPolicy = server.ImagePullPolicy,
-                                Ports = [new V1ContainerPort { ContainerPort = port, Name = "http" }],
-                                Env = [
-                                    new V1EnvVar { Name = "ASPNETCORE_URLS", Value = $"http://0.0.0.0:{port}" },
-                                    new V1EnvVar { Name = "VESSEL3_DATA", Value = "/data" },
-                                    new V1EnvVar { Name = "VESSEL3_ACCESS_KEY", Value = credentials.AccessKey },
-                                    new V1EnvVar { Name = "VESSEL3_SECRET_KEY", Value = credentials.SecretKey },
-                                    new V1EnvVar { Name = "VESSEL3_REGION", Value = "us-east-1" }
-                                ],
-                                VolumeMounts = [new V1VolumeMount { Name = "data", MountPath = "/data" }]
-                            }
-                        ]
-                    }
-                },
-                VolumeClaimTemplates = [
-                    new V1PersistentVolumeClaim
-                    {
-                        Metadata = new V1ObjectMeta { Name = "data" },
-                        Spec = new V1PersistentVolumeClaimSpec
-                        {
-                            AccessModes = ["ReadWriteOnce"],
-                            StorageClassName = server.StorageClassName,
-                            Resources = new V1VolumeResourceRequirements
-                            {
-                                Requests = new Dictionary<string, ResourceQuantity>
-                                {
-                                    ["storage"] = new(server.StorageSize)
-                                }
-                            }
-                        }
-                    }
-                ]
-            }
-        };
-
         try
         {
-            await ApplyService(ns, service, ct);
-            await ApplyStatefulSet(ns, statefulSet, ct);
+            var service = ServerWorkloadFactory.CreateService(server);
+            var statefulSet = ServerWorkloadFactory.CreateStatefulSet(server, credentials);
+
+            await ApplyService(server.Identity.Namespace, service, ct);
+            await ApplyStatefulSet(server.Identity.Namespace, statefulSet, ct);
+
             return Result.Ok;
         }
         catch (Exception ex)
@@ -301,27 +156,50 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         var secret = new V1Secret
         {
             Metadata = new V1ObjectMeta { Name = secretName, NamespaceProperty = @namespace },
-            Type = "Opaque",
+            Type = KubernetesConstants.SecretTypeOpaque,
             StringData = data.ToDictionary(k => k.Key, v => v.Value)
         };
 
         try
         {
-            try
-            {
-                await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
-                await client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, @namespace, cancellationToken: ct);
-            }
-            catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                await client.CoreV1.CreateNamespacedSecretAsync(secret, @namespace, cancellationToken: ct);
-            }
-
+            await UpsertSecret(@namespace, secretName, secret, ct);
             return Result.Ok;
         }
         catch (Exception ex)
         {
             return new Error("Unexpected", ex.Message);
+        }
+    }
+
+    private async Task<ServerCredentials?> TryReadServerCredentials(string @namespace, string secretName, CancellationToken ct)
+    {
+        try
+        {
+            var secret = await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
+            if (secret.Data is not null
+                && secret.Data.TryGetValue(KubernetesConstants.AccessKeyField, out var akBytes)
+                && secret.Data.TryGetValue(KubernetesConstants.SecretKeyField, out var skBytes))
+            {
+                return new ServerCredentials(Encoding.UTF8.GetString(akBytes), Encoding.UTF8.GetString(skBytes));
+            }
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+        }
+
+        return null;
+    }
+
+    private async Task UpsertSecret(string @namespace, string secretName, V1Secret secret, CancellationToken ct)
+    {
+        try
+        {
+            await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
+            await client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, @namespace, cancellationToken: ct);
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            await client.CoreV1.CreateNamespacedSecretAsync(secret, @namespace, cancellationToken: ct);
         }
     }
 

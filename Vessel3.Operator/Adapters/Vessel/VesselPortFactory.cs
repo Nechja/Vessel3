@@ -16,7 +16,7 @@ public sealed class VesselPortFactory(IKubernetesPort k8s) : IVesselPortFactory
             return credsErr;
         }
 
-        var endpoint = $"http://{serverId.Name}.{serverId.Namespace}.svc:9000";
+        var endpoint = serverId.BuildClusterEndpoint();
         var client = new VesselClient(endpoint, creds.AccessKey, creds.SecretKey);
         return new VesselHttpAdapter(client);
     }
