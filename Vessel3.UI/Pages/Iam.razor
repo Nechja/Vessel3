@@ -3,6 +3,7 @@
 @inject UiAuth Auth
 @inject IJSRuntime JS
 @inject UiNotifications Toast
+@inject NavigationManager Nav
 
 <div class="stack" style="gap: var(--space-4);">
     <div class="toolbar">
@@ -116,7 +117,7 @@
             <div class="row justify-between align-center">
                 <div>
                     <h2>Access Keys: <span class="mono">@su.Username</span></h2>
-                    <p class="lead">API keys for programmatic and S3/SigV4 protocol access.</p>
+                    <p class="lead">API keys for programmatic, S3/SigV4, and Azure Blob Storage access.</p>
                 </div>
                 <button type="button" class="btn btn-primary" @onclick="@(() => showNewKeyModal = true)">
                     <Icon Name="key" /> generate key
@@ -133,16 +134,39 @@
                     <div class="grid grid-2">
                         <div class="field">
                             <label>Access Key ID</label>
-                            <input class="input mono" readonly value="@createdKey.Id" />
+                            <div class="row" style="gap: var(--space-2);">
+                                <input class="input mono" readonly value="@createdKey.Id" style="flex: 1;" />
+                                <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.Id, "Access Key ID"))">
+                                    <Icon Name="copy" /> copy
+                                </button>
+                            </div>
                         </div>
                         <div class="field">
                             <label>Secret Access Key</label>
                             <div class="row" style="gap: var(--space-2);">
                                 <input class="input mono" readonly value="@createdKey.SecretKey" style="flex: 1;" />
-                                <button type="button" class="btn btn-ghost" @onclick="CopySecretKey">
+                                <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.SecretKey, "Secret Key"))">
                                     <Icon Name="copy" /> copy
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Azure Blob Storage Connection String</label>
+                        <div class="row" style="gap: var(--space-2);">
+                            <input class="input mono" readonly value="@GetAzureConnectionString(createdKey)" style="flex: 1;" />
+                            <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetAzureConnectionString(createdKey), "Azure connection string"))">
+                                <Icon Name="copy" /> copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>S3 / AWS CLI Environment</label>
+                        <div class="row" style="gap: var(--space-2);">
+                            <input class="input mono" readonly value="@GetS3EnvVars(createdKey)" style="flex: 1;" />
+                            <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetS3EnvVars(createdKey), "S3 environment"))">
+                                <Icon Name="copy" /> copy
+                            </button>
                         </div>
                     </div>
                     <button type="button" class="btn btn-ghost btn-sm" style="align-self: flex-start;" @onclick="@(() => newlyCreatedKey = null)">
@@ -542,13 +566,24 @@
         }
     }
 
-    private async Task CopySecretKey()
+    private string GetAzureConnectionString(AccessKeyDto key)
     {
-        if (newlyCreatedKey is not { } created) return;
+        var uri = new Uri(Nav.BaseUri);
+        var scheme = uri.Scheme;
+        var hostPort = uri.Authority;
+        var endpoint = $"{scheme}://{hostPort}/{key.Id}";
+        return $"DefaultEndpointsProtocol={scheme};AccountName={key.Id};AccountKey={key.SecretKey};BlobEndpoint={endpoint};";
+    }
+
+    private string GetS3EnvVars(AccessKeyDto key) =>
+        $"export AWS_ACCESS_KEY_ID={key.Id}\nexport AWS_SECRET_ACCESS_KEY={key.SecretKey}\nexport AWS_ENDPOINT_URL={Nav.BaseUri.TrimEnd('/')}";
+
+    private async Task CopyText(string text, string label)
+    {
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", created.SecretKey);
-            Toast.Success("Secret key copied to clipboard");
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success($"{label} copied to clipboard");
         }
         catch (Exception ex)
         {

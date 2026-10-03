@@ -26,7 +26,11 @@ public static class ContainerRepoExtensions
 
         services.AddSingleton<IContainerRepoTokenService>(sp =>
             new ContainerRepoTokenService(secretKey, sp.GetService<TimeProvider>()));
-        services.AddSingleton<ContainerRepoAuthMiddleware>();
+        services.AddSingleton<ContainerRepoAuthMiddleware>(sp => new ContainerRepoAuthMiddleware(
+            sp.GetRequiredService<IIdentityRegistry>(),
+            sp.GetRequiredService<IContainerRepoTokenService>(),
+            sp.GetRequiredService<ContainerRepoAuthOptions>(),
+            sp.GetService<ITokenAuthenticator>()));
         services.AddSingleton<IOciDispatcher, OciDispatcher>();
 
         return services;

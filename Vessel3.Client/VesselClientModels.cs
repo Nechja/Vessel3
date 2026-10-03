@@ -32,6 +32,10 @@ public readonly record struct WhoAmIDto(string UserId, string Username, string R
 
 public readonly record struct ErrorDto(string Error, string Message);
 
+public readonly record struct OciErrorDetailDto(string Code, string Message);
+
+public readonly record struct OciErrorsDto(IReadOnlyList<OciErrorDetailDto> Errors);
+
 public readonly record struct GcReportDto(int BlobsDeleted, int UploadsReaped);
 
 public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
@@ -80,4 +84,5 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(SweepReportDto))]
 [JsonSerializable(typeof(ContainerCatalogDto))]
 [JsonSerializable(typeof(ContainerTagsDto))]
+[JsonSerializable(typeof(OciErrorsDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;

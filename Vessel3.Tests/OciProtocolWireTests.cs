@@ -5,11 +5,16 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Vessel3.Client;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Oci;
 using Vessel3.Server.Configuration;
 using Vessel3.Server.Endpoints;
 using Vessel3.Server.Hosting;
+using Vessel3.Server.Oidc;
 using Vessel3.Server.Pipeline;
+using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -54,7 +59,9 @@ public class OciProtocolWireTests : IAsyncDisposable
     private async Task<(WebApplication App, HttpClient Client)> StartServer(
         string subDir,
         string? accessKey = null,
-        string? secretKey = null)
+        string? secretKey = null,
+        OidcOptions? oidc = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var dataDir = Path.Combine(testDir, subDir);
         Directory.CreateDirectory(dataDir);
@@ -72,12 +79,13 @@ public class OciProtocolWireTests : IAsyncDisposable
             SlowRequestThreshold: TimeSpan.FromSeconds(1),
             MetricsToken: null,
             MetricsAllowAnonymous: true,
-            Oidc: null,
+            Oidc: oidc,
             ContainerReposEnabled: true);
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddVessel(config);
+        configureServices?.Invoke(builder.Services);
 
         var app = builder.Build();
         app.UseVesselPipeline(config);
@@ -348,5 +356,125 @@ public class OciProtocolWireTests : IAsyncDisposable
         // Verify it is gone
         var headGoneRes = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/v2/delete-repo/manifests/v1.0.0"));
         Assert.Equal(HttpStatusCode.NotFound, headGoneRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task OidcBearerToken_CatalogAndManifestAccess_And_VesselClient_Works()
+    {
+        var fakeVerifier = new FakeVerifier(new Dictionary<string, (string Subject, bool IsAdmin)>
+        {
+            ["drummer.jwt.token"] = ("drummer", false)
+        });
+        var oidcOptions = new OidcOptions("https://issuer.example.com", "vessel3-client", "vessel3-client", null);
+
+        var (app, client) = await StartServer(
+            "oidc-con-repo",
+            accessKey: "root",
+            secretKey: "rootpass",
+            oidc: oidcOptions,
+            configureServices: s => s.AddSingleton<ITokenVerifier>(fakeVerifier));
+
+        // 1. OIDC Bearer token can fetch empty catalog
+        var req = new HttpRequestMessage(HttpMethod.Get, "/v2/_catalog");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "drummer.jwt.token");
+        var res = await client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        // 2. Upload blob layer for rainier repo
+        var layerBytes = Encoding.UTF8.GetBytes("drummer-layer-bytes");
+        var layerDigest = $"sha256:{Convert.ToHexStringLower(SHA256.HashData(layerBytes))}";
+        var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"/v2/rainier/blobs/uploads/?digest={layerDigest}")
+        {
+            Content = new ByteArrayContent(layerBytes)
+        };
+        uploadReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "drummer.jwt.token");
+        var uploadRes = await client.SendAsync(uploadReq);
+        Assert.Equal(HttpStatusCode.Created, uploadRes.StatusCode);
+
+        // 3. Put manifest with tag v1.0.0
+        var manifestJson = $$"""
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "layers": [
+                {
+                    "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+                    "size": {{layerBytes.Length}},
+                    "digest": "{{layerDigest}}"
+                }
+            ]
+        }
+        """;
+        var putReq = new HttpRequestMessage(HttpMethod.Put, "/v2/rainier/manifests/v1.0.0")
+        {
+            Content = new StringContent(manifestJson, Encoding.UTF8, "application/vnd.docker.distribution.manifest.v2+json")
+        };
+        putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "drummer.jwt.token");
+        var putRes = await client.SendAsync(putReq);
+        Assert.Equal(HttpStatusCode.Created, putRes.StatusCode);
+
+        // 4. Verify VesselClient can list container repos and tags using OIDC bearer token
+        var vesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "drummer.jwt.token"));
+        var reposResult = await vesselClient.ListContainerReposAsync();
+        Assert.True(reposResult.TryGetValue(out var repos, out var reposErr), reposErr?.Message);
+        Assert.Contains("rainier", repos);
+
+        var tagsResult = await vesselClient.ListContainerTagsAsync("rainier");
+        Assert.True(tagsResult.TryGetValue(out var tags, out var tagsErr), tagsErr?.Message);
+        Assert.Contains("v1.0.0", tags);
+
+        // 5. Verify invalid OIDC bearer token returns 401 with parsed OCI error code
+        var badVesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "invalid.jwt.token"));
+        var badResult = await badVesselClient.ListContainerReposAsync();
+        Assert.False(badResult.TryGetValue(out _, out var badErr));
+        Assert.Equal(401, badErr.Status);
+        Assert.Equal("UNAUTHORIZED", badErr.Code);
+    }
+
+    [Fact]
+    public async Task OidcBearerToken_ReadOnlyUser_CannotWriteRepositories()
+    {
+        var fakeVerifier = new FakeVerifier(new Dictionary<string, (string Subject, bool IsAdmin)>
+        {
+            ["bobby.jwt.token"] = ("bobby", false)
+        });
+        var oidcOptions = new OidcOptions("https://issuer.example.com", "vessel3-client", "vessel3-client", null);
+
+        var (app, client) = await StartServer(
+            "oidc-ro-repo",
+            accessKey: "root",
+            secretKey: "rootpass",
+            oidc: oidcOptions,
+            configureServices: s => s.AddSingleton<ITokenVerifier>(fakeVerifier));
+
+        // Create bobby as ReadOnly
+        var identity = app.Services.GetRequiredService<IIdentityRegistry>();
+        var userRes = identity.CreateUser("bobby", UserRole.ReadOnly);
+        Assert.True(userRes.TryGetValue(out _, out _));
+
+        // Read (GET _catalog) is allowed
+        var getReq = new HttpRequestMessage(HttpMethod.Get, "/v2/_catalog");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "bobby.jwt.token");
+        var getRes = await client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
+
+        // Write (POST blob upload) is forbidden (403 DENIED)
+        var postReq = new HttpRequestMessage(HttpMethod.Post, "/v2/hood/blobs/uploads/");
+        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "bobby.jwt.token");
+        var postRes = await client.SendAsync(postReq);
+        Assert.Equal(HttpStatusCode.Forbidden, postRes.StatusCode);
+
+        var postJson = await postRes.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(postJson);
+        var errCode = doc.RootElement.GetProperty("errors")[0].GetProperty("code").GetString();
+        Assert.Equal("DENIED", errCode);
+    }
+
+    private sealed class FakeVerifier(Dictionary<string, (string Subject, bool IsAdmin)> tokens) : ITokenVerifier
+    {
+        public Task<Result<VerifiedIdentity>> Verify(string token, CancellationToken ct) =>
+            Task.FromResult(tokens.TryGetValue(token, out var info)
+                ? (Result<VerifiedIdentity>)new VerifiedIdentity(info.Subject, ["vessel3-client"], info.IsAdmin)
+                : new InvalidTokenError("token signature invalid"));
     }
 }

@@ -1,7 +1,6 @@
 using Vessel3.Primitives;
-using Vessel3.Storage;
 
-namespace Vessel3.Protocols.Native;
+namespace Vessel3.Storage;
 
 internal interface ITokenAuthenticator
 {

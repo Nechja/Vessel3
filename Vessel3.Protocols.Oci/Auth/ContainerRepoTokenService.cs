@@ -56,26 +56,26 @@ internal sealed class ContainerRepoTokenService : IContainerRepoTokenService
         userId = null;
         scopes = null;
 
-        var parts = token.Split('.');
-        if (parts.Length != 3) return false;
-
-        var headerB64 = parts[0];
-        var payloadB64 = parts[1];
-        var sigB64 = parts[2];
-
-        var signingInput = $"{headerB64}.{payloadB64}";
-        using var hmac = new HMACSHA256(signingKey);
-        var expectedSig = hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput));
-
-        Span<byte> actualSig = stackalloc byte[32];
-        if (!Base64Url.TryDecodeFromChars(sigB64, actualSig, out var written) || written != 32)
-            return false;
-
-        if (!CryptographicOperations.FixedTimeEquals(expectedSig, actualSig))
-            return false;
-
         try
         {
+            var parts = token.Split('.');
+            if (parts.Length != 3) return false;
+
+            var headerB64 = parts[0];
+            var payloadB64 = parts[1];
+            var sigB64 = parts[2];
+
+            var signingInput = $"{headerB64}.{payloadB64}";
+            using var hmac = new HMACSHA256(signingKey);
+            var expectedSig = hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput));
+
+            Span<byte> actualSig = stackalloc byte[32];
+            if (!Base64Url.TryDecodeFromChars(sigB64, actualSig, out var written) || written != 32)
+                return false;
+
+            if (!CryptographicOperations.FixedTimeEquals(expectedSig, actualSig))
+                return false;
+
             var payloadBytes = Base64Url.DecodeFromChars(payloadB64);
             using var doc = JsonDocument.Parse(payloadBytes);
             var root = doc.RootElement;
