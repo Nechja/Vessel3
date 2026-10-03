@@ -231,7 +231,7 @@ public sealed class WebhookWireTests : IAsyncDisposable
 
         // Now push a container manifest to /v2/drummer/manifests/latest
         var vesselUrl = vesselApp.Urls.First();
-        using var ociHttp = new HttpClient { BaseAddress = new Uri(vesselUrl) };
+        using var ociHttp = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri(vesselUrl) };
 
         var configJson = """{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}""";
         var configBytes = Encoding.UTF8.GetBytes(configJson);
