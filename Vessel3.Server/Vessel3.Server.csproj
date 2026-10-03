@@ -35,6 +35,7 @@
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Oci\Vessel3.Protocols.Oci.csproj" />
+    <ProjectReference Include="..\Vessel3.Client\Vessel3.Client.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <ItemGroup>
@@ -55,12 +56,12 @@
     <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*;..\Vessel3.Client\**\*.cs;..\Vessel3.Client\**\*.csproj" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*;..\Vessel3.Client\bin\**\*;..\Vessel3.Client\obj\**\*" />
   </ItemGroup>
 
-  <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
+  <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" AfterTargets="ResolveProjectReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
     <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
   </Target>
 
-  <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="PrepareForBuild">
+  <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames">
     <Error Condition="!Exists('$(UIPublishDir)wwwroot\index.html')" Text="UI publish did not produce wwwroot/index.html at $(UIPublishDir)" />
     <ItemGroup>
       <_UIFile Include="$(UIPublishDir)wwwroot\**\*.*" />

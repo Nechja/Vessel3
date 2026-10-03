@@ -62,7 +62,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
             try
             {
                 using var sync = RequestTrace.Time(Stage.LogSync);
-                writer.Write(Frame(payload, crc));
+                WriteFrame(writer, payload, crc);
                 if (fileSync.SyncData(writer) is Result.Failure f) throw new IOException(f.Error.Message);
             }
             catch
@@ -107,7 +107,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
                         var payload = JsonSerializer.SerializeToUtf8Bytes(
                             new LogRecord(kept[0].Seq, DateTimeOffset.UtcNow, kept), VersionEventContext.Default.LogRecord);
                         chain = ChainCrc(0, payload);
-                        outStream.Write(Frame(payload, chain));
+                        WriteFrame(outStream, payload, chain);
                     }
                     if (fileSync.SyncData(outStream) is Result.Failure sf) throw new IOException(sf.Error.Message);
                 }
@@ -133,14 +133,17 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         }
     }
 
-    private static byte[] Frame(byte[] payload, uint crc)
+    private static void WriteFrame(Stream stream, ReadOnlySpan<byte> payload, uint crc)
     {
-        var header = Encoding.ASCII.GetBytes($"v1 {payload.Length:x8} {crc:x8} ");
-        var frame = new byte[header.Length + payload.Length + 1];
-        header.CopyTo(frame, 0);
-        payload.CopyTo(frame, header.Length);
-        frame[^1] = (byte)'\n';
-        return frame;
+        Span<byte> header = stackalloc byte[HeaderLength];
+        "v1 "u8.CopyTo(header);
+        payload.Length.TryFormat(header[3..11], out _, "x8", CultureInfo.InvariantCulture);
+        header[11] = (byte)' ';
+        crc.TryFormat(header[12..20], out _, "x8", CultureInfo.InvariantCulture);
+        header[20] = (byte)' ';
+        stream.Write(header);
+        stream.Write(payload);
+        stream.Write("\n"u8);
     }
 
     private static uint ChainCrc(uint previous, ReadOnlySpan<byte> payload)
