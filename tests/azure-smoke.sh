@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORT=${VESSEL3_AZURE_PORT:-9310}
 ENDPOINT=http://127.0.0.1:$PORT
-DATA_DIR=${VESSEL3_AZURE_DATA:-$ROOT/scratch/vessel3-azure-smoke-data-$$}
-SERVER_LOG=${VESSEL3_AZURE_LOG:-$ROOT/scratch/vessel3-azure-smoke-server.log}
+DATA_DIR=${VESSEL3_AZURE_DATA:-/tmp/vessel3-azure-smoke-data-$$}
+SERVER_LOG=${VESSEL3_AZURE_LOG:-/tmp/vessel3-azure-smoke-server.log}
 SERVER_BIN=${SERVER_BIN:-$ROOT/Vessel3.Server/bin/Release/net10.0/vessel3}
 
 export VESSEL3_DATA=$DATA_DIR
@@ -25,8 +25,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "building server (Release)..."
+  dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
+fi
+
 rm -rf "$DATA_DIR" "$SERVER_LOG"
-mkdir -p "$DATA_DIR" "$(dirname "$SERVER_LOG")"
+mkdir -p "$DATA_DIR"
 
 "$SERVER_BIN" --urls "$ENDPOINT" >> "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
@@ -36,4 +41,4 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
-"$ROOT/Vessel3.Tests.AzureCompatibility/bin/Release/net10.0/vessel3-tests-azure"
+dotnet run --project "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --no-launch-profile
