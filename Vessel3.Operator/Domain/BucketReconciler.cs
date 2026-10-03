@@ -63,7 +63,7 @@ public sealed partial class BucketReconciler(
         string? errorMessage,
         CancellationToken ct)
     {
-        var status = new BucketStatus(
+        var status = new BucketResourceStatus(
             phase,
             sizeBytes,
             objectCount,

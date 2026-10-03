@@ -9,9 +9,9 @@ public interface IKubernetesPort
     Task<IReadOnlyList<BucketDeclaration>> ListBuckets(CancellationToken ct = default);
     Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default);
 
-    Task<Result> UpdateServerStatus(ResourceIdentity id, ServerStatus status, CancellationToken ct = default);
-    Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketStatus status, CancellationToken ct = default);
-    Task<Result> UpdateUserStatus(ResourceIdentity id, UserStatus status, CancellationToken ct = default);
+    Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default);
+    Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketResourceStatus status, CancellationToken ct = default);
+    Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default);
 
     Task<Result<ServerCredentials>> EnsureServerSecret(ResourceIdentity id, string secretName, CancellationToken ct = default);
     Task<Result<ServerCredentials>> FetchServerCredentials(ResourceIdentity id, string secretName, CancellationToken ct = default);

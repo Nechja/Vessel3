@@ -42,7 +42,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
         string? errorMessage,
         CancellationToken ct)
     {
-        var status = new ServerStatus(
+        var status = new ServerResourceStatus(
             phase,
             endpoint,
             adminSecret,

@@ -1,6 +1,6 @@
 namespace Vessel3.Operator.Domain.Models;
 
-public sealed record UserStatus(
+public sealed record UserResourceStatus(
     string Phase,
     string? UserId = null,
     string? SecretRef = null,

@@ -26,7 +26,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 cancellationToken: ct);
 
             var items = ExtractItems(raw, OperatorJsonContext.Default.VesselServerCustomResource);
-            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
+            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -45,7 +45,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 cancellationToken: ct);
 
             var items = ExtractItems(raw, OperatorJsonContext.Default.VesselBucketCustomResource);
-            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
+            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -64,7 +64,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 cancellationToken: ct);
 
             var items = ExtractItems(raw, OperatorJsonContext.Default.VesselUserCustomResource);
-            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
+            return [.. items.Select(KubernetesModelMapper.ToDeclaration)];
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -72,7 +72,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateServerStatus(ResourceIdentity id, ServerStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default)
     {
         try
         {
@@ -97,7 +97,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketResourceStatus status, CancellationToken ct = default)
     {
         try
         {
@@ -122,7 +122,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateUserStatus(ResourceIdentity id, UserStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default)
     {
         try
         {

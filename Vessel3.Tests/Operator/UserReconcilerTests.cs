@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Vessel3.Operator.Adapters.Kubernetes.Models;
 using Vessel3.Operator.Domain;
+using Vessel3.Operator.Domain.Models;
 using Xunit;
 
 namespace Vessel3.Tests.Operator;
@@ -19,30 +19,24 @@ public sealed class UserReconcilerTests
     [Fact]
     public async Task Reconcile_ValidUser_EnsuresUserAndWritesSecret()
     {
-        var userCr = new VesselUserCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "app-iam", Namespace = "apps" },
-            Spec = new VesselUserSpec
-            {
-                ServerRef = new ServerReference { Name = "vessel-store", Namespace = "storage" },
-                Username = "backup-agent",
-                Role = "Admin",
-                WriteSecret = new UserSecretSpec
-                {
-                    SecretName = "backup-agent-s3-creds",
-                    SecretNamespace = "apps",
-                    Keys = new SecretKeyMapping
-                    {
-                        AccessKey = "AWS_ACCESS_KEY_ID",
-                        SecretKey = "AWS_SECRET_ACCESS_KEY",
-                        Endpoint = "AWS_ENDPOINT_URL_S3",
-                        Region = "AWS_DEFAULT_REGION"
-                    }
-                }
-            }
-        };
+        var userId = ResourceIdentity.Create("app-iam", "apps");
+        var serverId = ResourceIdentity.Create("vessel-store", "storage");
+        var secretOutput = new SecretOutputDefinition(
+            Namespace: "apps",
+            Name: "backup-agent-s3-creds",
+            AccessKeyField: "AWS_ACCESS_KEY_ID",
+            SecretKeyField: "AWS_SECRET_ACCESS_KEY",
+            EndpointField: "AWS_ENDPOINT_URL_S3",
+            RegionField: "AWS_DEFAULT_REGION");
 
-        var outcome = await reconciler.Reconcile(userCr);
+        var user = new UserDeclaration(
+            Identity: userId,
+            ServerReference: serverId,
+            Username: "backup-agent",
+            Role: "Admin",
+            SecretOutput: secretOutput);
+
+        var outcome = await reconciler.Reconcile(user);
 
         Assert.True(outcome.IsSuccessful);
         Assert.Equal("Admin", vesselFactory.Port.Users["backup-agent"]);
@@ -55,7 +49,7 @@ public sealed class UserReconcilerTests
         Assert.Equal("http://vessel-store.storage.svc:9000", secretData["AWS_ENDPOINT_URL_S3"]);
         Assert.Equal("us-east-1", secretData["AWS_DEFAULT_REGION"]);
 
-        Assert.True(k8s.UserStatuses.TryGetValue(("apps", "app-iam"), out var status));
+        Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Ready, status.Phase);
         Assert.Equal("backup-agent-s3-creds", status.SecretRef);
     }
@@ -64,20 +58,16 @@ public sealed class UserReconcilerTests
     public async Task Reconcile_ConnectionFailure_SetsErrorStatus()
     {
         vesselFactory.ShouldFailConnection = true;
-        var userCr = new VesselUserCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failed-user", Namespace = "apps" },
-            Spec = new VesselUserSpec
-            {
-                ServerRef = new ServerReference { Name = "missing-store", Namespace = "storage" },
-                Username = "test-user"
-            }
-        };
+        var userId = ResourceIdentity.Create("failed-user", "apps");
+        var user = new UserDeclaration(
+            Identity: userId,
+            ServerReference: ResourceIdentity.Create("missing-store", "storage"),
+            Username: "test-user");
 
-        var outcome = await reconciler.Reconcile(userCr);
+        var outcome = await reconciler.Reconcile(user);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.UserStatuses.TryGetValue(("apps", "failed-user"), out var status));
+        Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 
@@ -85,20 +75,16 @@ public sealed class UserReconcilerTests
     public async Task Reconcile_EnsureUserFailure_SetsErrorStatus()
     {
         vesselFactory.Port.ShouldFailEnsureUser = true;
-        var userCr = new VesselUserCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failing-user", Namespace = "apps" },
-            Spec = new VesselUserSpec
-            {
-                ServerRef = new ServerReference { Name = "vessel-store", Namespace = "storage" },
-                Username = "invalid-user"
-            }
-        };
+        var userId = ResourceIdentity.Create("failing-user", "apps");
+        var user = new UserDeclaration(
+            Identity: userId,
+            ServerReference: ResourceIdentity.Create("vessel-store", "storage"),
+            Username: "invalid-user");
 
-        var outcome = await reconciler.Reconcile(userCr);
+        var outcome = await reconciler.Reconcile(user);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.UserStatuses.TryGetValue(("apps", "failing-user"), out var status));
+        Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 
@@ -106,20 +92,16 @@ public sealed class UserReconcilerTests
     public async Task Reconcile_IssueKeyFailure_SetsErrorStatus()
     {
         vesselFactory.Port.ShouldFailIssueKey = true;
-        var userCr = new VesselUserCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failing-key-user", Namespace = "apps" },
-            Spec = new VesselUserSpec
-            {
-                ServerRef = new ServerReference { Name = "vessel-store", Namespace = "storage" },
-                Username = "test-user"
-            }
-        };
+        var userId = ResourceIdentity.Create("failing-key-user", "apps");
+        var user = new UserDeclaration(
+            Identity: userId,
+            ServerReference: ResourceIdentity.Create("vessel-store", "storage"),
+            Username: "test-user");
 
-        var outcome = await reconciler.Reconcile(userCr);
+        var outcome = await reconciler.Reconcile(user);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.UserStatuses.TryGetValue(("apps", "failing-key-user"), out var status));
+        Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 
@@ -127,20 +109,17 @@ public sealed class UserReconcilerTests
     public async Task Reconcile_SecretWriteFailure_SetsErrorStatus()
     {
         k8s.ShouldFailUserSecretWrite = true;
-        var userCr = new VesselUserCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failing-secret-user", Namespace = "apps" },
-            Spec = new VesselUserSpec
-            {
-                ServerRef = new ServerReference { Name = "vessel-store", Namespace = "storage" },
-                Username = "test-user"
-            }
-        };
+        var userId = ResourceIdentity.Create("failing-secret-user", "apps");
+        var user = new UserDeclaration(
+            Identity: userId,
+            ServerReference: ResourceIdentity.Create("vessel-store", "storage"),
+            Username: "test-user",
+            SecretOutput: new SecretOutputDefinition("apps", "failing-secret"));
 
-        var outcome = await reconciler.Reconcile(userCr);
+        var outcome = await reconciler.Reconcile(user);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.UserStatuses.TryGetValue(("apps", "failing-secret-user"), out var status));
+        Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 }

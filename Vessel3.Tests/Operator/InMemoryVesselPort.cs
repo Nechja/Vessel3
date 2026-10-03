@@ -1,5 +1,5 @@
-using Vessel3.Client;
 using Vessel3.Primitives;
+using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 
 namespace Vessel3.Tests.Operator;
@@ -8,8 +8,8 @@ public sealed class InMemoryVesselPort : IVesselPort
 {
     public HashSet<string> Buckets { get; } = [];
     public Dictionary<string, string> BucketVersioning { get; } = [];
-    public Dictionary<string, BucketWebsiteDto> BucketWebsites { get; } = [];
-    public Dictionary<string, BucketAccessDto> BucketAccesses { get; } = [];
+    public Dictionary<string, BucketWebsiteDefinition> BucketWebsites { get; } = [];
+    public Dictionary<string, string> BucketAccesses { get; } = [];
     public Dictionary<string, BucketStatsSummary> BucketStats { get; } = [];
     public Dictionary<string, string> Users { get; } = [];
     public List<UserAccessKey> IssuedKeys { get; } = [];
@@ -36,13 +36,13 @@ public sealed class InMemoryVesselPort : IVesselPort
         return Task.FromResult(Result.Ok);
     }
 
-    public Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDto website, CancellationToken ct = default)
+    public Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDefinition website, CancellationToken ct = default)
     {
         BucketWebsites[bucket] = website;
         return Task.FromResult(Result.Ok);
     }
 
-    public Task<Result> ConfigureAccess(string bucket, BucketAccessDto access, CancellationToken ct = default)
+    public Task<Result> ConfigureAccess(string bucket, string access, CancellationToken ct = default)
     {
         BucketAccesses[bucket] = access;
         return Task.FromResult(Result.Ok);

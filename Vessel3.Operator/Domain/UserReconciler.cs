@@ -73,7 +73,7 @@ public sealed partial class UserReconciler(
         string? errorMessage,
         CancellationToken ct)
     {
-        var status = new UserStatus(
+        var status = new UserResourceStatus(
             phase,
             userId,
             secretRef,

@@ -27,7 +27,10 @@ public sealed class VesselHttpAdapter(IVesselClient client) : IVesselPort
 
     public async Task<Result> ConfigureAccess(string bucket, string access, CancellationToken ct = default)
     {
-        var dto = new BucketAccessDto(access);
+        var publicRead = string.Equals(access, "public-read", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(access, "public", StringComparison.OrdinalIgnoreCase);
+        var readOnly = string.Equals(access, "readonly", StringComparison.OrdinalIgnoreCase);
+        var dto = new BucketAccessDto(publicRead, readOnly);
         return await client.SetBucketAccessAsync(bucket, dto, ct);
     }
 

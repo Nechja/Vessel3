@@ -1,4 +1,5 @@
 using Vessel3.Operator.Adapters.Kubernetes.Models;
+using Vessel3.Operator.Adapters.Serialization;
 using Vessel3.Operator.Domain.Models;
 
 namespace Vessel3.Operator.Adapters.Kubernetes;
@@ -57,29 +58,33 @@ internal static class KubernetesModelMapper
             SecretOutput: secretOutput);
     }
 
-    public static ServerStatusPatch ToPatch(ServerStatus status) =>
-        new(new ServerStatusPatchBody(
-            status.Phase,
-            status.Endpoint,
-            status.AdminSecret,
-            status.ReadyReplicas,
-            status.Conditions?.Select(ToAdapterCondition).ToList()));
+    public static ServerStatusPatch ToPatch(ServerResourceStatus status) =>
+        new(new VesselServerStatus
+        {
+            Phase = status.Phase,
+            Endpoint = status.Endpoint,
+            AdminSecret = status.AdminSecret,
+            ReadyReplicas = status.ReadyReplicas,
+            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+        });
 
-    public static BucketStatusPatch ToPatch(BucketStatus status) =>
-        new(new BucketStatusPatchBody(
-            status.Phase,
-            status.SizeBytes,
-            status.ObjectCount,
-            status.ErrorMessage,
-            status.Conditions?.Select(ToAdapterCondition).ToList()));
+    public static BucketStatusPatch ToPatch(BucketResourceStatus status) =>
+        new(new VesselBucketStatus
+        {
+            Phase = status.Phase,
+            SizeBytes = status.SizeBytes,
+            ObjectCount = status.ObjectCount,
+            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+        });
 
-    public static UserStatusPatch ToPatch(UserStatus status) =>
-        new(new UserStatusPatchBody(
-            status.Phase,
-            status.UserId,
-            status.SecretRef,
-            status.ErrorMessage,
-            status.Conditions?.Select(ToAdapterCondition).ToList()));
+    public static UserStatusPatch ToPatch(UserResourceStatus status) =>
+        new(new VesselUserStatus
+        {
+            Phase = status.Phase,
+            UserId = status.UserId,
+            SecretRef = status.SecretRef,
+            Conditions = status.Conditions?.Select(ToAdapterCondition).ToList()
+        });
 
     private static Models.ResourceCondition ToAdapterCondition(Domain.Models.ResourceCondition c) =>
         new()

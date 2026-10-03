@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Vessel3.Operator.Adapters.Kubernetes.Models;
 using Vessel3.Operator.Domain;
+using Vessel3.Operator.Domain.Models;
 using Xunit;
 
 namespace Vessel3.Tests.Operator;
@@ -18,21 +18,17 @@ public sealed class ServerReconcilerTests
     [Fact]
     public async Task Reconcile_ValidServer_SetsReadyStatusAndProvisionsWorkload()
     {
-        var server = new VesselServerCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "test-store", Namespace = "storage" },
-            Spec = new VesselServerSpec
-            {
-                Replicas = 1,
-                Service = new VesselServerServiceSpec { Port = 9000 },
-                Auth = new VesselServerAuthSpec { AdminSecretName = "test-store-admin-creds" }
-            }
-        };
+        var serverId = ResourceIdentity.Create("test-store", "storage");
+        var server = new ServerDeclaration(
+            Identity: serverId,
+            Replicas: 1,
+            Port: 9000,
+            AdminSecretName: "test-store-admin-creds");
 
         var outcome = await reconciler.Reconcile(server);
 
         Assert.True(outcome.IsSuccessful);
-        Assert.True(k8s.ServerStatuses.TryGetValue(("storage", "test-store"), out var status));
+        Assert.True(k8s.ServerStatuses.TryGetValue(serverId, out var status));
         Assert.Equal(PhaseNames.Ready, status.Phase);
         Assert.Equal("http://test-store.storage.svc:9000", status.Endpoint);
         Assert.Equal("test-store-admin-creds", status.AdminSecret);
@@ -43,16 +39,13 @@ public sealed class ServerReconcilerTests
     public async Task Reconcile_SecretCreationFailure_SetsErrorStatus()
     {
         k8s.ShouldFailSecretCreation = true;
-        var server = new VesselServerCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failing-store", Namespace = "default" },
-            Spec = new VesselServerSpec()
-        };
+        var serverId = ResourceIdentity.Create("failing-store", "default");
+        var server = new ServerDeclaration(serverId);
 
         var outcome = await reconciler.Reconcile(server);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.ServerStatuses.TryGetValue(("default", "failing-store"), out var status));
+        Assert.True(k8s.ServerStatuses.TryGetValue(serverId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 
@@ -60,16 +53,13 @@ public sealed class ServerReconcilerTests
     public async Task Reconcile_WorkloadReconciliationFailure_SetsErrorStatus()
     {
         k8s.ShouldFailWorkloadReconciliation = true;
-        var server = new VesselServerCustomResource
-        {
-            Metadata = new CustomResourceMetadata { Name = "failing-workload", Namespace = "default" },
-            Spec = new VesselServerSpec()
-        };
+        var serverId = ResourceIdentity.Create("failing-workload", "default");
+        var server = new ServerDeclaration(serverId);
 
         var outcome = await reconciler.Reconcile(server);
 
         Assert.False(outcome.IsSuccessful);
-        Assert.True(k8s.ServerStatuses.TryGetValue(("default", "failing-workload"), out var status));
+        Assert.True(k8s.ServerStatuses.TryGetValue(serverId, out var status));
         Assert.Equal(PhaseNames.Error, status.Phase);
     }
 }

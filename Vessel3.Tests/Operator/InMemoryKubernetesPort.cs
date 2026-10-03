@@ -1,18 +1,18 @@
 using Vessel3.Primitives;
-using Vessel3.Operator.Adapters.Kubernetes.Models;
+using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 
 namespace Vessel3.Tests.Operator;
 
 public sealed class InMemoryKubernetesPort : IKubernetesPort
 {
-    public List<VesselServerCustomResource> Servers { get; } = [];
-    public List<VesselBucketCustomResource> Buckets { get; } = [];
-    public List<VesselUserCustomResource> Users { get; } = [];
+    public List<ServerDeclaration> Servers { get; } = [];
+    public List<BucketDeclaration> Buckets { get; } = [];
+    public List<UserDeclaration> Users { get; } = [];
 
-    public Dictionary<(string Ns, string Name), VesselServerStatus> ServerStatuses { get; } = [];
-    public Dictionary<(string Ns, string Name), VesselBucketStatus> BucketStatuses { get; } = [];
-    public Dictionary<(string Ns, string Name), VesselUserStatus> UserStatuses { get; } = [];
+    public Dictionary<ResourceIdentity, ServerResourceStatus> ServerStatuses { get; } = [];
+    public Dictionary<ResourceIdentity, BucketResourceStatus> BucketStatuses { get; } = [];
+    public Dictionary<ResourceIdentity, UserResourceStatus> UserStatuses { get; } = [];
 
     public Dictionary<(string Ns, string Name), ServerCredentials> Secrets { get; } = [];
     public Dictionary<(string Ns, string Name), IReadOnlyDictionary<string, string>> UserSecrets { get; } = [];
@@ -21,52 +21,52 @@ public sealed class InMemoryKubernetesPort : IKubernetesPort
     public bool ShouldFailWorkloadReconciliation { get; set; }
     public bool ShouldFailUserSecretWrite { get; set; }
 
-    public Task<IReadOnlyList<VesselServerCustomResource>> ListServers(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<VesselServerCustomResource>>(Servers);
+    public Task<IReadOnlyList<ServerDeclaration>> ListServers(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ServerDeclaration>>(Servers);
 
-    public Task<IReadOnlyList<VesselBucketCustomResource>> ListBuckets(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<VesselBucketCustomResource>>(Buckets);
+    public Task<IReadOnlyList<BucketDeclaration>> ListBuckets(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<BucketDeclaration>>(Buckets);
 
-    public Task<IReadOnlyList<VesselUserCustomResource>> ListUsers(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<VesselUserCustomResource>>(Users);
+    public Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<UserDeclaration>>(Users);
 
-    public Task<Result> UpdateServerStatus(string @namespace, string name, VesselServerStatus status, CancellationToken ct = default)
+    public Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default)
     {
-        ServerStatuses[(@namespace, name)] = status;
+        ServerStatuses[id] = status;
         return Task.FromResult(Result.Ok);
     }
 
-    public Task<Result> UpdateBucketStatus(string @namespace, string name, VesselBucketStatus status, CancellationToken ct = default)
+    public Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketResourceStatus status, CancellationToken ct = default)
     {
-        BucketStatuses[(@namespace, name)] = status;
+        BucketStatuses[id] = status;
         return Task.FromResult(Result.Ok);
     }
 
-    public Task<Result> UpdateUserStatus(string @namespace, string name, VesselUserStatus status, CancellationToken ct = default)
+    public Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default)
     {
-        UserStatuses[(@namespace, name)] = status;
+        UserStatuses[id] = status;
         return Task.FromResult(Result.Ok);
     }
 
-    public Task<Result<ServerCredentials>> EnsureServerSecret(string @namespace, string secretName, CancellationToken ct = default)
+    public Task<Result<ServerCredentials>> EnsureServerSecret(ResourceIdentity id, string secretName, CancellationToken ct = default)
     {
         if (ShouldFailSecretCreation)
         {
             return Task.FromResult<Result<ServerCredentials>>(new Error("SecretError", "Failed to ensure secret"));
         }
 
-        if (!Secrets.TryGetValue((@namespace, secretName), out var creds))
+        if (!Secrets.TryGetValue((id.Namespace, secretName), out var creds))
         {
             creds = new ServerCredentials("test-access", "test-secret");
-            Secrets[(@namespace, secretName)] = creds;
+            Secrets[(id.Namespace, secretName)] = creds;
         }
 
         return Task.FromResult<Result<ServerCredentials>>(creds);
     }
 
-    public Task<Result<ServerCredentials>> FetchServerCredentials(string @namespace, string secretName, CancellationToken ct = default)
+    public Task<Result<ServerCredentials>> FetchServerCredentials(ResourceIdentity id, string secretName, CancellationToken ct = default)
     {
-        if (Secrets.TryGetValue((@namespace, secretName), out var creds))
+        if (Secrets.TryGetValue((id.Namespace, secretName), out var creds))
         {
             return Task.FromResult<Result<ServerCredentials>>(creds);
         }
@@ -74,7 +74,7 @@ public sealed class InMemoryKubernetesPort : IKubernetesPort
         return Task.FromResult<Result<ServerCredentials>>(new Error("SecretNotFound", $"Secret {secretName} not found"));
     }
 
-    public Task<Result> ReconcileServerWorkload(VesselServerCustomResource server, ServerCredentials credentials, CancellationToken ct = default)
+    public Task<Result> ReconcileServerWorkload(ServerDeclaration server, ServerCredentials credentials, CancellationToken ct = default)
     {
         if (ShouldFailWorkloadReconciliation)
         {
