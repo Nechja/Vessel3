@@ -12,23 +12,32 @@ internal static class AzureRequestParser
         req.Headers.Authorization.ToString().StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) ||
         req.Headers.Authorization.ToString().StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase) ||
         (req.Query.ContainsKey("sig") && (req.Query.ContainsKey("se") || req.Query.ContainsKey("sp") || req.Query.ContainsKey("sv"))) ||
-        (req.Path.Value ?? "/").StartsWith($"/{DevStoreAccount}", StringComparison.OrdinalIgnoreCase);
+        (req.Path.Value ?? "/").StartsWith($"/{DevStoreAccount}", StringComparison.OrdinalIgnoreCase) ||
+        (req.Path.Value ?? "/").StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase);
 
     public static AzureRequestTarget Parse(HttpRequest req)
     {
         var rawPath = req.Path.Value ?? "/";
         var segments = rawPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
+        var authAccount = ExtractAccountFromAuthHeader(req);
         string? account = null;
         string? container = null;
         string? blob = null;
 
         var idx = 0;
-        if (segments.Length > 0 && string.Equals(segments[0], DevStoreAccount, StringComparison.OrdinalIgnoreCase))
+        if (segments.Length > 0)
         {
-            account = segments[0];
-            idx = 1;
+            if (string.Equals(segments[0], DevStoreAccount, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(authAccount) && string.Equals(segments[0], authAccount, StringComparison.OrdinalIgnoreCase)) ||
+                segments[0].StartsWith("V3AK", StringComparison.OrdinalIgnoreCase))
+            {
+                account = segments[0];
+                idx = 1;
+            }
         }
+
+        account ??= authAccount;
 
         if (idx < segments.Length)
         {
@@ -49,6 +58,29 @@ internal static class AzureRequestParser
         var op = ResolveOperation(method, container, blob, restype, comp, req.Headers);
 
         return new AzureRequestTarget(op, account, container, blob);
+    }
+
+    private static string? ExtractAccountFromAuthHeader(HttpRequest req)
+    {
+        var auth = req.Headers.Authorization.ToString();
+        const string sharedKeyPrefix = "SharedKey ";
+        const string sharedKeyLitePrefix = "SharedKeyLite ";
+
+        if (auth.StartsWith(sharedKeyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var token = auth[sharedKeyPrefix.Length..].Trim();
+            var colon = token.IndexOf(':');
+            return colon > 0 ? token[..colon] : null;
+        }
+
+        if (auth.StartsWith(sharedKeyLitePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var token = auth[sharedKeyLitePrefix.Length..].Trim();
+            var colon = token.IndexOf(':');
+            return colon > 0 ? token[..colon] : null;
+        }
+
+        return null;
     }
 
     private static AzureOperationKind ResolveOperation(
