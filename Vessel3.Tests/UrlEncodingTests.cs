@@ -124,7 +124,7 @@ public sealed class UrlEncodingTests
     }
 
     [Fact]
-    public async Task ListVersions_Key_And_NextKeyMarker_IsPercentEncoded()
+    public async Task ListVersions_SpecialCharacters_KeyAndNextKeyMarkerArePercentEncoded()
     {
         var entries = new List<AllVersionsEntry>
         {

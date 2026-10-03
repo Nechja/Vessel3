@@ -49,7 +49,7 @@ public sealed class ListPrefixTests : IDisposable
             new ListRequest("bucket", prefix, null, null, maxKeys), token)).Value;
 
     [Fact]
-    public void Prefix_Is_Case_Sensitive()
+    public void ListCurrent_Prefix_IsCaseSensitive()
     {
         Seed("Chunks/a", "chunks/b", "CHUNKS/c");
         Assert.Equal(new[] { "chunks/b" }, Current("chunks/"));
@@ -59,7 +59,7 @@ public sealed class ListPrefixTests : IDisposable
     }
 
     [Fact]
-    public void Prefix_Wildcard_Characters_Are_Literal()
+    public void ListCurrent_Wildcards_AreTreatedLiterally()
     {
         Seed("a%b", "axb", "a_b", "a\\b", "a\\%");
         Assert.Equal(new[] { "a%b" }, Current("a%"));
@@ -79,14 +79,14 @@ public sealed class ListPrefixTests : IDisposable
     }
 
     [Fact]
-    public void Prefix_Ending_Before_Surrogate_Gap()
+    public void ListCurrent_SurrogateGapPrefix_ScansCorrectly()
     {
         Seed("a퟿x", "a", "a퟿");
         Assert.Equal(new[] { "a퟿", "a퟿x" }, Current("a퟿"));
     }
 
     [Fact]
-    public void Prefix_Ending_In_Max_Code_Point()
+    public void ListCurrent_MaxCodePointPrefix_ScansCorrectly()
     {
         Seed("a\U0010FFFFx", "a\U0010FFFF", "b", "a");
         Assert.Equal(new[] { "a\U0010FFFF", "a\U0010FFFFx" }, Current("a\U0010FFFF"));
@@ -94,7 +94,7 @@ public sealed class ListPrefixTests : IDisposable
     }
 
     [Fact]
-    public void Prefix_Pages_Do_Not_Leak_Neighbours()
+    public void ListCurrent_PagedPrefix_DoesNotLeakNeighbours()
     {
         Seed(Enumerable.Range(0, 25).Select(i => $"p/{i:D3}").Concat(Enumerable.Range(0, 5).Select(i => $"q/{i:D3}")).Concat(["o/999", "p", "p0"]).ToArray());
 
@@ -114,7 +114,7 @@ public sealed class ListPrefixTests : IDisposable
     }
 
     [Fact]
-    public void Prefix_With_Continuation_Bound_Uses_Tighter_Lower_Bound()
+    public void ListCurrent_ContinuationBound_UsesTighterLowerBound()
     {
         Seed("p/1", "p/2", "p/3", "q/1");
         Assert.Equal(new[] { "p/3" }, Current("p/", from: KeyBound.After("p/2")));
@@ -126,7 +126,7 @@ public sealed class ListPrefixTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Prefix_Query_Seeks_The_Key_Index(bool continued)
+    public void ListCurrent_PrefixQuery_SeeksKeyIndex(bool continued)
     {
         Seed("a");
         using var conn = new SqliteConnection($"Data Source={Path.Combine(root, "buckets", "bucket", "index.db")};Mode=ReadOnly");

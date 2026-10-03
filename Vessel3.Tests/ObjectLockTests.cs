@@ -31,7 +31,7 @@ public sealed class ObjectLockTests : IDisposable
         Metadata: new Dictionary<string, string>());
 
     [Fact]
-    public void ObjectLock_requires_versioning_enabled()
+    public void SetObjectLock_VersioningDisabled_Fails()
     {
         const string b = "lock-req-ver";
         Assert.IsType<Result<bool>.Success>(registry.Create(b));
@@ -46,7 +46,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void ObjectLock_cannot_be_disabled_once_enabled()
+    public void SetObjectLock_AlreadyEnabled_CannotBeDisabled()
     {
         const string b = "lock-no-disable";
         registry.Create(b);
@@ -59,7 +59,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void Suspending_versioning_blocked_on_object_lock_bucket()
+    public void SetVersioning_ObjectLockEnabled_BlocksSuspension()
     {
         const string b = "lock-no-suspend";
         registry.Create(b);
@@ -71,7 +71,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void Compliance_retention_cannot_be_lowered_or_removed()
+    public void PutRetention_ComplianceMode_CannotBeLoweredOrRemoved()
     {
         const string b = "compliance";
         registry.Create(b);
@@ -98,7 +98,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void Governance_retention_lowers_only_with_bypass()
+    public void PutRetention_GovernanceMode_LowersOnlyWithBypass()
     {
         const string b = "governance";
         registry.Create(b);
@@ -125,7 +125,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void Legal_hold_blocks_delete_until_removed()
+    public void AppendDelete_ActiveLegalHold_BlocksDeleteUntilRemoved()
     {
         const string b = "hold";
         registry.Create(b);
@@ -143,7 +143,7 @@ public sealed class ObjectLockTests : IDisposable
     }
 
     [Fact]
-    public void Default_retention_applies_on_PUT()
+    public void AppendPut_DefaultRetention_AppliesRetention()
     {
         const string b = "default-ret";
         registry.Create(b);

@@ -35,7 +35,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Compact_empties_log_and_preserves_state()
+    public void Compact_ValidLog_EmptiesLogAndPreservesState()
     {
         using (var b = OpenBucket())
         {
@@ -56,7 +56,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Wiped_index_rebuilds_from_snapshot()
+    public void Compact_WipedIndex_RebuildsFromSnapshot()
     {
         using (var b = OpenBucket())
         {
@@ -74,7 +74,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Wiped_index_rebuilds_from_snapshot_plus_tail()
+    public void Compact_WipedIndex_RebuildsFromSnapshotPlusTail()
     {
         string lateVersion;
         using (var b = OpenBucket())
@@ -98,7 +98,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Snapshot_without_log_rewrite_replays_clean()
+    public void Compact_SnapshotWithoutRewrite_ReplaysClean()
     {
         using (var b = OpenBucket())
         {
@@ -117,7 +117,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Writes_after_compact_survive_replay()
+    public void Compact_WritesAfterCompact_SurvivesReplay()
     {
         using (var b = OpenBucket())
         {
@@ -137,7 +137,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Repeated_compaction_is_stable()
+    public void Compact_RepeatedCompaction_IsStable()
     {
         using var b = OpenBucket();
         b.AppendPut("k", Req("one"));
@@ -150,7 +150,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void Delete_everything_still_compacts_to_empty()
+    public void Compact_AllDeleted_CompactsToEmpty()
     {
         using (var b = OpenBucket())
         {
@@ -178,7 +178,7 @@ public sealed class CompactionTests : IDisposable
     }
 
     [Fact]
-    public void VersionLog_compact_keeps_tail_events()
+    public void Compact_TailEvents_KeepsTailEvents()
     {
         var logPath = Path.Combine(root, "log");
         using (var log = new VersionLog(logPath, sync))

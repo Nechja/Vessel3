@@ -56,7 +56,7 @@ public sealed class ListPagingTests : IDisposable
     private static string[] Keys(ListPage page) => page.Entries.Select(e => e.Key).ToArray();
 
     [Fact]
-    public void Page_Work_Is_Bounded_By_MaxKeys()
+    public void ListCurrent_BoundedWork_IsBoundedByMaxKeys()
     {
         Seed(Numbered("k", 20_000));
         List(null, null, 10);
@@ -69,7 +69,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Delimiter_Page_Work_Is_Bounded_By_MaxKeys()
+    public void ListCurrent_Delimiter_IsBoundedByMaxKeys()
     {
         Seed(Numbered("dir/", 20_000).Append("tail"));
         List(null, "/", 10);
@@ -82,7 +82,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Continuation_Resumes_Across_CommonPrefix()
+    public void ListCurrent_Continuation_ResumesAcrossCommonPrefix()
     {
         Seed(Numbered("a/", 300).Append("b").Concat(Numbered("c/", 3)).Append("d"));
 
@@ -97,7 +97,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Continuation_After_Trailing_CommonPrefix_Does_Not_Repeat_It()
+    public void ListCurrent_TrailingCommonPrefix_DoesNotRepeat()
     {
         Seed(Numbered("a/", 50).Append("b"));
 
@@ -112,7 +112,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Not_Truncated_When_Page_Ends_At_Last_Key()
+    public void ListCurrent_PageEndsAtLastKey_IsNotTruncated()
     {
         Seed(["a", "b"]);
         var page = List(null, null, 2);
@@ -122,7 +122,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Not_Truncated_When_Rest_Folds_Into_Last_CommonPrefix()
+    public void ListCurrent_RestFoldsIntoCommonPrefix_IsNotTruncated()
     {
         Seed(Numbered("a/", 50));
         var page = List(null, "/", 1);
@@ -131,7 +131,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Prefix_Equal_Key_Is_Contents_And_Resumes_After_It()
+    public void ListCurrent_PrefixEqualsKey_EmitsContentsAndResumes()
     {
         Seed(["a/", "a/x", "a/y/1"]);
 
@@ -146,7 +146,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void StartAfter_CommonPrefix_Skips_Its_Subtree()
+    public void ListCurrent_StartAfterCommonPrefix_SkipsSubtree()
     {
         Seed(Numbered("a/", 50).Append("b"));
         var page = List(null, "/", 10, startAfter: "a/");
@@ -155,7 +155,7 @@ public sealed class ListPagingTests : IDisposable
     }
 
     [Fact]
-    public void Multipart_Etag_Carries_Part_Count()
+    public void MultipartETag_ValidUpload_CarriesPartCount()
     {
         Seed(["m"], parts: [new MultipartPart(1, "s1", "m1", 1), new MultipartPart(2, "s2", "m2", 1), new MultipartPart(3, "s3", "m3", 1)]);
         Seed(["s"]);

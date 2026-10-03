@@ -43,7 +43,7 @@ public class DirectoryFsyncTests : IDisposable
     private static string Full(params string[] parts) => Path.GetFullPath(Path.Combine(parts));
 
     [Fact]
-    public void Bucket_Open_Fsyncs_Log_Directory_When_Log_Is_New()
+    public void Open_NewLog_FsyncsLogDirectory()
     {
         var rec = Recorder();
         var bucketPath = Path.Combine(root, "b");
@@ -55,7 +55,7 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
-    public void Bucket_Reopen_Does_Not_Refsync_Existing_Log_Directory()
+    public void Open_Reopen_DoesNotRefsyncExistingLogDirectory()
     {
         var bucketPath = Path.Combine(root, "b");
         using (var b = new Bucket("b", bucketPath, Recorder(), durable))
@@ -69,7 +69,7 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
-    public async Task BlobPool_Fsyncs_FanOut_Ancestors_For_New_Prefix()
+    public async Task BlobPool_NewPrefix_FsyncsFanOutAncestors()
     {
         var rec = Recorder();
         var pool = new BlobPool(new BlobPoolOptions(root), rec);
@@ -83,7 +83,7 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
-    public void BucketRegistry_Create_Fsyncs_Buckets_Root()
+    public void Create_NewBucket_FsyncsBucketsRoot()
     {
         var rec = Recorder();
         var reg = new BucketRegistry(new BucketRegistryOptions(root), rec, durable);
@@ -94,7 +94,7 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
-    public void BucketRegistry_Create_Propagates_Directory_Fsync_Failure()
+    public void Create_FsyncFailure_PropagatesFailure()
     {
         var reg = new BucketRegistry(new BucketRegistryOptions(root), new FailingFileSync(int.MaxValue), durable);
 
@@ -104,7 +104,7 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
-    public void Bucket_Open_Is_Retryable_After_A_Transient_Fsync_Failure()
+    public void Open_TransientFsyncFailure_IsRetryable()
     {
         Directory.CreateDirectory(Path.Combine(root, "buckets", "mybucket"));
         var reg = new BucketRegistry(new BucketRegistryOptions(root), new FailingFileSync(1), durable);

@@ -26,28 +26,28 @@ public class IncompleteBodyTests : IDisposable
             TestContext.Current.CancellationToken);
 
     [Fact]
-    public async Task Body_Shorter_Than_Declared_Is_Rejected()
+    public async Task Write_BodyShorterThanDeclared_IsRejected()
     {
         var written = await Write("hi", declaredSize: 5);
         Assert.IsType<Result<StoredBlob>.Failure>(written);
     }
 
     [Fact]
-    public async Task Empty_Body_With_A_Declared_Length_Is_Rejected()
+    public async Task Write_EmptyBodyWithDeclaredLength_IsRejected()
     {
         var written = await Write("", declaredSize: 5);
         Assert.IsType<Result<StoredBlob>.Failure>(written);
     }
 
     [Fact]
-    public async Task Body_Longer_Than_Declared_Is_Rejected()
+    public async Task Write_BodyLongerThanDeclared_IsRejected()
     {
         var written = await Write("far too much", declaredSize: 3);
         Assert.IsType<Result<StoredBlob>.Failure>(written);
     }
 
     [Fact]
-    public async Task A_Rejected_Body_Leaves_No_Blob_Behind()
+    public async Task Write_RejectedBody_LeavesNoBlobBehind()
     {
         await Write("hi", declaredSize: 5);
         var strays = Directory.Exists(root)
@@ -57,14 +57,14 @@ public class IncompleteBodyTests : IDisposable
     }
 
     [Fact]
-    public async Task Body_Matching_Its_Declared_Length_Is_Stored()
+    public async Task Write_BodyMatchingDeclaredLength_IsStored()
     {
         var written = await Write("hello", declaredSize: 5);
         Assert.IsType<Result<StoredBlob>.Success>(written);
     }
 
     [Fact]
-    public async Task Body_Without_A_Declared_Length_Is_Stored()
+    public async Task Write_BodyWithoutDeclaredLength_IsStored()
     {
         var written = await Write("no declared length", declaredSize: null);
         Assert.IsType<Result<StoredBlob>.Success>(written);

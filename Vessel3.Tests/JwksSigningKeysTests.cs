@@ -43,7 +43,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Fetches_discovery_then_jwks_on_first_lookup()
+    public async Task Find_FirstLookup_FetchesDiscoveryThenJwks()
     {
         var handler = new StubHandler(idp.Jwks);
         using var keys = Keys(handler, new TestClock(T0));
@@ -58,7 +58,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Parses_rsa_keys_too()
+    public async Task Find_RsaKeys_ParsesSuccessfully()
     {
         using var keys = Keys(new StubHandler(idp.Jwks), new TestClock(T0));
         var key = await keys.Find(idp.RsaKid, CancellationToken.None);
@@ -69,7 +69,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Cached_key_does_not_refetch()
+    public async Task Find_CachedKey_DoesNotRefetch()
     {
         var handler = new StubHandler(idp.Jwks);
         using var keys = Keys(handler, new TestClock(T0));
@@ -81,7 +81,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Unknown_kid_refetches_after_the_refresh_interval()
+    public async Task Find_UnknownKid_RefetchesAfterRefreshInterval()
     {
         var published = idp.Jwks();
         var handler = new StubHandler(() => published);
@@ -101,7 +101,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Idp_outage_yields_no_key_rather_than_throwing()
+    public async Task Find_IdpOutage_YieldsNoKeyRatherThanThrowing()
     {
         var handler = new StubHandler(() => throw new HttpRequestException("down"));
         using var keys = Keys(handler, new TestClock(T0));
@@ -124,7 +124,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Discovery_outage_does_not_hold_the_refresh_window()
+    public async Task Find_DiscoveryOutage_DoesNotHoldRefreshWindow()
     {
         var up = false;
         var clock = new TestClock(T0);
@@ -154,7 +154,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public async Task Aborted_lookup_does_not_hold_the_refresh_window()
+    public async Task Find_AbortedLookup_DoesNotHoldRefreshWindow()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var keys = Keys(new GatedDiscoveryHandler(release.Task, idp.Jwks), new TestClock(T0));
@@ -169,7 +169,7 @@ public class JwksSigningKeysTests : IDisposable
     }
 
     [Fact]
-    public void ParseJwks_skips_unusable_entries()
+    public void ParseJwks_UnusableEntries_SkipsEntries()
     {
         var json = """{"keys":[{"kty":"EC","kid":"nocoords","crv":"P-256"},{"kty":"oct","kid":"sym","k":"abc"},{"kty":"EC","kid":"enc","use":"enc","crv":"P-256","x":"AA","y":"AA"},{"kty":"OKP","kid":"ed","crv":"Ed25519","x":"AA"},{"kty":"EC","kid":"odd","alg":"EdDSA","crv":"P-256","x":"AA","y":"AA"}]}""";
         Assert.Empty(SigningKey.ParseJwks(Encoding.UTF8.GetBytes(json)));

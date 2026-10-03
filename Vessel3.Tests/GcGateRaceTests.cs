@@ -39,7 +39,7 @@ public class GcGateRaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Cannot_Delete_A_Blob_Published_But_Not_Yet_Committed()
+    public async Task Sweep_PublishedUncommittedBlob_CannotDelete()
     {
         var ct = TestContext.Current.CancellationToken;
         registry.Create("landing");
@@ -76,7 +76,7 @@ public class GcGateRaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Cannot_Delete_A_Blob_Whose_Only_Reference_Is_Moving_Between_Buckets()
+    public async Task Sweep_BlobMovingBetweenBuckets_CannotDelete()
     {
         var ct = TestContext.Current.CancellationToken;
         registry.Create("alpha-dest");
@@ -120,7 +120,7 @@ public class GcGateRaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Runs_Immediately_When_No_Writer_Holds_The_Gate()
+    public async Task Sweep_NoActiveWriters_RunsImmediately()
     {
         var orphan = Assert.IsType<Result<StoredBlob>.Success>(await blobs.Write(
             new MemoryStream(Encoding.UTF8.GetBytes("garbage")), null, ChecksumIntent.None,

@@ -11,28 +11,28 @@ public class CredentialStoreTests
     private static readonly Credential Root = new("AKIAROOT", "rootsecret", null, null);
 
     [Fact]
-    public void Find_returns_root_credential()
+    public void Find_RootKey_ReturnsRootCredential()
     {
         var store = new CredentialStore(Root, new TestClock(T0));
         Assert.Same(Root, store.Find("AKIAROOT"));
     }
 
     [Fact]
-    public void Find_returns_null_for_unknown_key()
+    public void Find_UnknownKey_ReturnsNull()
     {
         var store = new CredentialStore(Root, new TestClock(T0));
         Assert.Null(store.Find("AKIANOPE"));
     }
 
     [Fact]
-    public void Find_returns_null_when_no_root_configured()
+    public void Find_NoRootConfigured_ReturnsNull()
     {
         var store = new CredentialStore(null, new TestClock(T0));
         Assert.Null(store.Find("AKIAROOT"));
     }
 
     [Fact]
-    public void IssueSession_returns_findable_session_credential()
+    public void IssueSession_ValidInput_ReturnsFindableCredential()
     {
         var store = new CredentialStore(Root, new TestClock(T0));
         var session = store.IssueSession("acct_kayla", TimeSpan.FromHours(1));
@@ -45,7 +45,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void IssueSession_produces_distinct_credentials()
+    public void IssueSession_RepeatedCalls_ProducesDistinctCredentials()
     {
         var store = new CredentialStore(Root, new TestClock(T0));
         var a = store.IssueSession("acct_kayla", TimeSpan.FromHours(1));
@@ -57,7 +57,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Expired_sessions_are_swept_on_next_issue()
+    public void IssueSession_ExpiredSessions_SweepsOnNextIssue()
     {
         var clock = new TestClock(T0);
         var store = new CredentialStore(Root, clock);
@@ -70,7 +70,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Expired_session_stays_findable_until_swept()
+    public void Find_ExpiredSession_StaysFindableUntilSwept()
     {
         var clock = new TestClock(T0);
         var store = new CredentialStore(Root, clock);
@@ -82,7 +82,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Find_resolves_credentials_from_IdentityRegistry()
+    public void Find_IdentityRegistry_ResolvesCredentials()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
         try
@@ -109,7 +109,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Find_returns_null_for_revoked_key_in_IdentityRegistry()
+    public void Find_RevokedKey_ReturnsNull()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
         try
@@ -130,7 +130,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Find_returns_null_for_expired_key_in_IdentityRegistry()
+    public void Find_ExpiredKey_ReturnsNull()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
         try
@@ -153,7 +153,7 @@ public class CredentialStoreTests
     }
 
     [Fact]
-    public void Find_returns_null_for_suspended_user_in_IdentityRegistry()
+    public void Find_SuspendedUser_ReturnsNull()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"vessel3-cs-{Guid.NewGuid():N}");
         try

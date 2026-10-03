@@ -107,7 +107,7 @@ public class AwsChunkedStreamTests
     }
 
     [Fact]
-    public async Task UnterminatedHeaderLine_Throws_Instead_Of_Buffering()
+    public async Task Read_UnterminatedHeaderLine_ThrowsWithoutBuffering()
     {
         var input = new MemoryStream(Encoding.ASCII.GetBytes(new string('a', 64 * 1024)));
         using var s = new AwsChunkedStream(input);

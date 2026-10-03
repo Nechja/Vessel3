@@ -18,6 +18,9 @@
             <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
                 <Icon Name="refresh" /> refresh
             </button>
+            <a href="webhooks" class="btn btn-ghost" title="Manage event webhooks">
+                <Icon Name="bolt" /> webhooks
+            </a>
         </div>
     </div>
 
@@ -302,7 +305,7 @@
 
     private string GetLoginCommand() => $"docker login {GetHost()} -u <accessKey> -p <secretKey>";
 
-    private string GetPushExampleCommand() => $"docker push {GetHost()}/my-app:v1.0.0";
+    private string GetPushExampleCommand() => $"docker push {GetHost()}/drummer:latest";
 
     private async Task CopyCommand(string text)
     {

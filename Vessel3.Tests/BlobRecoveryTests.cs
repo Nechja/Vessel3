@@ -52,7 +52,7 @@ public class BlobRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Acked_put_recovers_blob_bytes_after_restart()
+    public async Task Recover_AckedPutAfterRestart_RecoversBlobBytes()
     {
         var body = "durable-payload"u8.ToArray();
         var pool = NewBlobPool();
@@ -72,7 +72,7 @@ public class BlobRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Blob_recovers_when_only_log_survives()
+    public async Task Recover_LogOnlySurvives_RecoversBlob()
     {
         var body = "rebuilt-from-log"u8.ToArray();
         var pool = NewBlobPool();
@@ -93,7 +93,7 @@ public class BlobRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Blob_without_log_record_is_unreferenced_orphan()
+    public async Task Recover_UnreferencedBlob_TreatedAsOrphan()
     {
         var pool = NewBlobPool();
         var orphan = await Store(pool, "never-acked"u8.ToArray());
@@ -110,7 +110,7 @@ public class BlobRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Torn_log_tail_drops_record_and_leaves_no_dangling_reference()
+    public async Task Recover_TornLogTail_DropsRecordWithoutDanglingReference()
     {
         var pool = NewBlobPool();
         var blobA = await Store(pool, "AAAAAAAA"u8.ToArray());

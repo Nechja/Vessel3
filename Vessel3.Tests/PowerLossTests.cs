@@ -46,7 +46,7 @@ public class PowerLossTests : IDisposable
     }
 
     [Fact]
-    public void Replay_rebuilds_index_when_only_log_survives()
+    public void Replay_LogOnlySurvives_RebuildsIndex()
     {
         string v1, v2;
         using (var b = new Bucket("b", root, sync, durable))
@@ -67,7 +67,7 @@ public class PowerLossTests : IDisposable
     }
 
     [Fact]
-    public void Partial_trailing_event_is_dropped_on_recovery()
+    public void Replay_PartialTrailingEvent_DropsEventOnRecovery()
     {
         using (var b = new Bucket("b", root, sync, durable))
         {
@@ -104,7 +104,7 @@ public class PowerLossTests : IDisposable
     }
 
     [Fact]
-    public void Lone_partial_event_yields_empty_state()
+    public void Replay_LonePartialEvent_YieldsEmptyState()
     {
         var bucketDir = root;
         Directory.CreateDirectory(bucketDir);

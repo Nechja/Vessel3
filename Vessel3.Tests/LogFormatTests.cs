@@ -44,7 +44,7 @@ public class LogFormatTests : IDisposable
     }
 
     [Fact]
-    public void Overwrite_Survives_A_Crash_Before_The_Final_Record()
+    public void Replay_CrashBeforeFinalRecord_SurvivesAndRecovers()
     {
         using (var b = new Bucket("b", root, sync, durable))
         {
@@ -61,11 +61,12 @@ public class LogFormatTests : IDisposable
             b.Open();
             var current = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.NotNull(current);
+            Assert.Equal("first".Length, current.Size);
         }
     }
 
     [Fact]
-    public void Corrupted_Interior_Record_Is_Rejected_Rather_Than_Silently_Applied()
+    public void Replay_CorruptedInteriorRecord_RejectsRatherThanApplies()
     {
         using (var b = new Bucket("b", root, sync, durable))
         {
@@ -85,7 +86,7 @@ public class LogFormatTests : IDisposable
     }
 
     [Fact]
-    public void Torn_Trailing_Record_Is_Truncated_And_Earlier_Records_Survive()
+    public void Replay_TornTrailingRecord_TruncatesAndEarlierRecordsSurvive()
     {
         using (var b = new Bucket("b", root, sync, durable))
         {
@@ -103,6 +104,9 @@ public class LogFormatTests : IDisposable
             b.Open();
             var kept = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.NotNull(kept);
+            Assert.Equal("first".Length, kept.Size);
+            Assert.Null(((Result<PutEntry?>.Success)b.Index.GetCurrentPut("j")).Value);
         }
     }
 }
+

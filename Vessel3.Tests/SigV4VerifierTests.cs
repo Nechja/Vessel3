@@ -25,7 +25,7 @@ public class SigV4VerifierTests
         new(new FakeStore(creds), new ServerRegion(Region), clock ?? new TestClock(T0));
 
     [Fact]
-    public void Header_auth_accepts_root_credential()
+    public void VerifyHeader_RootCredential_Accepts()
     {
         var req = SignedHeader(Root, T0.UtcDateTime);
         Assert.True(Verifier(null, Root).Verify(req).TryGetValue(out var ctx, out _));
@@ -33,7 +33,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_unknown_access_key()
+    public void VerifyHeader_UnknownAccessKey_Rejects()
     {
         var req = SignedHeader(new Credential("AKIANOPE", "x", null, null), T0.UtcDateTime);
         Assert.False(Verifier(null, Root).Verify(req).TryGetValue(out _, out var err));
@@ -41,7 +41,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_wrong_secret()
+    public void VerifyHeader_WrongSecret_Rejects()
     {
         var req = SignedHeader(Root with { Secret = "wrong" }, T0.UtcDateTime);
         Assert.False(Verifier(null, Root).Verify(req).TryGetValue(out _, out var err));
@@ -49,14 +49,14 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_accepts_session_credential_with_signed_token()
+    public void VerifyHeader_SessionCredentialWithToken_Accepts()
     {
         var req = SignedHeader(Session, T0.UtcDateTime);
         Assert.True(Verifier(null, Root, Session).Verify(req).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Header_auth_rejects_session_credential_without_token()
+    public void VerifyHeader_SessionCredentialWithoutToken_Rejects()
     {
         var req = SignedHeader(Session with { SessionToken = null }, T0.UtcDateTime);
         Assert.False(Verifier(null, Session).Verify(req).TryGetValue(out _, out var err));
@@ -64,7 +64,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_session_credential_with_wrong_token()
+    public void VerifyHeader_SessionCredentialWithWrongToken_Rejects()
     {
         var req = SignedHeader(Session with { SessionToken = "other" }, T0.UtcDateTime);
         Assert.False(Verifier(null, Session).Verify(req).TryGetValue(out _, out var err));
@@ -72,7 +72,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_unsigned_token_header()
+    public void VerifyHeader_UnsignedTokenHeader_Rejects()
     {
         var req = SignedHeader(Session, T0.UtcDateTime, signToken: false);
         Assert.False(Verifier(null, Session).Verify(req).TryGetValue(out _, out var err));
@@ -80,7 +80,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_token_on_root_credential()
+    public void VerifyHeader_TokenOnRootCredential_Rejects()
     {
         var req = SignedHeader(Root with { SessionToken = "stray" }, T0.UtcDateTime);
         Assert.False(Verifier(null, Root).Verify(req).TryGetValue(out _, out var err));
@@ -88,7 +88,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_expired_session()
+    public void VerifyHeader_ExpiredSession_Rejects()
     {
         var later = new TestClock(T0 + TimeSpan.FromHours(1));
         var req = SignedHeader(Session, later.Now.UtcDateTime);
@@ -97,7 +97,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Header_auth_rejects_skewed_timestamp()
+    public void VerifyHeader_SkewedTimestamp_Rejects()
     {
         var req = SignedHeader(Root, T0.UtcDateTime - TimeSpan.FromMinutes(16));
         Assert.False(Verifier(null, Root).Verify(req).TryGetValue(out _, out var err));
@@ -105,21 +105,21 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Presigned_accepts_root_credential()
+    public void VerifyPresigned_RootCredential_Accepts()
     {
         var req = Presigned(Root, T0.UtcDateTime, expires: 300);
         Assert.True(Verifier(null, Root).Verify(req).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Presigned_accepts_session_credential_with_token()
+    public void VerifyPresigned_SessionCredentialWithToken_Accepts()
     {
         var req = Presigned(Session, T0.UtcDateTime, expires: 300);
         Assert.True(Verifier(null, Session).Verify(req).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Presigned_rejects_session_credential_without_token()
+    public void VerifyPresigned_SessionCredentialWithoutToken_Rejects()
     {
         var req = Presigned(Session with { SessionToken = null }, T0.UtcDateTime, expires: 300);
         Assert.False(Verifier(null, Session).Verify(req).TryGetValue(out _, out var err));
@@ -127,7 +127,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Presigned_rejects_expired_session_even_before_url_expiry()
+    public void VerifyPresigned_ExpiredSessionBeforeUrlExpiry_Rejects()
     {
         var later = new TestClock(T0 + TimeSpan.FromHours(1));
         var req = Presigned(Session, later.Now.UtcDateTime, expires: 3600);
@@ -136,7 +136,7 @@ public class SigV4VerifierTests
     }
 
     [Fact]
-    public void Presigned_rejects_expired_url()
+    public void VerifyPresigned_ExpiredUrl_Rejects()
     {
         var later = new TestClock(T0 + TimeSpan.FromMinutes(10));
         var req = Presigned(Root, T0.UtcDateTime, expires: 300);

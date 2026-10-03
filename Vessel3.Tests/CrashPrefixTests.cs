@@ -41,7 +41,7 @@ public sealed class CrashPrefixTests(ITestOutputHelper output) : IDisposable
 
     [Theory]
     [MemberData(nameof(Scenarios))]
-    public void Acked_values_survive_every_crash_prefix(string scenario)
+    public void CrashReplay_AllPrefixes_SurvivesEveryPrefix(string scenario)
     {
         var clock = Stopwatch.StartNew();
         var run = BuildScenario(scenario);

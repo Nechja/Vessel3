@@ -101,7 +101,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Ping_Unauthenticated_Returns_200()
+    public async Task Ping_Unauthenticated_Returns200()
     {
         var (_, client) = await StartServer("unauth");
 
@@ -112,7 +112,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Ping_Authenticated_Challenges_And_Token_Exchange_Works()
+    public async Task Ping_Authenticated_ChallengesAndExchangesToken()
     {
         const string key = "TESTKEY123";
         const string secret = "TESTSECRET456";
@@ -141,7 +141,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Blob_Chunked_Upload_And_Download_Flow()
+    public async Task Blob_ChunkedUploadAndDownload_FlowSucceeds()
     {
         var (_, client) = await StartServer("blobs-chunked");
         var layerBytes = Encoding.UTF8.GetBytes("hello-container-world-layer-bytes");
@@ -177,7 +177,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Monolithic_Blob_Upload_And_Bad_Digest_Rejection()
+    public async Task Blob_MonolithicUpload_RejectsBadDigest()
     {
         var (_, client) = await StartServer("blobs-monolithic");
         var layerBytes = Encoding.UTF8.GetBytes("monolithic-blob-bytes");
@@ -203,7 +203,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Manifest_Push_Get_And_Tags_And_Catalog()
+    public async Task Manifest_PushGetTagsCatalog_FlowSucceeds()
     {
         var (_, client) = await StartServer("manifest-flow");
 
@@ -270,7 +270,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Manifest_Delete_And_Upload_Cancel_And_404_Errors()
+    public async Task Manifest_DeleteAndCancel_ReturnsExpectedStatuses()
     {
         var (_, client) = await StartServer("deletes-and-errors");
 
@@ -334,7 +334,7 @@ public class OciProtocolWireTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task OidcBearerToken_CatalogAndManifestAccess_And_VesselClient_Works()
+    public async Task OidcBearerToken_CatalogAndManifest_AuthorizesVesselClient()
     {
         var fakeVerifier = new FakeVerifier(new Dictionary<string, (string Subject, bool IsAdmin)>
         {

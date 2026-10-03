@@ -10,56 +10,56 @@ public class UiEndpointsTests
         "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{pass}"));
 
     [Fact]
-    public void BasicAuthOk_accepts_correct_credentials()
+    public void BasicAuthOk_CorrectCredentials_Accepts()
     {
         Assert.True(UiEndpoints.BasicAuthOk(Basic("akia", "secret"), "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_wrong_password()
+    public void BasicAuthOk_WrongPassword_Rejects()
     {
         Assert.False(UiEndpoints.BasicAuthOk(Basic("akia", "wrong"), "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_wrong_user()
+    public void BasicAuthOk_WrongUser_Rejects()
     {
         Assert.False(UiEndpoints.BasicAuthOk(Basic("nobody", "secret"), "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_missing_header()
+    public void BasicAuthOk_MissingHeader_Rejects()
     {
         Assert.False(UiEndpoints.BasicAuthOk("", "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_other_scheme()
+    public void BasicAuthOk_OtherScheme_Rejects()
     {
         Assert.False(UiEndpoints.BasicAuthOk("Bearer abc", "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_invalid_base64()
+    public void BasicAuthOk_InvalidBase64_Rejects()
     {
         Assert.False(UiEndpoints.BasicAuthOk("Basic !!!notbase64!!!", "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_rejects_payload_without_colon()
+    public void BasicAuthOk_PayloadWithoutColon_Rejects()
     {
         var header = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("nocolon"));
         Assert.False(UiEndpoints.BasicAuthOk(header, "akia", "secret"));
     }
 
     [Fact]
-    public void BasicAuthOk_allows_colon_in_password()
+    public void BasicAuthOk_ColonInPassword_Allows()
     {
         Assert.True(UiEndpoints.BasicAuthOk(Basic("akia", "se:cr:et"), "akia", "se:cr:et"));
     }
 
     [Fact]
-    public void BasicAuthOk_handles_unicode_credentials()
+    public void BasicAuthOk_UnicodeCredentials_HandlesCorrectly()
     {
         Assert.True(UiEndpoints.BasicAuthOk(Basic("akia", "pässwörd"), "akia", "pässwörd"));
     }
@@ -70,7 +70,7 @@ public class UiEndpointsTests
     [InlineData("_content/MudBlazor/MudBlazor.min.css")]
     [InlineData("app.css")]
     [InlineData("favicon.ico")]
-    public void IsAssetPath_matches_static_assets(string rel)
+    public void IsAssetPath_StaticAssets_Matches(string rel)
     {
         Assert.True(UiEndpoints.IsAssetPath(rel));
     }
@@ -80,7 +80,7 @@ public class UiEndpointsTests
     [InlineData("admin")]
     [InlineData("buckets/demo-assets")]
     [InlineData("buckets/my.bucket.with.dots")]
-    public void IsAssetPath_passes_spa_routes(string rel)
+    public void IsAssetPath_SpaRoutes_ReturnsFalse(string rel)
     {
         Assert.False(UiEndpoints.IsAssetPath(rel));
     }

@@ -36,7 +36,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void CreateUser_Validates_Input_And_Persists()
+    public void CreateUser_ValidInput_Persists()
     {
         var reg = CreateRegistry();
 
@@ -70,7 +70,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void ListUsers_Returns_Sorted_Users()
+    public void ListUsers_Default_ReturnsSortedUsers()
     {
         var reg = CreateRegistry();
         reg.CreateUser("charlie");
@@ -86,7 +86,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void UpdateUserRole_And_Status_Persist()
+    public void UpdateUser_RoleAndStatus_Persists()
     {
         var reg = CreateRegistry();
         var user = ((Result<User>.Success)reg.CreateUser("bob", UserRole.Member)).Value;
@@ -110,7 +110,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void DeleteUser_Cascades_To_AccessKeys()
+    public void DeleteUser_ExistingUser_CascadesToAccessKeys()
     {
         var reg = CreateRegistry();
         var user = ((Result<User>.Success)reg.CreateUser("david")).Value;
@@ -130,7 +130,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void AccessKeys_Creation_Listing_And_Revocation()
+    public void AccessKeys_Lifecycle_CreatesListsAndRevokes()
     {
         var reg = CreateRegistry();
         var user = ((Result<User>.Success)reg.CreateUser("eva")).Value;
@@ -164,7 +164,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void AuthenticateAccessKey_Verifies_Status_And_Expiration()
+    public void AuthenticateAccessKey_StatusAndExpiration_Verifies()
     {
         var reg = CreateRegistry();
         var user = ((Result<User>.Success)reg.CreateUser("frank", UserRole.Member)).Value;
@@ -196,7 +196,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void EnsureBootstrapAdmin_Is_Idempotent_And_Authenticatable()
+    public void EnsureBootstrapAdmin_MultipleInvocations_IsIdempotentAndAuthenticatable()
     {
         var reg = CreateRegistry();
         var bootstrapResult = reg.EnsureBootstrapAdmin("rootaccesskey12345", "rootsecretkey1234567890abcdef");
@@ -216,7 +216,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Data_Persists_Across_Registry_Instances()
+    public void Data_MultipleInstances_PersistsAcrossInstances()
     {
         var reg1 = CreateRegistry();
         var user = ((Result<User>.Success)reg1.CreateUser("grace", UserRole.Admin)).Value;
@@ -234,7 +234,7 @@ public class IdentityRegistryTests : IDisposable
     }
 
     [Fact]
-    public void EnsureAdminUsers_Promotes_Matching_Users_By_Substring_And_CaseInsensitive()
+    public void EnsureAdminUsers_MatchingUsers_PromotesCaseInsensitive()
     {
         var reg = CreateRegistry();
         var u1 = ((Result<User>.Success)reg.CreateUser("acct_kayla.dIftEd_eU48bcFmhcaiAJA", UserRole.Member)).Value;

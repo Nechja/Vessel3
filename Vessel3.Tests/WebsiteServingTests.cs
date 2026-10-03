@@ -90,7 +90,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Redirects_Directory_Without_Trailing_Slash()
+    public async Task Serve_DirectoryWithoutTrailingSlash_Redirects()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -107,7 +107,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Serves_Direct_Asset_File()
+    public async Task Serve_DirectAssetFile_ServesContent()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -123,7 +123,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Serves_Custom_ErrorDocument_On_404()
+    public async Task Serve_NotFoundRoute_ServesCustomErrorDocument()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -140,7 +140,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Head_Request_Returns_Headers()
+    public async Task Serve_HeadRequest_ReturnsHeadersWithoutBody()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -158,7 +158,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Precondition_IfNoneMatch_Returns_304()
+    public async Task Serve_IfNoneMatchMatch_Returns304()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -178,7 +178,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Serves_Wasm_File_With_ApplicationWasm_MimeType()
+    public async Task Serve_WasmFile_SetsApplicationWasmMimeType()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -201,7 +201,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Serves_Webmanifest_File_With_ManifestJson_MimeType()
+    public async Task Serve_WebmanifestFile_SetsManifestJsonMimeType()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
@@ -217,7 +217,7 @@ public class WebsiteServingTests : IDisposable
     }
 
     [Fact]
-    public async Task Serves_Spa_Fallback_With_200_OK_When_ErrorDocument_Matches_IndexDocument()
+    public async Task Serve_SpaFallback_Serves200WithIndexDocument()
     {
         const string bucket = "mysite";
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));

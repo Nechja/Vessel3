@@ -49,7 +49,7 @@ public class DiskFullTests : IDisposable
     }
 
     [Fact]
-    public async Task BlobPool_NoSpaceMidWrite_ReturnsInsufficientStorage_AndCleansTemp()
+    public async Task Write_NoSpaceMidWrite_ReturnsInsufficientStorageAndCleansTemp()
     {
         var src = new EnospcStream(failAtByte: 100_000);
         var r = await pool.Write(src, declaredSize: null, ChecksumIntent.All, CancellationToken.None);

@@ -37,7 +37,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void GetOrCreateRepo_Normalizes_And_Is_Idempotent()
+    public void GetOrCreateRepo_ValidRepo_NormalizesAndIsIdempotent()
     {
         var catalog = CreateCatalog();
 
@@ -56,7 +56,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void PutManifest_And_GetManifest_ByTag_And_Digest()
+    public void Manifest_ByTagAndDigest_PutsAndGets()
     {
         var catalog = CreateCatalog();
         var payload = Encoding.UTF8.GetBytes("""{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json"}""");
@@ -81,7 +81,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Tag_Update_And_Deletion()
+    public void Tag_UpdateAndDeletion_UpdatesAndDeletes()
     {
         var catalog = CreateCatalog();
         var payload1 = Encoding.UTF8.GetBytes("""{"ver":1}""");
@@ -116,7 +116,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Pagination_For_Repos_And_Tags()
+    public void Pagination_ReposAndTags_PaginatesSuccessfully()
     {
         var catalog = CreateCatalog();
         for (var i = 1; i <= 5; i++)
@@ -145,7 +145,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Upload_Session_Lifecycle_And_Expiry()
+    public void UploadSession_Lifecycle_ExpiresAbandoned()
     {
         var catalog = CreateCatalog();
 

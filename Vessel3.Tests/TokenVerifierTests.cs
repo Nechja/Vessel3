@@ -30,7 +30,7 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Accepts_es256_id_token()
+    public async Task Verify_Es256IdToken_Accepts()
     {
         var token = idp.Token(idp.Claims(T0));
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out var id, out _));
@@ -39,7 +39,7 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Accepts_rs256_id_token()
+    public async Task Verify_Rs256IdToken_Accepts()
     {
         var token = idp.Token(idp.Claims(T0), alg: "RS256");
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
@@ -53,21 +53,21 @@ public class TokenVerifierTests : IDisposable
     [InlineData("PS256")]
     [InlineData("PS384")]
     [InlineData("PS512")]
-    public async Task Accepts_every_supported_alg(string alg)
+    public async Task Verify_SupportedAlgorithms_AcceptsAll(string alg)
     {
         var token = idp.Token(idp.Claims(T0), alg: alg);
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Rejects_ec_alg_that_does_not_match_the_key_curve()
+    public async Task Verify_MismatchedKeyCurve_Rejects()
     {
         var token = idp.Token(idp.Claims(T0), alg: "ES256", kid: idp.Ec384Kid);
         Assert.IsType<InvalidIdentityTokenError>(await ErrorOf(Verifier(), token));
     }
 
     [Fact]
-    public async Task Rejects_alg_the_jwk_did_not_declare()
+    public async Task Verify_UndeclaredAlgorithm_Rejects()
     {
         var pinned = new StaticKeys(idp.RsaKey(declaredAlg: "RS256"));
         var ok = idp.Token(idp.Claims(T0), alg: "RS256");
@@ -77,21 +77,21 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_hs256()
+    public async Task Verify_SymmetricHs256_Rejects()
     {
         var token = idp.Token(idp.Claims(T0), alg: "HS256", kid: idp.EcKid);
         Assert.IsType<InvalidIdentityTokenError>(await ErrorOf(Verifier(), token));
     }
 
     [Fact]
-    public async Task Accepts_jwt_access_token_type()
+    public async Task Verify_JwtAccessTokenType_Accepts()
     {
         var token = idp.Token(idp.Claims(T0), typ: "at+jwt");
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Accepts_audience_array_containing_client()
+    public async Task Verify_AudienceArrayContainingClient_Accepts()
     {
         var token = idp.Token(idp.Claims(T0, aud: "[\"vessel3\",\"shared\"]"));
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out var id, out _));
@@ -99,14 +99,14 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Accepts_configured_audience_without_client_id()
+    public async Task Verify_ConfiguredAudienceWithoutClientId_Accepts()
     {
         var token = idp.Token(idp.Claims(T0, aud: "\"shared\""));
         Assert.True((await Verifier(audience: "shared").Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Accepts_client_credentials_token_using_client_id_as_subject()
+    public async Task Verify_ClientCredentialsToken_AcceptsClientIdAsSubject()
     {
         var claims = $$"""{"iss":"{{idp.Issuer}}","aud":"vessel3","client_id":"agent","iat":{{T0.ToUnixTimeSeconds()}},"exp":{{T0.ToUnixTimeSeconds() + 60}}}""";
         var token = idp.Token(claims, typ: "at+jwt");
@@ -115,35 +115,35 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_wrong_issuer()
+    public async Task Verify_WrongIssuer_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0, iss: "https://other.test")));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Accepts_issuer_with_trailing_slash()
+    public async Task Verify_IssuerWithTrailingSlash_Accepts()
     {
         var token = idp.Token(idp.Claims(T0, iss: idp.Issuer + "/"));
         Assert.True((await Verifier().Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Rejects_wrong_audience()
+    public async Task Verify_WrongAudience_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0, aud: "\"grafana\"")));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Rejects_expired_token()
+    public async Task Verify_ExpiredToken_Rejects()
     {
         var err = await ErrorOf(Verifier(clock: new TestClock(T0 + TimeSpan.FromMinutes(10))), idp.Token(idp.Claims(T0)));
         Assert.IsType<ExpiredIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Allows_leeway_on_expiry()
+    public async Task Verify_LeewayOnExpiry_Accepts()
     {
         var token = idp.Token(idp.Claims(T0, ttlSeconds: 60));
         var v = Verifier(clock: new TestClock(T0 + TimeSpan.FromSeconds(100)));
@@ -151,7 +151,7 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_token_not_yet_valid()
+    public async Task Verify_FutureToken_Rejects()
     {
         var nbf = (T0 + TimeSpan.FromMinutes(10)).ToUnixTimeSeconds();
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0, extra: $"\"nbf\":{nbf}")));
@@ -159,28 +159,28 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_tampered_signature()
+    public async Task Verify_TamperedSignature_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0), corrupt: true));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Rejects_alg_none()
+    public async Task Verify_AlgorithmNone_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0), alg: "none"));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Rejects_unknown_kid()
+    public async Task Verify_UnknownKid_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0), kid: "rotated"));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Rejects_alg_mismatching_key()
+    public async Task Verify_AlgorithmMismatchingKey_Rejects()
     {
         using var other = new TestIssuer();
         var token = other.Token(other.Claims(T0), alg: "RS256", kid: idp.EcKid);
@@ -189,14 +189,14 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_unknown_typ()
+    public async Task Verify_UnknownTyp_Rejects()
     {
         var err = await ErrorOf(Verifier(), idp.Token(idp.Claims(T0), typ: "secevent+jwt"));
         Assert.IsType<InvalidIdentityTokenError>(err);
     }
 
     [Fact]
-    public async Task Rejects_malformed_token()
+    public async Task Verify_MalformedToken_Rejects()
     {
         Assert.IsType<InvalidIdentityTokenError>(await ErrorOf(Verifier(), "not.a.jwt.at.all"));
         Assert.IsType<InvalidIdentityTokenError>(await ErrorOf(Verifier(), "a.b"));
@@ -204,7 +204,7 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Rejects_token_without_subject()
+    public async Task Verify_MissingSubject_Rejects()
     {
         var claims = $$"""{"iss":"{{idp.Issuer}}","aud":"vessel3","exp":{{T0.ToUnixTimeSeconds() + 60}}}""";
         var err = await ErrorOf(Verifier(), idp.Token(claims));
@@ -212,21 +212,21 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Required_claim_matches_string_value()
+    public async Task Verify_RequiredClaimStringValue_Matches()
     {
         var token = idp.Token(idp.Claims(T0, extra: "\"role\":\"admin\""));
         Assert.True((await Verifier(claim: "role=admin").Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Required_claim_matches_array_member()
+    public async Task Verify_RequiredClaimArrayMember_Matches()
     {
         var token = idp.Token(idp.Claims(T0, extra: "\"groups\":[\"staff\",\"vessel3\"]"));
         Assert.True((await Verifier(claim: "groups=vessel3").Verify(token, CancellationToken.None)).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public async Task Required_claim_missing_is_access_denied()
+    public async Task Verify_MissingRequiredClaim_ReturnsAccessDenied()
     {
         var err = await ErrorOf(Verifier(claim: "groups=vessel3"), idp.Token(idp.Claims(T0, extra: "\"groups\":[\"staff\"]")));
         Assert.IsType<AccessDeniedError>(err);
@@ -234,14 +234,14 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Required_claim_absent_is_access_denied()
+    public async Task Verify_AbsentRequiredClaim_ReturnsAccessDenied()
     {
         var err = await ErrorOf(Verifier(claim: "groups=vessel3"), idp.Token(idp.Claims(T0)));
         Assert.IsType<AccessDeniedError>(err);
     }
 
     [Fact]
-    public async Task Admin_users_substring_match_sets_is_admin()
+    public async Task Verify_AdminUsersSubstringMatch_SetsIsAdmin()
     {
         var token = idp.Token(idp.Claims(T0));
         var verifier = new TokenVerifier(
@@ -255,7 +255,7 @@ public class TokenVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Admin_claim_sets_is_admin()
+    public async Task Verify_AdminClaim_SetsIsAdmin()
     {
         var token = idp.Token(idp.Claims(T0, extra: "\"roles\":[\"vessel-admin\"]"));
         var verifier = new TokenVerifier(

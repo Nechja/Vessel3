@@ -9,7 +9,8 @@ namespace Vessel3.Protocols.Oci.Actions.Manifests;
 
 internal sealed class PutManifestAction(
     IContainerRepoCatalog catalog,
-    IBlobPool blobs) : IOciAction
+    IBlobPool blobs,
+    IWebhookEventPublisher? publisher = null) : IOciAction
 {
     public OciOperationKind Operation => OciOperationKind.PutManifest;
 
@@ -43,6 +44,23 @@ internal sealed class PutManifestAction(
         ctx.Response.StatusCode = StatusCodes.Status201Created;
         ctx.Response.Headers.Append(OciHeaders.Location, $"/v2/{repo}/manifests/{outcome.Digest}");
         ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, outcome.Digest);
+
+        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
+        publisher?.Publish(new VesselEvent(
+            "evt_" + Ulid.NewUlid().ToString(),
+            "container.image.pushed",
+            $"{repo}:{reference}",
+            DateTimeOffset.UtcNow,
+            actor,
+            new Dictionary<string, string>
+            {
+                ["repository"] = repo,
+                ["reference"] = reference,
+                ["digest"] = outcome.Digest,
+                ["mediaType"] = mediaType,
+                ["size"] = payload.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            },
+            ctx.Request.Host.Value));
     }
 
     private static IReadOnlyList<string> ExtractReferencedDigests(byte[] payload)

@@ -40,7 +40,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_And_Writer_RoundTrip()
+    public async Task Xml_ValidConfig_RoundTrips()
     {
         IS3XmlWriter writer = new S3XmlWriter();
         IS3XmlReader reader = new S3XmlReader();
@@ -83,7 +83,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_Rejects_Empty_Rules()
+    public async Task ReadCors_EmptyRules_Rejects()
     {
         IS3XmlReader reader = new S3XmlReader();
         const string xml = """
@@ -99,7 +99,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_Rejects_Rule_Missing_Origin_Or_Method()
+    public async Task ReadCors_MissingOriginOrMethod_Rejects()
     {
         IS3XmlReader reader = new S3XmlReader();
         const string missingMethod = """
@@ -130,7 +130,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public void Rule_Matching_Origin_Method_And_Headers()
+    public void CorsRule_MatchingOriginMethodAndHeaders_Matches()
     {
         var rule = new CorsRule(
             AllowedOrigins: ["http://localhost:3000", "https://*.app.io"],
@@ -160,7 +160,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task Get_Put_Delete_BucketCors_Lifecycle()
+    public async Task CorsConfig_GetPutDelete_ExecutesLifecycle()
     {
         var reg = Registry();
         reg.Create("test-cors");
@@ -212,7 +212,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task CorsAndAccessMiddleware_Preflight_MatchingOrigin_ReturnsOkWithHeaders()
+    public async Task Preflight_MatchingOrigin_ReturnsOkWithHeaders()
     {
         var reg = Registry();
         reg.Create("cors-bucket");
@@ -246,7 +246,7 @@ public class BucketCorsTests : IDisposable
     }
 
     [Fact]
-    public async Task CorsAndAccessMiddleware_Preflight_ForbiddenOrigin_ReturnsForbidden()
+    public async Task Preflight_ForbiddenOrigin_ReturnsForbidden()
     {
         var reg = Registry();
         reg.Create("cors-bucket");

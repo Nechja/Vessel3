@@ -40,7 +40,7 @@ public sealed class LifecycleTests : IDisposable
         new(new[] { new LifecycleRule("rule-1", enabled, prefix, days, expiredMarker) });
 
     [Fact]
-    public void Expires_current_version_on_versioned_bucket_as_delete_marker()
+    public void RunLifecycle_VersionedBucketCurrentVersion_CreatesDeleteMarker()
     {
         const string b = "lc-versioned";
         registry.Create(b);
@@ -63,7 +63,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Expires_current_version_on_unversioned_bucket_as_hard_delete()
+    public void RunLifecycle_UnversionedBucketCurrentVersion_HardDeletes()
     {
         const string b = "lc-unversioned";
         registry.Create(b);
@@ -77,7 +77,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Skips_versions_with_active_retention()
+    public void RunLifecycle_ActiveRetention_SkipsVersion()
     {
         const string b = "lc-locked";
         registry.Create(b);
@@ -96,7 +96,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Skips_versions_with_legal_hold()
+    public void RunLifecycle_ActiveLegalHold_SkipsVersion()
     {
         const string b = "lc-hold";
         registry.Create(b);
@@ -114,7 +114,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Sweep_idempotent_does_not_stamp_marker_on_existing_marker()
+    public void RunLifecycle_ExistingDeleteMarker_DoesNotStampDuplicateMarker()
     {
         const string b = "lc-idempotent";
         registry.Create(b);
@@ -131,7 +131,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Expired_object_delete_marker_reaps_lone_marker()
+    public void RunLifecycle_ExpiredObjectDeleteMarker_ReapsLoneMarker()
     {
         const string b = "lc-marker-reap";
         registry.Create(b);
@@ -154,7 +154,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Expired_object_delete_marker_skips_when_other_versions_exist()
+    public void RunLifecycle_ExpiredObjectDeleteMarker_SkipsWhenOtherVersionsExist()
     {
         const string b = "lc-marker-skip";
         registry.Create(b);
@@ -174,7 +174,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Disabled_rule_is_ignored()
+    public void RunLifecycle_DisabledRule_IsIgnored()
     {
         const string b = "lc-disabled";
         registry.Create(b);
@@ -188,7 +188,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task Lifecycle_xml_round_trips()
+    public async System.Threading.Tasks.Task LifecycleConfiguration_Xml_RoundTrips()
     {
         var input = """
             <?xml version="1.0"?>
@@ -234,7 +234,7 @@ public sealed class LifecycleTests : IDisposable
     [InlineData("<AbortIncompleteMultipartUpload><DaysAfterInitiation>7</DaysAfterInitiation></AbortIncompleteMultipartUpload>")]
     [InlineData("<Filter><Tag><Key>x</Key><Value>y</Value></Tag></Filter>")]
     [InlineData("<Filter><And><Prefix>p/</Prefix><Tag><Key>x</Key><Value>y</Value></Tag></And></Filter>")]
-    public async System.Threading.Tasks.Task Unsupported_rule_elements_are_rejected(string extra)
+    public async System.Threading.Tasks.Task ReadLifecycleConfiguration_UnsupportedRuleElements_ReturnsInvalidArgument(string extra)
     {
         var input = $"""
             <LifecycleConfiguration>
@@ -254,7 +254,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Expires_noncurrent_version_on_versioned_bucket_after_noncurrent_days()
+    public void RunLifecycle_NoncurrentVersions_ExpiresAfterNoncurrentDays()
     {
         const string b = "lc-noncurrent";
         registry.Create(b);
@@ -284,7 +284,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Noncurrent_version_expiration_respects_legal_hold()
+    public void RunLifecycle_NoncurrentVersionWithLegalHold_SkipsExpiration()
     {
         const string b = "lc-noncurrent-hold";
         registry.Create(b);
@@ -304,7 +304,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task Noncurrent_version_xml_round_trips()
+    public async System.Threading.Tasks.Task ReadLifecycleConfiguration_NoncurrentVersion_RoundTripsXml()
     {
         var input = """
             <LifecycleConfiguration>
@@ -339,7 +339,7 @@ public sealed class LifecycleTests : IDisposable
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task Transition_is_rejected()
+    public async System.Threading.Tasks.Task ReadLifecycleConfiguration_TransitionElement_ReturnsInvalidArgument()
     {
         var input = """
             <LifecycleConfiguration>

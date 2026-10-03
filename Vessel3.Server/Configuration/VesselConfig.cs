@@ -21,7 +21,8 @@ internal sealed record VesselConfig(
     OidcOptions? Oidc,
     IReadOnlyList<string>? AdminUsers = null,
     bool ContainerReposEnabled = true,
-    bool WebDavEnabled = true)
+    bool WebDavEnabled = true,
+    string? WebhooksFile = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -71,6 +72,8 @@ internal sealed record VesselConfig(
         var webDavDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_WEBDAV_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
         var webDavEnabled = !webDavDisabled;
 
+        var webhooksFile = ReadString("VESSEL3_WEBHOOKS_FILE");
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -87,7 +90,8 @@ internal sealed record VesselConfig(
             oidc,
             adminUsers,
             containerReposEnabled,
-            webDavEnabled);
+            webDavEnabled,
+            webhooksFile);
 
         error = null;
         return true;

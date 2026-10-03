@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Vessel3.Operator.Domain;
 using Vessel3.Operator.Domain.Models;
+using Vessel3.Primitives;
 using Xunit;
 
 namespace Vessel3.Tests.Operator;
@@ -47,7 +48,7 @@ public sealed class UserReconcilerTests
         Assert.Equal("test-key-id", secretData["AWS_ACCESS_KEY_ID"]);
         Assert.Equal("test-secret-key", secretData["AWS_SECRET_ACCESS_KEY"]);
         Assert.Equal("http://vessel-store.storage.svc:9000", secretData["AWS_ENDPOINT_URL_S3"]);
-        Assert.Equal("us-east-1", secretData["AWS_DEFAULT_REGION"]);
+        Assert.Equal(ServerRegion.Default, secretData["AWS_DEFAULT_REGION"]);
 
         Assert.True(k8s.UserStatuses.TryGetValue(userId, out var status));
         Assert.Equal(PhaseNames.Ready, status.Phase);

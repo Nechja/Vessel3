@@ -20,6 +20,7 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
 | [**Deployment & Operations**](deployment-and-operations.md) | Docker, Kubernetes, systemd, Caddy reverse proxy, storage engine architecture, compaction, and GC. |
 | [**OIDC & Single Sign-On**](oidc-and-sso.md) | Identity federation via OIDC, STS `AssumeRoleWithWebIdentity`, JIT user provisioning, and Web UI PKCE login. |
 
+
 ---
 
 ## System Architecture

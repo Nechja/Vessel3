@@ -32,7 +32,7 @@ public class AtomicOverwriteTests : IDisposable
         Metadata: new Dictionary<string, string>());
 
     [Fact]
-    public async Task Unversioned_overwrite_never_observes_NoSuchKey()
+    public async Task AppendPut_UnversionedOverwrite_NeverObservesNoSuchKey()
     {
         bucket.AppendPut("k", Req("seed"));
 
@@ -65,7 +65,7 @@ public class AtomicOverwriteTests : IDisposable
     }
 
     [Fact]
-    public async Task Suspended_overwrite_never_observes_NoSuchKey()
+    public async Task AppendPut_SuspendedOverwrite_NeverObservesNoSuchKey()
     {
         bucket.SetVersioning(VersioningStatus.Suspended);
         bucket.AppendPut("k", Req("seed"));

@@ -40,7 +40,7 @@ public class BucketWebsiteTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_And_Writer_RoundTrip()
+    public async Task Xml_ValidConfig_RoundTrips()
     {
         IS3XmlWriter writer = new S3XmlWriter();
         IS3XmlReader reader = new S3XmlReader();
@@ -58,7 +58,7 @@ public class BucketWebsiteTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_Parses_Without_ErrorDocument()
+    public async Task Xml_WithoutErrorDocument_ParsesSuccessfully()
     {
         IS3XmlReader reader = new S3XmlReader();
         const string xml = """
@@ -78,7 +78,7 @@ public class BucketWebsiteTests : IDisposable
     }
 
     [Fact]
-    public async Task Xml_Reader_Rejects_Missing_IndexDocument()
+    public async Task Xml_MissingIndexDocument_Rejects()
     {
         IS3XmlReader reader = new S3XmlReader();
         const string xml = """
@@ -97,7 +97,7 @@ public class BucketWebsiteTests : IDisposable
     }
 
     [Fact]
-    public void Bucket_SetWebsite_Persists_Across_Open()
+    public void SetWebsite_AcrossOpen_Persists()
     {
         var bucketDir = Path.Combine(root, "site-bucket");
         Directory.CreateDirectory(bucketDir);
@@ -132,7 +132,7 @@ public class BucketWebsiteTests : IDisposable
     }
 
     [Fact]
-    public async Task Actions_Get_Put_Delete_Flow()
+    public async Task Actions_GetPutDelete_ExecutesFlow()
     {
         var reg = Registry();
         Assert.True(reg.Create("web-test").Match(v => v, _ => false));

@@ -12,7 +12,7 @@ public class BucketPolicyTests
     private static readonly CallerIdentity ReadOnlyUser = new("usr_ro", "ro_user", UserRole.ReadOnly, "V3AKRO00000000000000");
 
     [Fact]
-    public void PublicRead_Grants_Read_To_Anyone_Including_Anonymous()
+    public void Authorize_PublicRead_GrantsReadToAnyoneIncludingAnonymous()
     {
         var publicAccess = new BucketAccess(PublicRead: true, ReadOnly: false);
 
@@ -27,7 +27,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void Anonymous_Denied_When_Not_Public()
+    public void Authorize_Anonymous_DeniedWhenNotPublic()
     {
         var privateAccess = BucketAccess.Private;
 
@@ -37,7 +37,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void Admin_Has_Wildcard_Access()
+    public void Authorize_Admin_HasWildcardAccess()
     {
         var privateAccess = BucketAccess.Private;
 
@@ -51,7 +51,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void Owner_Has_Read_Write_Admin_On_Owned_Bucket()
+    public void Authorize_Owner_HasReadWriteAdminOnOwnedBucket()
     {
         var privateAccess = BucketAccess.Private;
 
@@ -61,7 +61,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void Non_Owner_Member_Denied_All_On_Private_Bucket()
+    public void Authorize_NonOwnerMember_DeniedOnPrivateBucket()
     {
         var privateAccess = BucketAccess.Private;
 
@@ -71,7 +71,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void ReadOnly_User_Denied_Write_And_Admin_Even_On_Owned_Bucket()
+    public void Authorize_ReadOnlyUser_DeniesWriteAndAdminEvenOnOwnedBucket()
     {
         var privateAccess = BucketAccess.Private;
 
@@ -81,7 +81,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void ReadOnly_Bucket_Blocks_Writes_For_All_Callers_Including_Admin()
+    public void Authorize_ReadOnlyBucket_BlocksWritesForAllCallers()
     {
         var readOnlyAccess = new BucketAccess(PublicRead: false, ReadOnly: true);
 
@@ -99,7 +99,7 @@ public class BucketPolicyTests
     }
 
     [Fact]
-    public void Authorize_Returns_Ok_Or_AccessDeniedError()
+    public void Authorize_Result_ReturnsOkOrAccessDenied()
     {
         var privateAccess = BucketAccess.Private;
 

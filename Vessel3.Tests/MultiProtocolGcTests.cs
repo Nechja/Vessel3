@@ -43,7 +43,7 @@ public class MultiProtocolGcTests : IDisposable
     private string BlobPath(string sha) => Path.Combine(blobsRoot, sha[..2], sha[2..4], sha);
 
     [Fact]
-    public async Task Gc_Preserves_Blobs_From_Both_S3_And_ContainerRepos_While_Deleting_Orphans()
+    public async Task Sweep_MultiProtocolReferences_PreservesReferencedBlobsAndDeletesOrphans()
     {
         var ct = TestContext.Current.CancellationToken;
 

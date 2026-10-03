@@ -473,7 +473,7 @@ public class NativeClientTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Website_Endpoints_And_Direct_Serving_RoundTrip()
+    public async Task Website_EndpointsAndDirectServing_RoundtripsSuccessfully()
     {
         var (app, client) = await StartServer(
             "website-e2e",

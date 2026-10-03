@@ -6,32 +6,32 @@ namespace Vessel3.Tests;
 public class OidcOptionsTests
 {
     [Fact]
-    public void Unset_means_disabled()
+    public void Parse_UnsetOptions_IsDisabled()
     {
         Assert.True(OidcOptions.From(null, null, null, null).TryGetValue(out var o, out _));
         Assert.Null(o);
     }
 
     [Fact]
-    public void Issuer_without_client_id_fails()
+    public void Parse_MissingClientId_Fails()
     {
         Assert.False(OidcOptions.From("https://id.test", null, null, null).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Client_id_without_issuer_fails()
+    public void Parse_MissingIssuer_Fails()
     {
         Assert.False(OidcOptions.From(null, "vessel3", null, null).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Relative_issuer_fails()
+    public void Parse_RelativeIssuer_Fails()
     {
         Assert.False(OidcOptions.From("id.test", "vessel3", null, null).TryGetValue(out _, out _));
     }
 
     [Fact]
-    public void Trailing_slash_is_trimmed_and_discovery_url_derived()
+    public void Parse_TrailingSlash_TrimsAndDerivesDiscoveryUrl()
     {
         Assert.True(OidcOptions.From("https://id.test/", "vessel3", "", null).TryGetValue(out var o, out _));
         Assert.Equal("https://id.test", o!.Issuer);
@@ -41,7 +41,7 @@ public class OidcOptionsTests
     }
 
     [Fact]
-    public void Claim_requirement_parses_name_and_value()
+    public void Parse_ClaimRequirement_ParsesNameAndValue()
     {
         Assert.True(OidcOptions.From("https://id.test", "vessel3", "shared", "groups=vessel3-admins").TryGetValue(out var o, out _));
         Assert.Equal(new ClaimRequirement("groups", "vessel3-admins"), o!.RequiredClaim);
@@ -52,7 +52,7 @@ public class OidcOptionsTests
     [InlineData("groups")]
     [InlineData("=x")]
     [InlineData("groups=")]
-    public void Malformed_claim_requirement_fails(string raw)
+    public void Parse_MalformedClaim_Fails(string raw)
     {
         Assert.False(OidcOptions.From("https://id.test", "vessel3", null, raw).TryGetValue(out _, out _));
     }

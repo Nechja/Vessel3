@@ -327,6 +327,62 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
     }
 
+    public async Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooksAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, "v1/webhooks");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.IReadOnlyListWebhookDto, ct);
+    }
+
+    public async Task<Result<WebhookDto>> GetWebhookAsync(string id, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, $"v1/webhooks/{Uri.EscapeDataString(id)}");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.WebhookDto, ct);
+    }
+
+    public async Task<Result<WebhookDto>> CreateWebhookAsync(CreateWebhookDto dto, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Post, "v1/webhooks");
+        req.Content = CreateJsonContent(dto, VesselJsonContext.Default.CreateWebhookDto);
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.WebhookDto, ct);
+    }
+
+    public async Task<Result<WebhookDto>> UpdateWebhookAsync(string id, UpdateWebhookDto dto, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Put, $"v1/webhooks/{Uri.EscapeDataString(id)}");
+        req.Content = CreateJsonContent(dto, VesselJsonContext.Default.UpdateWebhookDto);
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.WebhookDto, ct);
+    }
+
+    public async Task<Result> DeleteWebhookAsync(string id, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, $"v1/webhooks/{Uri.EscapeDataString(id)}");
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
+    public async Task<Result<WebhookTestResultDto>> TestWebhookAsync(string id, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Post, $"v1/webhooks/{Uri.EscapeDataString(id)}/test");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.WebhookTestResultDto, ct);
+    }
+
+    public async Task<Result<string>> ExportWebhooksYamlAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, "v1/webhooks/export.yaml");
+        using var res = await http.SendAsync(req, ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            return await ReadError(res, ct);
+        }
+        var yaml = await res.Content.ReadAsStringAsync(ct);
+        return yaml;
+    }
+
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, path);

@@ -94,7 +94,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadOnly_User_Can_Read_And_Propfind_But_Cannot_Write_Or_Mkcol()
+    public async Task Authorize_ReadOnlyUser_AllowsReadAndBlocksWrite()
     {
         var (app, client, identity) = await StartServer("ro");
 
@@ -137,7 +137,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Member_Can_Manage_Own_Bucket_And_Cannot_Write_Or_Delete_Other_Bucket()
+    public async Task Authorize_MemberUser_AllowsOwnBucketAndBlocksOtherBucket()
     {
         var (_, client, identity) = await StartServer("member-isolation");
 
@@ -171,7 +171,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Admin_User_Can_Access_And_Modify_All_Buckets()
+    public async Task Authorize_AdminUser_AllowsAllBuckets()
     {
         var (_, client, identity) = await StartServer("admin-access");
 
@@ -198,7 +198,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Revoked_Access_Key_Returns_Unauthorized()
+    public async Task Authorize_RevokedAccessKey_ReturnsUnauthorized()
     {
         var (_, client, identity) = await StartServer("revocation");
 
@@ -215,7 +215,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Invalid_Credentials_Returns_Unauthorized()
+    public async Task Authorize_InvalidCredentials_ReturnsUnauthorized()
     {
         var (_, client, _) = await StartServer("invalid-creds");
 
