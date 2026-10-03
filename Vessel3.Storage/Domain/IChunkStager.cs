@@ -32,7 +32,14 @@ internal interface IChunkStager
     Result<StagedSession> GetSession(string sessionId);
     IEnumerable<StagedSession> ListSessions(string bucket);
     Result AbortSession(string sessionId);
-    Task<Result<CommitChunksOutcome>> Commit(string sessionId, IReadOnlyList<MultipartPart> orderedParts, string wireEtag, ChecksumSet checksums, CancellationToken ct);
+    Task<Result<CommitChunksOutcome>> Commit(
+        string sessionId,
+        IReadOnlyList<MultipartPart> orderedParts,
+        string wireEtag,
+        ChecksumSet checksums,
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? metadataOverride = null,
+        string? contentTypeOverride = null);
     IEnumerable<string> EnumerateInFlightChunkShas();
     int ReapAbandonedSessions(DateTime cutoffUtc);
 }

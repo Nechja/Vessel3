@@ -1,0 +1,67 @@
+using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
+using Vessel3.Protocols.Azure.Dispatch;
+using Vessel3.Protocols.Azure.Serialization;
+using Vessel3.Storage;
+
+namespace Vessel3.Protocols.Azure.Actions.Blob;
+
+internal sealed class PutBlockAction(
+    IChunkStager stager,
+    IAzureErrorXmlWriter errorXml) : IAzureAction
+{
+    public AzureOperationKind Operation => AzureOperationKind.PutBlock;
+
+    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    {
+        if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
+        {
+            return new AzureErrorResult(new InvalidResourceNameError("Container and Blob are required"), errorXml);
+        }
+
+        var blockId = ctx.Request.Query["blockid"].ToString();
+        if (string.IsNullOrEmpty(blockId))
+        {
+            return new AzureErrorResult(new InvalidResourceNameError("Missing blockid query parameter"), errorXml);
+        }
+
+        var session = stager.ListSessions(target.Container)
+            .FirstOrDefault(s => string.Equals(s.Key, target.Blob, StringComparison.Ordinal));
+
+        if (session is null)
+        {
+            var createRes = stager.CreateSession(target.Container, target.Blob, null, new Dictionary<string, string>());
+            if (!createRes.TryGetValue(out session, out var createErr))
+            {
+                return new AzureErrorResult(createErr, errorXml);
+            }
+        }
+
+        var stageRes = await stager.StageChunk(
+            session.SessionId,
+            blockId,
+            ctx.Request.Body,
+            ctx.Request.ContentLength,
+            DeclaredChecksums.Empty,
+            ctx.RequestAborted);
+
+        if (!stageRes.TryGetValue(out var chunk, out var stageErr))
+        {
+            return new AzureErrorResult(stageErr, errorXml);
+        }
+
+        if (!string.IsNullOrEmpty(chunk.Md5))
+        {
+            try
+            {
+                ctx.Response.Headers["Content-MD5"] = Convert.ToBase64String(Convert.FromHexString(chunk.Md5));
+            }
+            catch (FormatException)
+            {
+                // Hex format exception fallback
+            }
+        }
+
+        return Results.StatusCode(StatusCodes.Status201Created);
+    }
+}

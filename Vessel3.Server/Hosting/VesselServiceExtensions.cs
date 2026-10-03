@@ -77,6 +77,10 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselProtocols(this IServiceCollection services, VesselConfig config)
     {
+        var azure = new AzureProtocol();
+        services.AddSingleton<IVesselProtocol>(azure);
+        azure.ConfigureServices(services, config);
+
         var s3 = new S3Protocol();
         services.AddSingleton<IVesselProtocol>(s3);
         s3.ConfigureServices(services, config);

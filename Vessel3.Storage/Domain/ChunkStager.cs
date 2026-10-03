@@ -124,7 +124,9 @@ internal sealed class ChunkStager(
         IReadOnlyList<MultipartPart> orderedParts,
         string wireEtag,
         ChecksumSet checksums,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? metadataOverride = null,
+        string? contentTypeOverride = null)
     {
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
@@ -140,12 +142,15 @@ internal sealed class ChunkStager(
         var totalSize = 0L;
         foreach (var p in orderedParts) totalSize += p.Size;
 
+        var effectiveContentType = !string.IsNullOrEmpty(contentTypeOverride) ? contentTypeOverride : meta.ContentType;
+        var effectiveMetadata = metadataOverride ?? meta.Metadata;
+
         var put = registry.AppendPut(meta.Bucket, meta.Key, new PutRequest(
             BlobSha: "",
             Md5: wireEtag,
             Size: totalSize,
-            ContentType: meta.ContentType,
-            Metadata: meta.Metadata,
+            ContentType: effectiveContentType,
+            Metadata: effectiveMetadata,
             Parts: orderedParts,
             Crc32: checksums.Crc32,
             Crc32C: checksums.Crc32C,
