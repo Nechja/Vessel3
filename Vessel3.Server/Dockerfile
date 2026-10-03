@@ -25,6 +25,7 @@ COPY Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj Vessel3.Protocols.S3/
 COPY Vessel3.Protocols.Native/Vessel3.Protocols.Native.csproj Vessel3.Protocols.Native/
 COPY Vessel3.Protocols.Oci/Vessel3.Protocols.Oci.csproj Vessel3.Protocols.Oci/
 COPY Vessel3.Protocols.Azure/Vessel3.Protocols.Azure.csproj Vessel3.Protocols.Azure/
+COPY Vessel3.Protocols.WebDav/Vessel3.Protocols.WebDav.csproj Vessel3.Protocols.WebDav/
 COPY Vessel3.Client/Vessel3.Client.csproj Vessel3.Client/
 COPY Vessel3.Server/Vessel3.Server.csproj Vessel3.Server/
 COPY Vessel3.UI/Vessel3.UI.csproj Vessel3.UI/
@@ -38,6 +39,7 @@ COPY Vessel3.Protocols.S3/ Vessel3.Protocols.S3/
 COPY Vessel3.Protocols.Native/ Vessel3.Protocols.Native/
 COPY Vessel3.Protocols.Oci/ Vessel3.Protocols.Oci/
 COPY Vessel3.Protocols.Azure/ Vessel3.Protocols.Azure/
+COPY Vessel3.Protocols.WebDav/ Vessel3.Protocols.WebDav/
 COPY Vessel3.Client/ Vessel3.Client/
 COPY Vessel3.Server/ Vessel3.Server/
 COPY Vessel3.UI/ Vessel3.UI/
