@@ -24,6 +24,10 @@
                     <Icon Name="bucket" />
                     <span class="sidebar-label">Buckets</span>
                 </NavLink>
+                <NavLink href="container-repos" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="server" />
+                    <span class="sidebar-label">Container Repos</span>
+                </NavLink>
                 <NavLink href="uploads" class="sidebar-item" @onclick="CloseMobileMenu">
                     <Icon Name="upload" />
                     <span class="sidebar-label">Uploads</span>
@@ -174,6 +178,10 @@
             if ("buckets".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 results.Add(new SearchResult("Buckets", "Storage buckets overview", "", "bucket", "Navigation"));
+            }
+            if ("container repos".Contains(query, StringComparison.OrdinalIgnoreCase) || "containers".Contains(query, StringComparison.OrdinalIgnoreCase) || "images".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Container Repos", "OCI container image repos & tags", "container-repos", "server", "Navigation"));
             }
             if ("uploads".Contains(query, StringComparison.OrdinalIgnoreCase) || "multipart".Contains(query, StringComparison.OrdinalIgnoreCase))
             {

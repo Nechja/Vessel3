@@ -184,8 +184,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
             HardDeleteEvent? hardDelete = Versioning switch
             {
-                VersioningStatus.Unversioned when Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } oldU }
-                    => new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, oldU.VersionId),
+                VersioningStatus.Unversioned when Index.GetCurrentPutVersionId(key) is { } oldVid
+                    => new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, oldVid),
                 VersioningStatus.Suspended when LatestVersionId(key) is "null"
                     => new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null"),
                 _ => null,

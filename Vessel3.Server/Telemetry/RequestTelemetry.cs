@@ -33,15 +33,22 @@ internal sealed partial class RequestTelemetry(
         {
             RequestTrace.Current = null;
             var elapsed = Stopwatch.GetTimestamp() - trace.StartedAt;
-            var aborted = failure is OperationCanceledException && ctx.RequestAborted.IsCancellationRequested;
-            var status = failure is null ? ctx.Response.StatusCode : aborted ? 499 : 500;
+            var aborted = ctx.RequestAborted.IsCancellationRequested || failure is OperationCanceledException;
+            var status = failure switch
+            {
+                null => ctx.Response.StatusCode,
+                _ when aborted => 499,
+                BadHttpRequestException badHttp => badHttp.StatusCode,
+                _ => 500,
+            };
             var reqBytes = ctx.Request.ContentLength ?? 0;
             var resBytes = ctx.Response.ContentLength ?? 0;
 
             metrics.RecordRequest(trace.Action, status, elapsed, reqBytes, resBytes);
             metrics.RecordStages(trace);
 
-            if (status >= 500 || elapsed >= slowTicks)
+            var serverTicks = Math.Max(0, elapsed - trace.Ticks(Stage.Body));
+            if (status >= 500 || serverTicks >= slowTicks)
             {
                 var level = status >= 500 ? LogLevel.Error : LogLevel.Warning;
                 var totalMs = Ms(elapsed);

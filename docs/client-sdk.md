@@ -233,3 +233,30 @@ if (sweepResult.TryGetValue(out var sweep, out _))
     Console.WriteLine($"Pruned {sweep.Expired} expired versions and {sweep.MarkersReaped} delete markers.");
 }
 ```
+
+### 8. Container Repos Management
+
+```csharp
+// List all container repos
+var reposResult = await client.ListContainerReposAsync();
+if (reposResult.TryGetValue(out var repos, out _))
+{
+    foreach (var repo in repos)
+    {
+        Console.WriteLine($"Repository: {repo}");
+
+        // List tags for this repository
+        var tagsResult = await client.ListContainerTagsAsync(repo);
+        if (tagsResult.TryGetValue(out var tags, out _))
+        {
+            foreach (var tag in tags)
+            {
+                Console.WriteLine($"  - {tag}");
+            }
+        }
+    }
+}
+
+// Delete a manifest by tag or digest
+await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+```

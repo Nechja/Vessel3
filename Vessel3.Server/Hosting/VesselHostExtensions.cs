@@ -9,6 +9,7 @@ internal static class VesselHostExtensions
         {
             options.Limits.MaxRequestBodySize = 5L * 1024 * 1024 * 1024;
             options.Limits.MinRequestBodyDataRate = null;
+            options.Limits.MinResponseDataRate = null;
         });
     }
 }

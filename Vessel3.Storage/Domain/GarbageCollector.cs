@@ -17,8 +17,17 @@ internal interface IGarbageCollector
     Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge);
 }
 
-internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry, IChunkStager stager, IGcGate gate, GcOptions options) : IGarbageCollector
+internal sealed class GarbageCollector(
+    IBlobPool blobs,
+    IEnumerable<IBlobReferenceSource> referenceSources,
+    IChunkStager stager,
+    IGcGate gate,
+    GcOptions options) : IGarbageCollector
 {
+    public GarbageCollector(IBlobPool blobs, IBucketRegistry registry, IChunkStager stager, IGcGate gate, GcOptions options)
+        : this(blobs, [registry], stager, gate, options)
+    {
+    }
     public async Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge)
     {
         using var lease = await gate.Collecting(options.MaxWait);
@@ -69,7 +78,11 @@ internal sealed class GarbageCollector(IBlobPool blobs, IBucketRegistry registry
         try
         {
             foreach (var sha in stager.EnumerateInFlightChunkShas()) Spill(writers, scratch, sha);
-            foreach (var sha in registry.AllReferencedBlobs()) Spill(writers, scratch, sha);
+            foreach (var source in referenceSources)
+            {
+                foreach (var sha in source.EnumerateInFlightShas()) Spill(writers, scratch, sha);
+                foreach (var sha in source.AllReferencedBlobs()) Spill(writers, scratch, sha);
+            }
         }
         finally
         {

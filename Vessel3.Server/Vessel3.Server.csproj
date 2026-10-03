@@ -34,6 +34,7 @@
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.Oci\Vessel3.Protocols.Oci.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,18 +49,19 @@
     <GenerateEmbeddedFilesManifest Condition="'$(EmbedUi)' == 'true'">true</GenerateEmbeddedFilesManifest>
     <UIProject>$(MSBuildThisFileDirectory)..\Vessel3.UI\Vessel3.UI.csproj</UIProject>
     <UIPublishDir>$(MSBuildThisFileDirectory)obj/ui/</UIPublishDir>
+    <UIArtifactsDir>$(MSBuildThisFileDirectory)obj/ui-artifacts/</UIArtifactsDir>
   </PropertyGroup>
 
   <ItemGroup>
     <UISource Include="..\Vessel3.UI\**\*.cs;..\Vessel3.UI\**\*.razor;..\Vessel3.UI\**\*.csproj;..\Vessel3.UI\wwwroot\**\*;..\Vessel3.Client\**\*.cs;..\Vessel3.Client\**\*.csproj" Exclude="..\Vessel3.UI\bin\**\*;..\Vessel3.UI\obj\**\*;..\Vessel3.Client\bin\**\*;..\Vessel3.Client\obj\**\*" />
   </ItemGroup>
 
-  <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="BeforeResolveReferences" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
+  <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot\index.html">
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) --artifacts-path &quot;$(UIArtifactsDir)&quot; -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
   </Target>
 
-  <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="PrepareForBuild">
+  <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames">
     <Error Condition="!Exists('$(UIPublishDir)wwwroot\index.html')" Text="UI publish did not produce wwwroot/index.html at $(UIPublishDir)" />
     <ItemGroup>
       <_UIFile Include="$(UIPublishDir)wwwroot\**\*.*" />

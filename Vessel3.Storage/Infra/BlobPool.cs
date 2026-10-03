@@ -1,4 +1,6 @@
 #pragma warning disable CA5350
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 namespace Vessel3.Storage;
@@ -26,10 +28,17 @@ internal interface IBlobPool
 
 internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IBlobPool
 {
+    private readonly string tmpDir = Path.Combine(options.Root, "tmp");
+    private readonly ConcurrentDictionary<string, bool> ensuredDirs = new();
+    private bool tmpDirEnsured;
+
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
-        var tmpDir = Path.Combine(options.Root, "tmp");
-        Directory.CreateDirectory(tmpDir);
+        if (!tmpDirEnsured)
+        {
+            Directory.CreateDirectory(tmpDir);
+            tmpDirEnsured = true;
+        }
         var tempPath = Path.Combine(tmpDir, Guid.NewGuid().ToString("N"));
         var moved = false;
 
@@ -56,27 +65,47 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
                 using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                 using var sha1 = intent.Sha1 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA1) : null;
                 var crc32 = intent.Crc32 ? new System.IO.Hashing.Crc32() : null;
-                var crc32c = new Crc32C();
-                var buf = new byte[81920];
+                var crc32c = intent.Crc32C ? new Crc32C() : default;
+                var buf = ArrayPool<byte>.Shared.Rent(81920);
                 total = 0;
-                int n;
-                using (RequestTrace.Time(Stage.Body))
+                try
                 {
-                    while ((n = await source.ReadAsync(buf.AsMemory(), ct)) > 0)
+                    int n;
+                    using (RequestTrace.Time(Stage.Body))
                     {
-                        var span = buf.AsSpan(0, n);
-                        sha256.AppendData(buf, 0, n);
-                        md5Hash.AppendData(buf, 0, n);
-                        sha1?.AppendData(buf, 0, n);
-                        crc32?.Append(span);
-                        if (intent.Crc32C) crc32c.Append(span);
-                        await temp.WriteAsync(buf.AsMemory(0, n), ct);
-                        total += n;
+                        while ((n = await source.ReadAsync(buf.AsMemory(0, 81920), ct)) > 0)
+                        {
+                            var span = buf.AsSpan(0, n);
+                            sha256.AppendData(span);
+                            md5Hash.AppendData(span);
+                            sha1?.AppendData(span);
+                            crc32?.Append(span);
+                            if (intent.Crc32C) crc32c.Append(span);
+                            await temp.WriteAsync(buf.AsMemory(0, n), ct);
+                            total += n;
+                        }
                     }
                 }
-                sha = Convert.ToHexStringLower(sha256.GetHashAndReset());
-                md5 = Convert.ToHexStringLower(md5Hash.GetHashAndReset());
-                if (sha1 is not null) sha1hex = Convert.ToHexStringLower(sha1.GetHashAndReset());
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buf);
+                }
+
+                Span<byte> sha256Bytes = stackalloc byte[32];
+                sha256.GetHashAndReset(sha256Bytes);
+                sha = Convert.ToHexStringLower(sha256Bytes);
+
+                Span<byte> md5Bytes = stackalloc byte[16];
+                md5Hash.GetHashAndReset(md5Bytes);
+                md5 = Convert.ToHexStringLower(md5Bytes);
+
+                if (sha1 is not null)
+                {
+                    Span<byte> sha1Bytes = stackalloc byte[20];
+                    sha1.GetHashAndReset(sha1Bytes);
+                    sha1hex = Convert.ToHexStringLower(sha1Bytes);
+                }
+
                 if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
                 if (intent.Crc32C) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
                 using (RequestTrace.Time(Stage.BlobSync))
@@ -91,7 +120,11 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
             var finalPath = PathFor(sha);
             var finalDir = Path.GetDirectoryName(finalPath)!;
             using var publish = RequestTrace.Time(Stage.BlobSync);
-            if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;
+            if (!ensuredDirs.ContainsKey(finalDir))
+            {
+                if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;
+                ensuredDirs.TryAdd(finalDir, true);
+            }
 
             try
             {
@@ -159,16 +192,25 @@ internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IB
     public Result<Stream> Open(string sha)
     {
         var path = PathFor(sha);
-        return File.Exists(path)
-            ? new FileStream(path, new FileStreamOptions
+        try
+        {
+            return new FileStream(path, new FileStreamOptions
             {
                 Mode = FileMode.Open,
                 Access = FileAccess.Read,
                 Share = FileShare.Read,
                 BufferSize = 81920,
                 Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
-            })
-            : (Result<Stream>)new NotFoundError($"blob {sha}");
+            });
+        }
+        catch (FileNotFoundException)
+        {
+            return new NotFoundError($"blob {sha}");
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new NotFoundError($"blob {sha}");
+        }
     }
 
     public bool Exists(string sha) => File.Exists(PathFor(sha));

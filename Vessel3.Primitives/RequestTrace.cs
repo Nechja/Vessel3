@@ -22,6 +22,13 @@ internal sealed class RequestTrace
     {
         if (current.Value is { } trace) trace.Action = action;
     }
+    public static void SetTarget(string action, string? bucket = null, string? key = null)
+    {
+        if (current.Value is not { } trace) return;
+        trace.Action = action;
+        trace.Bucket = bucket;
+        trace.Key = key;
+    }
     public long Ticks(Stage stage) => Interlocked.Read(ref ticks[(int)stage]);
     public void Add(Stage stage, long elapsed) => Interlocked.Add(ref ticks[(int)stage], elapsed);
 

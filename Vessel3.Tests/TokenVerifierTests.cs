@@ -240,5 +240,33 @@ public class TokenVerifierTests : IDisposable
         Assert.IsType<AccessDeniedError>(err);
     }
 
+    [Fact]
+    public async Task Admin_users_substring_match_sets_is_admin()
+    {
+        var token = idp.Token(idp.Claims(T0)); // Subject is "acct_kayla"
+        var verifier = new TokenVerifier(
+            OidcOptions.From(idp.Issuer, "vessel3", null, null, null, ["kayla"]).Match(o => o!, e => throw new InvalidOperationException(e.Message)),
+            new StaticKeys(idp.Keys()),
+            new TestClock(T0));
+
+        var result = await verifier.Verify(token, CancellationToken.None);
+        Assert.True(result.TryGetValue(out var id, out _));
+        Assert.True(id.IsAdmin);
+    }
+
+    [Fact]
+    public async Task Admin_claim_sets_is_admin()
+    {
+        var token = idp.Token(idp.Claims(T0, extra: "\"roles\":[\"vessel-admin\"]"));
+        var verifier = new TokenVerifier(
+            OidcOptions.From(idp.Issuer, "vessel3", null, null, "roles=vessel-admin", null).Match(o => o!, e => throw new InvalidOperationException(e.Message)),
+            new StaticKeys(idp.Keys()),
+            new TestClock(T0));
+
+        var result = await verifier.Verify(token, CancellationToken.None);
+        Assert.True(result.TryGetValue(out var id, out _));
+        Assert.True(id.IsAdmin);
+    }
+
     public void Dispose() => idp.Dispose();
 }

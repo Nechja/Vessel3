@@ -137,6 +137,7 @@ internal sealed class VirtualHostS3DispatchMiddleware(
             if (ctx.Request.Path.StartsWithSegments("/_admin") ||
                 ctx.Request.Path.StartsWithSegments("/_ui") ||
                 ctx.Request.Path.StartsWithSegments("/v1") ||
+                ctx.Request.Path.StartsWithSegments("/v2") ||
                 ctx.Request.Path.Equals("/metrics", StringComparison.Ordinal))
             {
                 await next(ctx);

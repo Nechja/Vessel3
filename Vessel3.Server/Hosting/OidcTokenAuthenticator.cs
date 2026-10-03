@@ -17,11 +17,20 @@ internal sealed class OidcTokenAuthenticator(ITokenVerifier verifier, IIdentityR
         if (!userResult.TryGetValue(out var user, out var findErr))
             return findErr;
 
+        var targetRole = verified.IsAdmin ? UserRole.Admin : UserRole.Member;
+
         if (user is null)
         {
-            var createResult = registry.CreateUser(verified.Subject, UserRole.Member);
+            var createResult = registry.CreateUser(verified.Subject, targetRole);
             if (!createResult.TryGetValue(out user, out var createErr))
                 return createErr;
+        }
+        else if (verified.IsAdmin && user.Role != UserRole.Admin)
+        {
+            var updateResult = registry.UpdateUserRole(user.Id, UserRole.Admin);
+            if (updateResult.TryGetError(out var updateErr))
+                return updateErr;
+            user = user with { Role = UserRole.Admin };
         }
 
         return new CallerIdentity(user.Id, user.Username, user.Role, token);

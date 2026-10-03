@@ -45,6 +45,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IDurableWrite, DurableWrite>();
         services.AddSingleton<IBlobPool, BlobPool>();
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
+        services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
         services.AddSingleton<IIdentityRegistry>(sp =>
         {
             var options = sp.GetRequiredService<IdentityOptions>();
@@ -52,12 +53,19 @@ internal static class VesselServiceExtensions
             var reg = new IdentityRegistry(options, clock);
             if (config.AccessKey is not null && config.SecretKey is not null)
                 reg.EnsureBootstrapAdmin(config.AccessKey, config.SecretKey);
+            if (config.AdminUsers is { Count: > 0 } admins)
+                reg.EnsureAdminUsers(admins);
             return reg;
         });
         services.AddSingleton<IObjectStore, ObjectStore>();
         services.AddSingleton<IChunkStager, ChunkStager>();
         services.AddSingleton<IGcGate, GcGate>();
-        services.AddSingleton<IGarbageCollector, GarbageCollector>();
+        services.AddSingleton<IGarbageCollector>(sp => new GarbageCollector(
+            sp.GetRequiredService<IBlobPool>(),
+            sp.GetServices<IBlobReferenceSource>(),
+            sp.GetRequiredService<IChunkStager>(),
+            sp.GetRequiredService<IGcGate>(),
+            sp.GetRequiredService<GcOptions>()));
         services.AddSingleton<ILifecycleSweeper, LifecycleSweeper>();
         services.AddHostedService<LifecycleService>();
         services.AddSingleton<ICompactor, Compactor>();
@@ -76,6 +84,13 @@ internal static class VesselServiceExtensions
         var native = new NativeProtocol();
         services.AddSingleton<IVesselProtocol>(native);
         native.ConfigureServices(services, config);
+
+        if (config.ContainerReposEnabled)
+        {
+            var oci = new OciProtocol();
+            services.AddSingleton<IVesselProtocol>(oci);
+            oci.ConfigureServices(services, config);
+        }
     }
 
     private static void AddVesselTelemetry(this IServiceCollection services)

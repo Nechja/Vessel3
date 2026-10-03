@@ -18,7 +18,9 @@ internal sealed record VesselConfig(
     TimeSpan SlowRequestThreshold,
     string? MetricsToken,
     bool MetricsAllowAnonymous,
-    OidcOptions? Oidc)
+    OidcOptions? Oidc,
+    IReadOnlyList<string>? AdminUsers = null,
+    bool ContainerReposEnabled = true)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -59,6 +61,11 @@ internal sealed record VesselConfig(
 
         var metricsToken = ReadString("VESSEL3_METRICS_TOKEN");
         var metricsAllowAnon = ReadBool("VESSEL3_METRICS_ALLOW_ANONYMOUS");
+        var adminUsers = ReadList("VESSEL3_ADMIN_USERS");
+
+        var ociDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_CONTAINER_REPOS_ENABLED"), "false", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Environment.GetEnvironmentVariable("VESSEL3_OCI_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
+        var containerReposEnabled = !ociDisabled;
 
         config = new VesselConfig(
             dataRoot,
@@ -73,7 +80,9 @@ internal sealed record VesselConfig(
             TimeSpan.FromMilliseconds(slowMs),
             metricsToken,
             metricsAllowAnon,
-            oidc);
+            oidc,
+            adminUsers,
+            containerReposEnabled);
 
         error = null;
         return true;
@@ -98,6 +107,15 @@ internal sealed record VesselConfig(
             ? []
             : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(d => VirtualHostResolver.StripPort(d).ToLowerInvariant())
+                .Distinct()];
+    }
+
+    private static string[] ReadList(string name)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(raw)
+            ? []
+            : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct()];
     }
 }

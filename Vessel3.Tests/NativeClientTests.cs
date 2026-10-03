@@ -344,4 +344,137 @@ public class NativeClientTests : IAsyncDisposable
         Assert.False(anonWhoAmI.TryGetValue(out _, out var anonErr));
         Assert.Equal(401, anonErr.Status);
     }
+
+    [Fact]
+    public async Task UserRoleManagement_PromoteAndSuspend()
+    {
+        var (app, adminClient) = await StartServer(
+            "role-mgmt",
+            accessKey: "root",
+            secretKey: "rootpass",
+            clientAccessKey: "root",
+            clientSecretKey: "rootpass");
+
+        var createAlice = await adminClient.CreateUserAsync("alice-role-test", "Member");
+        Assert.True(createAlice.TryGetValue(out var alice, out _));
+        Assert.Equal("Member", alice.Role);
+
+        var aliceKeyRes = await adminClient.CreateAccessKeyAsync(alice.Id);
+        Assert.True(aliceKeyRes.TryGetValue(out var aliceKey, out _));
+
+        var aliceClient = CreateClient(app, accessKey: aliceKey.Id, secretKey: aliceKey.SecretKey);
+
+        var aliceGcDenied = await aliceClient.RunGcAsync();
+        Assert.False(aliceGcDenied.TryGetValue(out _, out var gcErr));
+        Assert.Equal(403, gcErr.Status);
+
+        var aliceSelfPromoteDenied = await aliceClient.UpdateUserRoleAsync(alice.Id, "Admin");
+        Assert.True(aliceSelfPromoteDenied.TryGetError(out var selfErr));
+        Assert.Equal(403, selfErr.Status);
+
+        var promoteRes = await adminClient.UpdateUserRoleAsync(alice.Id, "Admin");
+        Assert.True(promoteRes is Result.OkResult);
+
+        var aliceWhoAmI = await aliceClient.WhoAmIAsync();
+        Assert.True(aliceWhoAmI.TryGetValue(out var aliceMe, out _));
+        Assert.Equal("Admin", aliceMe.Role);
+
+        var aliceGcAllowed = await aliceClient.RunGcAsync();
+        Assert.True(aliceGcAllowed.TryGetValue(out _, out _));
+
+        var suspendRes = await adminClient.UpdateUserStatusAsync(alice.Id, "Suspended");
+        Assert.True(suspendRes is Result.OkResult);
+
+        var aliceSuspendedWhoAmI = await aliceClient.WhoAmIAsync();
+        Assert.False(aliceSuspendedWhoAmI.TryGetValue(out _, out var suspErr));
+        Assert.Equal(401, suspErr.Status);
+
+        var activateRes = await adminClient.UpdateUserStatusAsync(alice.Id, "Active");
+        Assert.True(activateRes is Result.OkResult);
+
+        var aliceActiveWhoAmI = await aliceClient.WhoAmIAsync();
+        Assert.True(aliceActiveWhoAmI.TryGetValue(out var activeMe, out _));
+        Assert.Equal("Active", (await adminClient.ListUsersAsync()).Match(u => u.First(x => x.Id == alice.Id).Status, _ => ""));
+    }
+
+    [Fact]
+    public async Task OidcBearerToken_AdminPromotion()
+    {
+        var oidcOptions = new OidcOptions("https://issuer.example.com", "vessel3-client", "vessel3-client", null);
+        var fakeVerifier = new FakeAdminVerifier();
+
+        var (app, client) = await StartServer(
+            "oidc-admin",
+            accessKey: "root",
+            secretKey: "rootpass",
+            clientBearerToken: "admin.jwt.token",
+            oidc: oidcOptions,
+            configureServices: services =>
+            {
+                services.AddSingleton<ITokenVerifier>(fakeVerifier);
+            });
+
+        var whoAmI = await client.WhoAmIAsync();
+        Assert.True(whoAmI.TryGetValue(out var me, out _));
+        Assert.Equal("acct_kayla.dIftEd_eU48bcFmhcaiAJA", me.Username);
+        Assert.Equal("Admin", me.Role);
+
+        var gcAllowed = await client.RunGcAsync();
+        Assert.True(gcAllowed.TryGetValue(out _, out _));
+    }
+
+    private sealed class FakeAdminVerifier : ITokenVerifier
+    {
+        public Task<Result<VerifiedIdentity>> Verify(string token, CancellationToken ct) =>
+            Task.FromResult(token == "admin.jwt.token"
+                ? (Result<VerifiedIdentity>)new VerifiedIdentity("acct_kayla.dIftEd_eU48bcFmhcaiAJA", ["vessel3-client"], IsAdmin: true)
+                : new InvalidTokenError("token signature invalid"));
+    }
+
+    [Fact]
+    public async Task ContainerRepos_ClientMethods_ListAndTagsAndDelete()
+    {
+        var (app, client) = await StartServer(
+            "client-container-repos",
+            accessKey: "root-key",
+            secretKey: "root-secret",
+            clientAccessKey: "root-key",
+            clientSecretKey: "root-secret");
+
+        // 1. Initial list of repos is empty
+        var initialRepos = await client.ListContainerReposAsync();
+        Assert.True(initialRepos.TryGetValue(out var emptyList, out _));
+        Assert.Empty(emptyList);
+
+        // 2. Put a manifest via OCI catalog directly
+        var catalog = app.Services.GetRequiredService<Vessel3.Protocols.Oci.IContainerRepoCatalog>();
+        var manifestBytes = Encoding.UTF8.GetBytes("""
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "layers": []
+        }
+        """);
+        var putRes = catalog.PutManifest("my-service", "v1.0.0", "application/vnd.docker.distribution.manifest.v2+json", manifestBytes, []);
+        Assert.True(putRes.TryGetValue(out _, out _));
+
+        // 3. ListContainerReposAsync returns the repo
+        var reposRes = await client.ListContainerReposAsync();
+        Assert.True(reposRes.TryGetValue(out var repos, out _));
+        Assert.Contains("my-service", repos);
+
+        // 4. ListContainerTagsAsync returns the tag
+        var tagsRes = await client.ListContainerTagsAsync("my-service");
+        Assert.True(tagsRes.TryGetValue(out var tags, out _));
+        Assert.Contains("v1.0.0", tags);
+
+        // 5. DeleteContainerManifestAsync deletes the tag
+        var delRes = await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+        Assert.True(delRes is Result.OkResult);
+
+        // 6. ListContainerTagsAsync now has 0 tags
+        var afterTagsRes = await client.ListContainerTagsAsync("my-service");
+        Assert.True(afterTagsRes.TryGetValue(out var afterTags, out _));
+        Assert.Empty(afterTags);
+    }
 }

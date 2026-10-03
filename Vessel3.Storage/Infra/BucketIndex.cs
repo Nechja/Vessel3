@@ -27,7 +27,12 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         writeConn.Open();
         using (var pragma = writeConn.CreateCommand())
         {
-            pragma.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
+            pragma.CommandText = """
+                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = NORMAL;
+                PRAGMA temp_store = MEMORY;
+                PRAGMA mmap_size = 268435456;
+                """;
             pragma.ExecuteNonQuery();
         }
         EnsureSchema();
@@ -107,6 +112,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
             var conn = new SqliteConnection(connectionString);
             conn.Open();
+            using (var pragma = conn.CreateCommand())
+            {
+                pragma.CommandText = """
+                    PRAGMA mmap_size = 268435456;
+                    PRAGMA query_only = ON;
+                    """;
+                pragma.ExecuteNonQuery();
+            }
             return conn;
         }
 
@@ -350,6 +363,21 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return r.Read() ? r.GetString(0) : null;
     }
 
+    public string? GetCurrentPutVersionId(string key)
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = """
+            SELECT kind, version_id FROM versions
+             WHERE key = $k
+             ORDER BY seq DESC
+             LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$k", key);
+        using var r = cmd.ExecuteReader();
+        return r.Read() && (VersionKind)r.GetInt32(0) is VersionKind.Put ? r.GetString(1) : null;
+    }
+
     public Result<PutEntry?> GetCurrentPut(string key)
     {
         using var rh = ReadCmd();
@@ -560,6 +588,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA busy_timeout = 5000;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 268435456;
             """;
         pragma.ExecuteNonQuery();
 

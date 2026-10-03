@@ -170,4 +170,41 @@ public class RequestTelemetryTests
         await mw.InvokeAsync(Context(), ctx => { ctx.Response.StatusCode = 404; return Task.CompletedTask; });
         Assert.Contains("vessel3_requests_total{action=\"Other\",status=\"4xx\"} 1", Rendered());
     }
+
+    [Fact]
+    public async Task BadHttpRequest_Is_Counted_As_4xx_And_Not_Logged_As_500()
+    {
+        var (mw, log) = Build(slowMs: 1000);
+
+        await Assert.ThrowsAsync<BadHttpRequestException>(() => mw.InvokeAsync(Context(), _ =>
+        {
+            RequestTrace.Current!.Action = "PutObject";
+            RequestTrace.Current.Bucket = "skycam";
+            RequestTrace.Current.Key = "manifest.jsonl";
+            throw new BadHttpRequestException("Unexpected end of request content.", StatusCodes.Status400BadRequest);
+        }));
+
+        Assert.Empty(log.Entries);
+        var text = Rendered();
+        Assert.Contains("vessel3_requests_total{action=\"PutObject\",status=\"4xx\"} 1", text);
+        Assert.DoesNotContain("status=\"5xx\"", text);
+        Assert.Null(RequestTrace.Current);
+    }
+
+    [Fact]
+    public async Task Slow_Network_Body_Does_Not_Trigger_Slow_Server_Warning()
+    {
+        var (mw, log) = Build(slowMs: 20);
+
+        await mw.InvokeAsync(Context(), async ctx =>
+        {
+            RequestTrace.Current!.Action = "PutObject";
+            RequestTrace.Current.Bucket = "skycam";
+            await Task.Delay(35, TestContext.Current.CancellationToken);
+            RequestTrace.Current.Add(Stage.Body, Stopwatch.Frequency * 35 / 1000);
+            ctx.Response.StatusCode = 200;
+        });
+
+        Assert.Empty(log.Entries);
+    }
 }

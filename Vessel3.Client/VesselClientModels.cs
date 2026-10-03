@@ -18,6 +18,10 @@ public readonly record struct UserDto(string Id, string Username, string Role, s
 
 public readonly record struct CreateUserRequest(string Username, string Role);
 
+public readonly record struct UpdateUserRoleRequest(string Role);
+
+public readonly record struct UpdateUserStatusRequest(string Status);
+
 public readonly record struct AccessKeyDto(string Id, string SecretKey, string UserId, string? Description, DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, bool IsRevoked);
 
 public readonly record struct CreateAccessKeyRequest(string? Description, long? TtlSeconds);
@@ -29,6 +33,10 @@ public readonly record struct ErrorDto(string Error, string Message);
 public readonly record struct GcReportDto(int BlobsDeleted, int UploadsReaped);
 
 public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
+
+public readonly record struct ContainerCatalogDto(IReadOnlyList<string> Repositories);
+
+public readonly record struct ContainerTagsDto(string Name, IReadOnlyList<string> Tags);
 
 public sealed record VesselObjectDownload(
     Stream Content,
@@ -58,6 +66,8 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(UserDto))]
 [JsonSerializable(typeof(IReadOnlyList<UserDto>))]
 [JsonSerializable(typeof(CreateUserRequest))]
+[JsonSerializable(typeof(UpdateUserRoleRequest))]
+[JsonSerializable(typeof(UpdateUserStatusRequest))]
 [JsonSerializable(typeof(AccessKeyDto))]
 [JsonSerializable(typeof(IReadOnlyList<AccessKeyDto>))]
 [JsonSerializable(typeof(CreateAccessKeyRequest))]
@@ -65,4 +75,6 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(ErrorDto))]
 [JsonSerializable(typeof(GcReportDto))]
 [JsonSerializable(typeof(SweepReportDto))]
+[JsonSerializable(typeof(ContainerCatalogDto))]
+[JsonSerializable(typeof(ContainerTagsDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;
