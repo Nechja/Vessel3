@@ -12,7 +12,7 @@ internal sealed class GetContainerPropertiesAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.GetContainerProperties;
 
-    public Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container))
         {

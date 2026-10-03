@@ -20,7 +20,8 @@ internal sealed record VesselConfig(
     bool MetricsAllowAnonymous,
     OidcOptions? Oidc,
     IReadOnlyList<string>? AdminUsers = null,
-    bool ContainerReposEnabled = true)
+    bool ContainerReposEnabled = true,
+    bool WebDavEnabled = true)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -67,6 +68,9 @@ internal sealed record VesselConfig(
             || string.Equals(Environment.GetEnvironmentVariable("VESSEL3_OCI_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
         var containerReposEnabled = !ociDisabled;
 
+        var webDavDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_WEBDAV_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
+        var webDavEnabled = !webDavDisabled;
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -82,7 +86,8 @@ internal sealed record VesselConfig(
             metricsAllowAnon,
             oidc,
             adminUsers,
-            containerReposEnabled);
+            containerReposEnabled,
+            webDavEnabled);
 
         error = null;
         return true;

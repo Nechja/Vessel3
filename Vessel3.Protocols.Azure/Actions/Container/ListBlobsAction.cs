@@ -14,7 +14,7 @@ internal sealed class ListBlobsAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.ListBlobs;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container))
         {
@@ -49,7 +49,7 @@ internal sealed class ListBlobsAction(
         var serviceEndpoint = $"{req.Scheme}://{req.Host}/{target.Account ?? "devstoreaccount1"}";
         ctx.Response.ContentType = "application/xml";
 
-        await xml.WriteListBlobsAsync(
+        await xml.WriteListBlobs(
             ctx.Response.Body,
             serviceEndpoint,
             target.Container,

@@ -41,7 +41,6 @@ public class WebsiteServingTests : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Transient test directory cleanup
         }
     }
 

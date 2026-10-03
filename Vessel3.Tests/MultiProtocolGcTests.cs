@@ -47,19 +47,15 @@ public class MultiProtocolGcTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // 1. Write blob 1 (S3)
         var s3Data = Encoding.UTF8.GetBytes("s3-object-content");
         var blobS3 = ((Result<StoredBlob>.Success)await blobs.Write(new MemoryStream(s3Data), s3Data.Length, ChecksumIntent.None, ct)).Value;
 
-        // Commit in S3
         s3Registry.Create("my-bucket");
         s3Registry.AppendPut("my-bucket", "obj1", new PutRequest(blobS3.Sha, blobS3.Md5, blobS3.Size, "text/plain", new Dictionary<string, string>()));
 
-        // 2. Write blob 2 (Container layer)
         var ociLayerData = Encoding.UTF8.GetBytes("oci-layer-tar-content");
         var blobOci = ((Result<StoredBlob>.Success)await blobs.Write(new MemoryStream(ociLayerData), ociLayerData.Length, ChecksumIntent.None, ct)).Value;
 
-        // Commit in Container Repos
         var manifestJson = Encoding.UTF8.GetBytes($$"""
         {
             "schemaVersion": 2,
@@ -77,30 +73,20 @@ public class MultiProtocolGcTests : IDisposable
         Assert.True(putRes.TryGetValue(out var manifestOutcome, out _));
         await blobs.Write(new MemoryStream(manifestJson), manifestJson.Length, ChecksumIntent.None, ct);
 
-        // 3. Write blob 3 (Orphan, unreferenced)
         var orphanData = Encoding.UTF8.GetBytes("unreferenced-orphan-data");
         var blobOrphan = ((Result<StoredBlob>.Success)await blobs.Write(new MemoryStream(orphanData), orphanData.Length, ChecksumIntent.None, ct)).Value;
 
-        // Age all blobs back 2 hours
         File.SetLastWriteTimeUtc(BlobPath(blobS3.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
         File.SetLastWriteTimeUtc(BlobPath(blobOci.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
         File.SetLastWriteTimeUtc(BlobPath(blobOrphan.Sha), DateTime.UtcNow - TimeSpan.FromHours(2));
         File.SetLastWriteTimeUtc(BlobPath(manifestOutcome.Digest[7..]), DateTime.UtcNow - TimeSpan.FromHours(2));
 
-        // Run GC sweep (minBlobAge: 1 hour)
         var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
-        // Assert: 1 orphan deleted
         Assert.Equal(1, report.BlobsDeleted);
-
-        // S3 blob is retained
         Assert.True(blobs.Exists(blobS3.Sha), "S3 blob must be preserved");
-
-        // OCI layer blob and manifest blob are retained
         Assert.True(blobs.Exists(blobOci.Sha), "Container Repo layer blob must be preserved");
         Assert.True(blobs.Exists(manifestOutcome.Digest[7..]), "Container Repo manifest blob must be preserved");
-
-        // Orphan is deleted
         Assert.False(blobs.Exists(blobOrphan.Sha), "Orphan blob must be deleted");
     }
 }

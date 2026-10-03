@@ -81,6 +81,13 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IVesselProtocol>(azure);
         azure.ConfigureServices(services, config);
 
+        if (config.WebDavEnabled)
+        {
+            var webdav = new WebDavProtocol();
+            services.AddSingleton<IVesselProtocol>(webdav);
+            webdav.ConfigureServices(services, config);
+        }
+
         var s3 = new S3Protocol();
         services.AddSingleton<IVesselProtocol>(s3);
         s3.ConfigureServices(services, config);

@@ -7,6 +7,8 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
     {
         if (ctx.Request.Path.StartsWithSegments("/v1")
             || ctx.Request.Path.StartsWithSegments("/v2")
+            || ctx.Request.Path.StartsWithSegments("/dav")
+            || ctx.Request.Path.StartsWithSegments("/webdav")
             || ctx.Request.Path.StartsWithSegments("/_admin")
             || ctx.Request.Path.StartsWithSegments("/_ui")
             || ctx.Request.Path.StartsWithSegments("/_site")

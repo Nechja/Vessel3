@@ -37,6 +37,8 @@ internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry, IS3Subre
             || ctx.Request.Path.StartsWithSegments("/_site")
             || ctx.Request.Path.StartsWithSegments("/v1")
             || ctx.Request.Path.StartsWithSegments("/v2")
+            || ctx.Request.Path.StartsWithSegments("/dav")
+            || ctx.Request.Path.StartsWithSegments("/webdav")
             || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
         {
             return null;

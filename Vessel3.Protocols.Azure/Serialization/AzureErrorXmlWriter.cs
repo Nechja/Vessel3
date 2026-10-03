@@ -8,7 +8,7 @@ namespace Vessel3.Protocols.Azure.Serialization;
 internal interface IAzureErrorXmlWriter
 {
     (string Code, int StatusCode) MapError(Error error);
-    Task WriteErrorAsync(Stream output, Error error, string requestId, CancellationToken ct);
+    Task WriteError(Stream output, Error error, string requestId, CancellationToken ct);
 }
 
 internal sealed record InvalidResourceNameError(string Detail) : Error("InvalidResourceName", Detail)
@@ -47,7 +47,7 @@ internal sealed class AzureErrorXmlWriter : IAzureErrorXmlWriter
         _ => string.IsNullOrEmpty(code) ? "InternalError" : code
     };
 
-    public Task WriteErrorAsync(Stream output, Error error, string requestId, CancellationToken ct)
+    public Task WriteError(Stream output, Error error, string requestId, CancellationToken ct)
     {
         var (code, _) = MapError(error);
         var time = DateTimeOffset.UtcNow.ToString("o");
@@ -81,6 +81,6 @@ internal sealed class AzureErrorResult(Error error, IAzureErrorXmlWriter xml) : 
         ctx.Response.Headers["x-ms-error-code"] = code;
         ctx.Response.Headers["x-ms-request-id"] = requestId;
 
-        await xml.WriteErrorAsync(ctx.Response.Body, error, requestId, ctx.RequestAborted);
+        await xml.WriteError(ctx.Response.Body, error, requestId, ctx.RequestAborted);
     }
 }

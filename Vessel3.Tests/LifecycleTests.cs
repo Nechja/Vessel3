@@ -26,7 +26,7 @@ public sealed class LifecycleTests : IDisposable
     public void Dispose()
     {
         registry.Dispose();
-        try { Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
+        try { Directory.Delete(root, recursive: true); } catch { }
     }
 
     private static PutRequest MakePut(string body = "data") => new(
@@ -269,13 +269,11 @@ public sealed class LifecycleTests : IDisposable
         var versionsBefore = Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, "data/", null, 10)).Value;
         Assert.Equal(2, versionsBefore.Entries.Count);
 
-        // 10 days after v2 was created: v1 is not yet 30 days noncurrent
         var t10 = v2.Value.At + TimeSpan.FromDays(10);
         var report1 = sweeper.Run(t10);
         Assert.Equal(0, report1.NoncurrentExpired);
         Assert.Equal(2, Assert.IsType<Result<VersionsPage>.Success>(registry.ListAllVersions(b, "data/", null, 10)).Value.Entries.Count);
 
-        // 31 days after v2 was created: v1 has been noncurrent for 31 days
         var t31 = v2.Value.At + TimeSpan.FromDays(31);
         var report2 = sweeper.Run(t31);
         Assert.Equal(1, report2.NoncurrentExpired);

@@ -48,7 +48,7 @@ internal sealed class AzureProtocolMiddleware(
 
         AzureHeaderCodec.ApplyStandardResponseHeaders(ctx);
 
-        var result = await dispatcher.DispatchAsync(target, ctx);
+        var result = await dispatcher.Dispatch(target, ctx);
         await result.ExecuteAsync(ctx);
     }
 }

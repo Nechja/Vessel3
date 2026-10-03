@@ -66,18 +66,15 @@ public class ContainerRepoCatalogTests : IDisposable
         Assert.True(putRes.TryGetValue(out var outcome, out _));
         Assert.StartsWith("sha256:", outcome.Digest, StringComparison.Ordinal);
 
-        // Fetch by tag
         var tagRes = catalog.GetManifest("my-app", "v1.0.0");
         Assert.True(tagRes.TryGetValue(out var manifestByTag, out _));
         Assert.Equal(outcome.Digest, manifestByTag.Digest);
         Assert.Equal(payload, manifestByTag.Content);
 
-        // Fetch by digest
         var digestRes = catalog.GetManifest("my-app", outcome.Digest);
         Assert.True(digestRes.TryGetValue(out var manifestByDigest, out _));
         Assert.Equal(outcome.Digest, manifestByDigest.Digest);
 
-        // Check AllReferencedBlobs contains layers and manifest digest
         var referenced = catalog.AllReferencedBlobs().ToList();
         Assert.Contains("1111111111111111111111111111111111111111111111111111111111111111", referenced);
         Assert.Contains(outcome.Digest[7..], referenced);
@@ -97,7 +94,6 @@ public class ContainerRepoCatalogTests : IDisposable
         Assert.True(get1.TryGetValue(out var m1, out _));
         Assert.Equal(out1.Digest, m1.Digest);
 
-        // Move tag latest to payload2
         var put2 = catalog.PutManifest("web", "latest", "application/json", payload2, []);
         Assert.True(put2.TryGetValue(out var out2, out _));
         Assert.NotEqual(out1.Digest, out2.Digest);
@@ -106,13 +102,11 @@ public class ContainerRepoCatalogTests : IDisposable
         Assert.True(get2.TryGetValue(out var m2, out _));
         Assert.Equal(out2.Digest, m2.Digest);
 
-        // List tags
         var tagsRes = catalog.ListTags("web");
         Assert.True(tagsRes.TryGetValue(out var tags, out _));
         Assert.Single(tags);
         Assert.Equal("latest", tags[0]);
 
-        // Delete tag
         var delRes = catalog.DeleteTag("web", "latest");
         Assert.True(delRes.TryGetValue(out var deleted, out _));
         Assert.True(deleted);
@@ -131,21 +125,18 @@ public class ContainerRepoCatalogTests : IDisposable
             catalog.PutManifest("repo-01", $"tag-{i:D2}", "application/json", Encoding.UTF8.GetBytes($"{i}"), []);
         }
 
-        // List repos page 1 (limit 2)
         var p1 = catalog.ListRepos(limit: 2);
         Assert.True(p1.TryGetValue(out var r1, out _));
         Assert.Equal(2, r1.Count);
         Assert.Equal("repo-01", r1[0]);
         Assert.Equal("repo-02", r1[1]);
 
-        // List repos page 2
         var p2 = catalog.ListRepos(limit: 2, last: r1[^1]);
         Assert.True(p2.TryGetValue(out var r2, out _));
         Assert.Equal(2, r2.Count);
         Assert.Equal("repo-03", r2[0]);
         Assert.Equal("repo-04", r2[1]);
 
-        // List tags page 1
         var t1 = catalog.ListTags("repo-01", limit: 2);
         Assert.True(t1.TryGetValue(out var tags1, out _));
         Assert.Equal(2, tags1.Count);
@@ -168,7 +159,6 @@ public class ContainerRepoCatalogTests : IDisposable
         Assert.True(getRes.TryGetValue(out var updated, out _));
         Assert.Equal(1024, updated.BytesReceived);
 
-        // Cancel
         var cancelRes = catalog.CancelUploadSession(session.Id);
         Assert.True(cancelRes.Match(() => true, _ => false));
         Assert.False(File.Exists(session.TempFilePath));

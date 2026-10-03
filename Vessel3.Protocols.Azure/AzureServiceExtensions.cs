@@ -26,7 +26,6 @@ public static class AzureServiceExtensions
             secretKey,
             sp.GetService<IIdentityRegistry>()));
 
-        // Actions
         services.AddSingleton<IAzureAction, ListContainersAction>();
         services.AddSingleton<IAzureAction, GetServicePropertiesAction>();
         services.AddSingleton<IAzureAction, GetAccountInfoAction>();
@@ -47,9 +46,6 @@ public static class AzureServiceExtensions
         return services;
     }
 
-    public static IApplicationBuilder UseVesselAzure(this IApplicationBuilder app)
-    {
+    public static IApplicationBuilder UseVesselAzure(this IApplicationBuilder app) =>
         app.UseMiddleware<AzureProtocolMiddleware>();
-        return app;
-    }
 }

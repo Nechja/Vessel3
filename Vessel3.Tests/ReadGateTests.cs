@@ -50,7 +50,6 @@ public class ReadGateTests : IDisposable
 
         await reader1Holding.Task.WaitAsync(TestContext.Current.CancellationToken);
 
-        // Reader 2 runs while Reader 1 is still actively holding a ReadHandle
         var task2 = Task.Run(() => index.GetCurrentPut("k"), TestContext.Current.CancellationToken);
         var timeout = Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
         var completed = await Task.WhenAny(task2, timeout);

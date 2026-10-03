@@ -8,12 +8,6 @@ namespace Vessel3.Storage;
 
 internal enum VersionKind { Put = 0, DeleteMarker = 1 }
 
-internal readonly record struct KeyBound(string Key, bool Inclusive)
-{
-    public static KeyBound After(string key) => new(key, false);
-    public static KeyBound From(string key) => new(key, true);
-}
-
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
     private readonly SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
@@ -25,17 +19,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
         writeConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False");
         writeConn.Open();
-        using (var pragma = writeConn.CreateCommand())
-        {
-            pragma.CommandText = """
-                PRAGMA journal_mode = WAL;
-                PRAGMA synchronous = NORMAL;
-                PRAGMA temp_store = MEMORY;
-                PRAGMA mmap_size = 268435456;
-                """;
-            pragma.ExecuteNonQuery();
-        }
-        EnsureSchema();
+        BucketIndexSchema.Initialize(writeConn);
     }
 
     public void Dispose()
@@ -45,26 +29,16 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         writeConn = null;
     }
 
-    public TxScope BeginTransaction()
+    public BucketIndexTxScope BeginTransaction()
     {
         var tx = writeConn!.BeginTransaction();
         currentTx = tx;
-        return new TxScope(this, tx);
+        return new BucketIndexTxScope(this, tx);
     }
 
-    public sealed class TxScope : IDisposable
+    internal void ClearTransaction(SqliteTransaction tx)
     {
-        private readonly BucketIndex owner;
-        private readonly SqliteTransaction tx;
-        private bool committed;
-        internal TxScope(BucketIndex owner, SqliteTransaction tx) { this.owner = owner; this.tx = tx; }
-        public void Commit() { tx.Commit(); committed = true; }
-        public void Dispose()
-        {
-            if (!committed) tx.Rollback();
-            tx.Dispose();
-            if (ReferenceEquals(owner.currentTx, tx)) owner.currentTx = null;
-        }
+        if (ReferenceEquals(currentTx, tx)) currentTx = null;
     }
 
     private SqliteCommand WriteCmd()
@@ -80,72 +54,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         var conn = readers.Rent();
         RequestTrace.Since(Stage.ReadLock, start);
         return new ReadHandle(readers, conn.CreateCommand(), conn);
-    }
-
-    internal readonly struct ReadHandle(SqliteReaderPool pool, SqliteCommand cmd, SqliteConnection conn) : IDisposable
-    {
-        public SqliteCommand Cmd { get; } = cmd;
-        private readonly long start = Stopwatch.GetTimestamp();
-
-        public void Dispose()
-        {
-            RequestTrace.Since(Stage.Query, start);
-            Cmd.Dispose();
-            pool.Return(conn);
-        }
-    }
-
-    internal sealed class SqliteReaderPool(string connectionString, int maxCapacity = 16) : IDisposable
-    {
-        private readonly Lock gate = new();
-        private readonly Stack<SqliteConnection> connections = [];
-        private bool disposed;
-
-        public SqliteConnection Rent()
-        {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            lock (gate)
-            {
-                if (connections.TryPop(out var pooled))
-                    return pooled;
-            }
-
-            var conn = new SqliteConnection(connectionString);
-            conn.Open();
-            using (var pragma = conn.CreateCommand())
-            {
-                pragma.CommandText = """
-                    PRAGMA mmap_size = 268435456;
-                    PRAGMA query_only = ON;
-                    """;
-                pragma.ExecuteNonQuery();
-            }
-            return conn;
-        }
-
-        public void Return(SqliteConnection conn)
-        {
-            lock (gate)
-            {
-                if (!disposed && connections.Count < maxCapacity && conn.State == System.Data.ConnectionState.Open)
-                {
-                    connections.Push(conn);
-                    return;
-                }
-            }
-
-            conn.Dispose();
-        }
-
-        public void Dispose()
-        {
-            lock (gate)
-            {
-                disposed = true;
-                while (connections.TryPop(out var conn))
-                    conn.Dispose();
-            }
-        }
     }
 
     public long MaxSeq()
@@ -579,94 +487,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             foreach (var sha in page) yield return sha;
             if (rows < pageSize) yield break;
         }
-    }
-
-    private void EnsureSchema()
-    {
-        using var pragma = writeConn!.CreateCommand();
-        pragma.CommandText = """
-            PRAGMA journal_mode = WAL;
-            PRAGMA synchronous = NORMAL;
-            PRAGMA busy_timeout = 5000;
-            PRAGMA temp_store = MEMORY;
-            PRAGMA mmap_size = 268435456;
-            """;
-        pragma.ExecuteNonQuery();
-
-        using var cmd = WriteCmd();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS versions (
-                seq           INTEGER PRIMARY KEY,
-                key           TEXT NOT NULL,
-                version_id    TEXT NOT NULL,
-                blob_sha      TEXT NOT NULL,
-                md5           TEXT NOT NULL DEFAULT '',
-                kind          INTEGER NOT NULL,
-                size          INTEGER NOT NULL,
-                content_type  TEXT NOT NULL,
-                at_ms         INTEGER NOT NULL,
-                md_json       TEXT NOT NULL DEFAULT '{}',
-                parts_json    TEXT NOT NULL DEFAULT '',
-                tags_json     TEXT NOT NULL DEFAULT '{}',
-                crc32         TEXT NOT NULL DEFAULT '',
-                crc32c        TEXT NOT NULL DEFAULT '',
-                sha1          TEXT NOT NULL DEFAULT '',
-                retention_mode TEXT,
-                retain_until  INTEGER,
-                legal_hold    INTEGER,
-                system_headers TEXT NOT NULL DEFAULT '{}'
-            );
-            CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
-            CREATE TABLE IF NOT EXISTS meta (
-                key   TEXT PRIMARY KEY,
-                value INTEGER NOT NULL
-            );
-            """;
-        cmd.ExecuteNonQuery();
-
-        if (!HasColumn("versions", "tags_json"))
-        {
-            using var alter = writeConn!.CreateCommand();
-            alter.CommandText = "ALTER TABLE versions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'";
-            alter.ExecuteNonQuery();
-        }
-        foreach (var col in (string[])["crc32", "crc32c", "sha1"])
-        {
-            if (HasColumn("versions", col)) continue;
-            using var add = writeConn!.CreateCommand();
-            add.CommandText = $"ALTER TABLE versions ADD COLUMN {col} TEXT NOT NULL DEFAULT ''";
-            add.ExecuteNonQuery();
-        }
-        AddColumnIfMissing("retention_mode", "TEXT");
-        AddColumnIfMissing("retain_until", "INTEGER");
-        AddColumnIfMissing("legal_hold", "INTEGER");
-        if (!HasColumn("versions", "system_headers"))
-        {
-            using var alter = writeConn!.CreateCommand();
-            alter.CommandText = "ALTER TABLE versions ADD COLUMN system_headers TEXT NOT NULL DEFAULT '{}'";
-            alter.ExecuteNonQuery();
-        }
-    }
-
-    private bool HasColumn(string table, string column)
-    {
-        using var cmd = WriteCmd();
-        cmd.CommandText = $"PRAGMA table_info({table})";
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
-        {
-            if (r.GetString(1).Equals(column, StringComparison.Ordinal)) return true;
-        }
-        return false;
-    }
-
-    private void AddColumnIfMissing(string name, string type)
-    {
-        if (HasColumn("versions", name)) return;
-        using var alter = writeConn!.CreateCommand();
-        alter.CommandText = $"ALTER TABLE versions ADD COLUMN {name} {type}";
-        alter.ExecuteNonQuery();
     }
 
     public void ApplyRetention(string key, string versionId, RetentionMode mode, long retainUntilUnixSeconds)

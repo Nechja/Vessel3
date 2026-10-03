@@ -19,7 +19,8 @@ Built for homelab and single app use.
 - SigV4-signed requests, including the `STREAMING-UNSIGNED-PAYLOAD-TRAILER` mode boto3 uses by default.
 - Built-in multi-user IAM: local SQLite identity store (`iam.db`), roles (`Admin`, `Member`, `ReadOnly`), user status (`Active`/`Suspended`), and scoped access keys with TTL and revocation.
 - Bucket ownership & capability isolation: tenants only see and manage their own buckets; capability checks (`Read`, `Write`, `Admin`); canned ACLs (`public-read`, `private`).
-- Multi-protocol server: S3 and Azure Blob Storage alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
+- Multi-protocol server: S3, Azure Blob Storage, and WebDAV (RFC 4918 Class 1 & 2) alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
+- WebDAV network drive mounting: Mount Vessel3 directly in Windows Explorer, macOS Finder, Linux (`davfs2`), and mobile sync apps at `/dav/`.
 - Multi-protocol container registry: OCI Distribution Spec / Docker Registry v2 (`/v2/...`) for storing and serving container images directly from the shared blob pool.
 - Virtual-host routing, static website hosting, lifecycle rules, multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
 - Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
@@ -50,6 +51,7 @@ Full documentation is available in the [`docs/`](docs/README.md) directory:
 | [**Native REST API**](docs/native-api.md) | Specification for the `/v1/...` REST API for IAM, buckets, objects, and administrative sweeps. |
 | [**C# .NET Client SDK**](docs/client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient`). |
 | [**Container Repos (OCI Registry)**](docs/container-repos.md) | OCI / Docker Registry v2 container repo distribution specification, auth, and usage recipes. |
+| [**WebDAV Protocol & Network Drives**](docs/webdav.md) | RFC 4918 WebDAV support, Class 1 & 2 operations, and mounting recipes for Windows, macOS, Linux, and mobile. |
 | [**Environment Variables Cheat Sheet**](docs/env-cheat-sheet.md) | Complete environment variable reference, category breakdown, and copy-paste `.env` profiles. |
 | [**Deployment & Operations**](docs/deployment-and-operations.md) | Docker, Kubernetes, systemd service, reverse proxy setup (Caddy), compaction, and GC. |
 | [**OIDC & Single Sign-On**](docs/oidc-and-sso.md) | OpenID Connect federation, STS AssumeRoleWithWebIdentity, JIT provisioning, and Web UI PKCE. |

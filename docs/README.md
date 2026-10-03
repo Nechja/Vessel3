@@ -15,6 +15,7 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
 | [**Native REST API**](native-api.md) | Full endpoint specification for the `/v1/...` REST API covering IAM, buckets, objects, and maintenance sweeps. |
 | [**C# .NET Client SDK**](client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient` / `VesselClient`). |
 | [**Container Repos (OCI Image Registry)**](container-repos.md) | OCI / Docker Registry v2 container repo distribution specification, auth, and usage. |
+| [**WebDAV Protocol & Network Drives**](webdav.md) | RFC 4918 WebDAV support, Class 1 & 2 operations, and mounting recipes for Windows, macOS, Linux, and mobile. |
 | [**Environment Variables Cheat Sheet**](env-cheat-sheet.md) | Complete environment variable reference table, category breakdown, and copy-paste `.env` templates. |
 | [**Deployment & Operations**](deployment-and-operations.md) | Docker, Kubernetes, systemd, Caddy reverse proxy, storage engine architecture, compaction, and GC. |
 | [**OIDC & Single Sign-On**](oidc-and-sso.md) | Identity federation via OIDC, STS `AssumeRoleWithWebIdentity`, JIT user provisioning, and Web UI PKCE login. |
@@ -29,6 +30,7 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
   - **Azure Blob Storage Wire Protocol**: SharedKey / SharedKeyLite HMAC-SHA256 authentication, Block Blobs, staged blocks (`comp=block`/`comp=blocklist`), and Azurite emulation.
   - **Native REST API**: `/v1/...` with Bearer JWT or `Vessel` token authentication and JSON serialization.
   - **Container Repos (OCI)**: `/v2/...` OCI / Docker Registry v2 with Bearer token authentication and JSON manifests.
+  - **WebDAV Wire Protocol**: `/dav/...` and `/webdav/...` RFC 4918 Class 1 & 2 support with HTTP Basic Authentication and Multi-Status XML.
 - **Middleware Pipeline**: Request telemetry, Prometheus metrics (`/metrics`), virtual-host domain resolution, CORS, and auth dispatch.
 - **Core Storage Layer**:
   - `BucketRegistry` & `BucketPolicy`: Bucket metadata, ownership tracking, and capability authorization.

@@ -29,7 +29,6 @@ public class BucketWebsiteTests : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Transient test directory cleanup
         }
     }
 
@@ -113,7 +112,6 @@ public class BucketWebsiteTests : IDisposable
             Assert.NotNull(b1.Website);
         }
 
-        // Re-open and verify persistence
         using (var b2 = new Bucket("site-bucket", bucketDir, sync, durable))
         {
             b2.Open();
@@ -126,7 +124,6 @@ public class BucketWebsiteTests : IDisposable
             Assert.Null(b2.Website);
         }
 
-        // Re-open after removal
         using (var b3 = new Bucket("site-bucket", bucketDir, sync, durable))
         {
             b3.Open();
@@ -148,12 +145,10 @@ public class BucketWebsiteTests : IDisposable
         var putAction = new PutBucketWebsite(reg, reader, http);
         var delAction = new DeleteBucketWebsite(reg, http);
 
-        // 1. Initial GET -> 404 NoSuchWebsiteConfiguration
         var ctx1 = new DefaultHttpContext();
         var get1 = await getAction.Invoke("web-test", ctx1);
-        Assert.NotNull(get1); // http.Map result
+        Assert.NotNull(get1);
 
-        // 2. PUT ?website
         const string xmlBody = """
             <WebsiteConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
                 <IndexDocument>
@@ -169,7 +164,6 @@ public class BucketWebsiteTests : IDisposable
         var putRes = await putAction.Invoke("web-test", ctx2);
         Assert.NotNull(putRes);
 
-        // 3. GET ?website -> 200 with XML
         var ctx3 = new DefaultHttpContext();
         ctx3.Response.Body = new MemoryStream();
         await getAction.Invoke("web-test", ctx3);
@@ -178,12 +172,10 @@ public class BucketWebsiteTests : IDisposable
         Assert.Contains("<Suffix>index.html</Suffix>", xmlOut);
         Assert.Contains("<Key>error.html</Key>", xmlOut);
 
-        // 4. DELETE ?website -> 204
         var ctx4 = new DefaultHttpContext();
         var delRes = await delAction.Invoke("web-test", ctx4);
         Assert.NotNull(delRes);
 
-        // 5. Subsequent GET ?website -> 404 again
         var ctx5 = new DefaultHttpContext();
         var get2 = await getAction.Invoke("web-test", ctx5);
         Assert.NotNull(get2);

@@ -53,7 +53,7 @@ internal sealed class NativeAuthMiddleware(
             if (tokenAuthenticator is null)
                 return new HttpError("Unauthorized", "Bearer token authentication is not configured", 401);
 
-            var verified = await tokenAuthenticator.AuthenticateTokenAsync(token, ctx.RequestAborted);
+            var verified = await tokenAuthenticator.AuthenticateToken(token, ctx.RequestAborted);
             return !verified.TryGetValue(out var id, out var err)
                 ? new HttpError("Unauthorized", err.Message, 401)
                 : (CallerIdentity?)id;
