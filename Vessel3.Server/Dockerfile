@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
 # Build native AOT binary, ship on a distroless runtime-deps base.
 
 ARG DOTNET_VERSION=10.0
@@ -17,32 +17,12 @@ RUN apt-get update \
 
 WORKDIR /src
 
-COPY global.json ./
-COPY Directory.Build.props ./
-COPY Vessel3.Primitives/Vessel3.Primitives.csproj Vessel3.Primitives/
-COPY Vessel3.Storage/Vessel3.Storage.csproj Vessel3.Storage/
-COPY Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj Vessel3.Protocols.S3/
-COPY Vessel3.Protocols.Native/Vessel3.Protocols.Native.csproj Vessel3.Protocols.Native/
-COPY Vessel3.Protocols.Oci/Vessel3.Protocols.Oci.csproj Vessel3.Protocols.Oci/
-COPY Vessel3.Protocols.Azure/Vessel3.Protocols.Azure.csproj Vessel3.Protocols.Azure/
-COPY Vessel3.Protocols.WebDav/Vessel3.Protocols.WebDav.csproj Vessel3.Protocols.WebDav/
-COPY Vessel3.Client/Vessel3.Client.csproj Vessel3.Client/
-COPY Vessel3.Server/Vessel3.Server.csproj Vessel3.Server/
-COPY Vessel3.UI/Vessel3.UI.csproj Vessel3.UI/
+COPY global.json Directory.Build.props ./
+COPY --parents */*.csproj ./
 RUN dotnet restore Vessel3.Server/Vessel3.Server.csproj -r ${TARGET_RID} -p:EmbedUi=${EMBED_UI} \
  && if [ "${EMBED_UI}" = "true" ]; then dotnet restore Vessel3.UI/Vessel3.UI.csproj; fi
 
-COPY .editorconfig ./
-COPY Vessel3.Primitives/ Vessel3.Primitives/
-COPY Vessel3.Storage/ Vessel3.Storage/
-COPY Vessel3.Protocols.S3/ Vessel3.Protocols.S3/
-COPY Vessel3.Protocols.Native/ Vessel3.Protocols.Native/
-COPY Vessel3.Protocols.Oci/ Vessel3.Protocols.Oci/
-COPY Vessel3.Protocols.Azure/ Vessel3.Protocols.Azure/
-COPY Vessel3.Protocols.WebDav/ Vessel3.Protocols.WebDav/
-COPY Vessel3.Client/ Vessel3.Client/
-COPY Vessel3.Server/ Vessel3.Server/
-COPY Vessel3.UI/ Vessel3.UI/
+COPY . .
 
 RUN dotnet publish Vessel3.Server/Vessel3.Server.csproj \
     -c Release \

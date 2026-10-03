@@ -9,3 +9,10 @@
 *.user
 TestResults
 artifacts
+scratch
+docs
+tests
+bench
+Vessel3.Tests*
+Vessel3.Bench
+Vessel3.RealClient
