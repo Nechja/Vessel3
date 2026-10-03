@@ -60,7 +60,7 @@
 
   <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot/index.html">
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) --no-restore --artifacts-path &quot;$(UIArtifactsDir)&quot; -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) --artifacts-path &quot;$(UIArtifactsDir)&quot; -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
   </Target>
 
   <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames">
