@@ -369,11 +369,21 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
     {
         try
         {
-            var stream = await res.Content.ReadAsStreamAsync(ct);
-            var errDto = await JsonSerializer.DeserializeAsync(stream, VesselJsonContext.Default.ErrorDto, ct);
-            if (errDto.Error is { Length: > 0 } code)
+            var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+            if (bytes.Length > 0)
             {
-                return new HttpError(code, errDto.Message ?? string.Empty, (int)res.StatusCode);
+                var errDto = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.ErrorDto);
+                if (errDto.Error is { Length: > 0 } code)
+                {
+                    return new HttpError(code, errDto.Message ?? string.Empty, (int)res.StatusCode);
+                }
+
+                var ociErr = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.OciErrorsDto);
+                if (ociErr.Errors is { Count: > 0 } errors)
+                {
+                    var first = errors[0];
+                    return new HttpError(first.Code ?? "OciError", first.Message ?? string.Empty, (int)res.StatusCode);
+                }
             }
         }
         catch

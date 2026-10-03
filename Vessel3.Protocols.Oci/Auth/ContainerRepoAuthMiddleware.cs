@@ -13,7 +13,8 @@ public sealed record ContainerRepoAuthOptions(bool IsUnauthenticated, string? Ro
 internal sealed class ContainerRepoAuthMiddleware(
     IIdentityRegistry identity,
     IContainerRepoTokenService tokenService,
-    ContainerRepoAuthOptions options) : IMiddleware
+    ContainerRepoAuthOptions options,
+    ITokenAuthenticator? tokenAuthenticator = null) : IMiddleware
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
@@ -72,26 +73,43 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
             var token = authHeader["Bearer ".Length..].Trim();
-            if (!tokenService.ValidateToken(token, out var userId, out var scopes))
+            if (tokenService.ValidateToken(token, out var userId, out var scopes))
             {
-                await WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid or expired token");
+                var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _) && user is not null
+                    ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
+                    : CallerIdentity.System;
+
+                ctx.Items["CallerIdentity"] = caller;
+                ctx.Items["OciScopes"] = scopes ?? [];
+
+                if (!IsOperationAuthorized(ctx, caller, scopes))
+                {
+                    await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "Requested access to the resource is denied");
+                    return;
+                }
+
+                await next(ctx);
                 return;
             }
 
-            var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _) && user is not null
-                ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
-                : CallerIdentity.System;
-
-            ctx.Items["CallerIdentity"] = caller;
-            ctx.Items["OciScopes"] = scopes ?? [];
-
-            if (!IsOperationAuthorized(ctx, caller, scopes))
+            if (tokenAuthenticator is not null)
             {
-                await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "Requested access to the resource is denied");
-                return;
+                var verified = await tokenAuthenticator.AuthenticateTokenAsync(token, ctx.RequestAborted);
+                if (verified.TryGetValue(out var oidcCaller, out _))
+                {
+                    ctx.Items["CallerIdentity"] = oidcCaller;
+                    if (!oidcCaller.CanWrite && IsWriteMethod(ctx.Request.Method))
+                    {
+                        await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
+                        return;
+                    }
+
+                    await next(ctx);
+                    return;
+                }
             }
 
-            await next(ctx);
+            await WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid or expired token");
             return;
         }
 
