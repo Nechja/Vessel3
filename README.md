@@ -14,15 +14,17 @@ I don't have a roadmap yet, but I'm working toward an all-in-one storage system 
 ## What it is
 
 - Self-hosted and object storage for a homelab or test setup: one place for your files and the data your applications need to store.
-- Compatible with common S3 and Azure storage clients, and WebDAV clients that can use it like a network drive.
-- Includes a browser interface and a place to store container images.
-- Designed to keep writes consistent, even if the server stops unexpectedly.
+- Compatible with common S3 and Azure storage clients
+- WebDAV clients that can use it like a network drive
+- Includes a browser interface (optional) 
+- A place to store container images.
+- Designed to keep writes consistent even during unexpected server problems.
 - dotnet 10 because why not
 
 ## What it isn't
 
 - It isn't managed for you. You run it, and you're responsible for the machine, its storage, and keeping your data backed up.
-- It doesn't keep a second copy of your data on another server or automatically stay available if this one fails.
+- It doesn't keep a second copy of your data on another server or automatically stay available if this one fails (yet).
 - It isn't a full replacement for a network-attached storage system
 - It can serve a simple website, but it isn't meant to do everything those systems do.
 - It isn't built for large teams or heavy, high-traffic workloads. It's a personal project for homelabs and testing, and it's still growing.
