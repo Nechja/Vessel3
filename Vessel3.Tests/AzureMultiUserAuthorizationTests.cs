@@ -134,10 +134,10 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
         var result = verifier.Verify(ctx.Request, key.Id);
         Assert.True(result.TryGetValue(out var caller, out _));
         Assert.NotNull(caller);
-        Assert.Equal(user.Id, caller.Id);
-        Assert.Equal("alice", caller.Name);
+        Assert.Equal(user.Id, caller.UserId);
+        Assert.Equal("alice", caller.Username);
         Assert.Equal(UserRole.Member, caller.Role);
-        Assert.Equal(key.Id, caller.KeyId);
+        Assert.Equal(key.Id, caller.AccessKeyId);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
         SignRequest(ctx.Request, key.Id, key.SecretKey);
 
         var result = verifier.Verify(ctx.Request, key.Id);
-        Assert.True(result.TryGetError(out var error));
+        Assert.False(result.TryGetValue(out _, out var error));
         Assert.NotNull(error);
         Assert.Equal(403, error.Status);
     }
@@ -217,8 +217,8 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
 
         // 5. Alice uploads a blob to 'alice-box'
         {
-            var ctx = CreateHttpContext("PUT", $"/{aliceKey.Id}/alice-box/hello.txt", aliceKey, "Hello from Alice");
-            ctx.Request.Headers["x-ms-blob-type"] = "BlockBlob";
+            var ctx = CreateHttpContext("PUT", $"/{aliceKey.Id}/alice-box/hello.txt", aliceKey, "Hello from Alice",
+                h => h["x-ms-blob-type"] = "BlockBlob");
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
             Assert.Equal(StatusCodes.Status201Created, ctx.Response.StatusCode);
         }
@@ -244,7 +244,12 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
         }
     }
 
-    private DefaultHttpContext CreateHttpContext(string method, string urlPathAndQuery, AccessKey key, string? body = null)
+    private DefaultHttpContext CreateHttpContext(
+        string method,
+        string urlPathAndQuery,
+        AccessKey key,
+        string? body = null,
+        Action<IHeaderDictionary>? configureHeaders = null)
     {
         var ctx = new DefaultHttpContext();
         ctx.RequestServices = serviceProvider;
@@ -267,6 +272,8 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
             ctx.Request.ContentLength = bytes.Length;
             ctx.Request.ContentType = "text/plain";
         }
+
+        configureHeaders?.Invoke(ctx.Request.Headers);
 
         SignRequest(ctx.Request, key.Id, key.SecretKey);
         return ctx;
