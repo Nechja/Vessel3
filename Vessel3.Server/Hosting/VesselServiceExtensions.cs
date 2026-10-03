@@ -118,6 +118,7 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselHostMiddlewares(this IServiceCollection services)
     {
+        services.AddSingleton<ProbeEndpointMiddleware>();
         services.AddSingleton<RequestTelemetry>();
         services.AddSingleton<MetricsEndpointMiddleware>();
         services.AddSingleton<AdminHostRedirectMiddleware>();

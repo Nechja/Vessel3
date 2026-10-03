@@ -1,0 +1,76 @@
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselServer
+metadata:
+  name: vessel-telemetry
+  namespace: storage
+spec:
+  replicas: 1
+  storage:
+    size: 250Gi
+    storageClassName: local-path
+  auth:
+    adminSecretName: vessel-telemetry-admin-creds
+  service:
+    port: 9000
+---
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselBucket
+metadata:
+  name: mimir-blocks
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-telemetry
+    namespace: storage
+  bucketName: mimir-blocks
+  versioning: Enabled
+  access: private
+  prunePolicy: Retain
+---
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselBucket
+metadata:
+  name: tempo-traces
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-telemetry
+    namespace: storage
+  bucketName: tempo-traces
+  versioning: Disabled
+  access: private
+  prunePolicy: Retain
+---
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselBucket
+metadata:
+  name: loki-chunks
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-telemetry
+    namespace: storage
+  bucketName: loki-chunks
+  versioning: Disabled
+  access: private
+  prunePolicy: Retain
+---
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselUser
+metadata:
+  name: telemetry-agent
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-telemetry
+    namespace: storage
+  username: telemetry-writer
+  role: Member
+  writeSecret:
+    secretName: telemetry-s3-creds
+    secretNamespace: monitoring
+    keys:
+      accessKey: AWS_ACCESS_KEY_ID
+      secretKey: AWS_SECRET_ACCESS_KEY
+      endpoint: AWS_ENDPOINT_URL_S3
+      region: AWS_DEFAULT_REGION

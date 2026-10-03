@@ -1,0 +1,108 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vesselservers.vessel.nechja.io
+spec:
+  group: vessel.nechja.io
+  names:
+    kind: VesselServer
+    listKind: VesselServerList
+    plural: vesselservers
+    singular: vesselserver
+    shortNames:
+      - vs
+      - vserver
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Endpoint
+          type: string
+          jsonPath: .status.endpoint
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                image:
+                  type: string
+                  default: "ghcr.io/nechja/vessel3:latest"
+                imagePullPolicy:
+                  type: string
+                  default: "IfNotPresent"
+                replicas:
+                  type: integer
+                  minimum: 1
+                  maximum: 1
+                  default: 1
+                storage:
+                  type: object
+                  properties:
+                    size:
+                      type: string
+                      default: "10Gi"
+                    storageClassName:
+                      type: string
+                auth:
+                  type: object
+                  properties:
+                    adminSecretName:
+                      type: string
+                    autoGenerate:
+                      type: boolean
+                      default: true
+                domains:
+                  type: array
+                  items:
+                    type: string
+                service:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      default: "ClusterIP"
+                    port:
+                      type: integer
+                      default: 9000
+                resources:
+                  type: object
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                endpoint:
+                  type: string
+                adminSecret:
+                  type: string
+                readyReplicas:
+                  type: integer
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

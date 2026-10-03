@@ -10,6 +10,7 @@ internal static class VesselPipelineExtensions
 {
     public static void UseVesselPipeline(this WebApplication app, VesselConfig config)
     {
+        app.UseMiddleware<ProbeEndpointMiddleware>();
         app.UseMiddleware<MetricsEndpointMiddleware>();
         app.UseMiddleware<RequestTelemetry>();
         app.UseMiddleware<AdminHostRedirectMiddleware>();

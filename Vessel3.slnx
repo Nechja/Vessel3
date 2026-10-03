@@ -8,6 +8,7 @@
   <Project Path="Vessel3.Protocols.WebDav/Vessel3.Protocols.WebDav.csproj" />
   <Project Path="Vessel3.Client/Vessel3.Client.csproj" />
   <Project Path="Vessel3.Server/Vessel3.Server.csproj" />
+  <Project Path="Vessel3.Operator/Vessel3.Operator.csproj" />
   <Project Path="Vessel3.UI/Vessel3.UI.csproj" />
   <Folder Name="/tests/">
     <Project Path="Vessel3.Tests/Vessel3.Tests.csproj" />

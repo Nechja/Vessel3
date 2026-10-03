@@ -1,0 +1,15 @@
+apiVersion: v2
+name: vessel3
+description: Vessel3 High Performance Cloud Native Object Storage
+type: application
+version: 0.1.0
+appVersion: "3.0.0"
+keywords:
+  - s3
+  - storage
+  - object-storage
+  - cloud-native
+  - aot
+home: https://github.com/Nechja/Vessel3
+maintainers:
+  - name: Nechja

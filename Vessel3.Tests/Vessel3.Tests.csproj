@@ -30,6 +30,7 @@
     <ProjectReference Include="..\Vessel3.Protocols.WebDav\Vessel3.Protocols.WebDav.csproj" />
     <ProjectReference Include="..\Vessel3.Client\Vessel3.Client.csproj" />
     <ProjectReference Include="..\Vessel3.Server\Vessel3.Server.csproj" />
+    <ProjectReference Include="..\Vessel3.Operator\Vessel3.Operator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
