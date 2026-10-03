@@ -90,7 +90,47 @@ spec:
       region: region
 ```
 
+### 4. VesselWebhook (`vessel.nechja.io/v1alpha1`)
+
+Declaratively provisions and reconciles event webhooks on a target `VesselServer`. Supports inline secrets or secure references to Kubernetes `Secret` resources (`secretRef`).
+
+```yaml
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselWebhook
+metadata:
+  name: container-deploy-hook
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-primary
+    namespace: storage
+  name: "ArgoCD Webhook"
+  url: "https://argo-events.pipeline.svc.cluster.local:12000/vessel"
+  secretRef:
+    name: webhook-signing-secret
+    key: secret-token
+  eventFilters:
+    - "container.image.pushed"
+  resourceFilters:
+    - "drummer:*"
+  active: true
+```
+
+The operator continuously reports webhook ID, last delivery timestamp, and response status directly into `.status`:
+
+```yaml
+status:
+  phase: Ready
+  webhookId: whk_01J8R6T3Y9
+  lastTriggeredAt: "2026-10-03T12:05:00Z"
+  lastStatusCode: 200
+  conditions:
+    - type: Ready
+      status: "True"
+```
+
 ## Helm Charts
+
 
 ### Server Chart (`charts/vessel3`)
 
