@@ -19,6 +19,8 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
 | [**Environment Variables Cheat Sheet**](env-cheat-sheet.md) | Complete environment variable reference table, category breakdown, and copy-paste `.env` templates. |
 | [**Deployment & Operations**](deployment-and-operations.md) | Docker, Kubernetes, systemd, Caddy reverse proxy, storage engine architecture, compaction, and GC. |
 | [**OIDC & Single Sign-On**](oidc-and-sso.md) | Identity federation via OIDC, STS `AssumeRoleWithWebIdentity`, JIT user provisioning, and Web UI PKCE login. |
+| [**Webhooks & Event Notifications**](webhooks.md) | System-wide event notifications for OCI container pushes, S3 operations, declarative YAML, UI, and Kubernetes CRDs. |
+
 
 ---
 

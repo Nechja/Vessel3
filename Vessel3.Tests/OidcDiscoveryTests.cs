@@ -30,7 +30,7 @@ public class OidcDiscoveryTests
         """;
 
     [Fact]
-    public async Task Returns_endpoints_and_caches_them()
+    public async Task Discover_ValidIssuer_ReturnsEndpointsAndCaches()
     {
         var handler = new StubHandler(() => Json(Document));
         var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));
@@ -47,7 +47,7 @@ public class OidcDiscoveryTests
     }
 
     [Fact]
-    public async Task Refetches_after_max_age()
+    public async Task Discover_MaxAgeExpired_Refetches()
     {
         var handler = new StubHandler(() => Json(Document));
         var clock = new TestClock(T0);
@@ -61,7 +61,7 @@ public class OidcDiscoveryTests
     }
 
     [Fact]
-    public async Task Outage_yields_null_then_recovers_after_retry_interval()
+    public async Task Discover_TransientOutage_RecoversAfterInterval()
     {
         var up = false;
         var handler = new StubHandler(() => up ? Json(Document) : throw new HttpRequestException("down"));
@@ -89,7 +89,7 @@ public class OidcDiscoveryTests
     }
 
     [Fact]
-    public async Task Abandoned_caller_does_not_poison_the_shared_fetch()
+    public async Task Discover_CancelledCaller_DoesNotPoisonSharedFetch()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = new GatedHandler(release.Task);
@@ -109,7 +109,7 @@ public class OidcDiscoveryTests
     }
 
     [Fact]
-    public async Task Concurrent_callers_share_one_fetch()
+    public async Task Discover_ConcurrentCallers_ShareSingleFetch()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = new GatedHandler(release.Task);
@@ -125,7 +125,7 @@ public class OidcDiscoveryTests
     }
 
     [Fact]
-    public async Task Missing_optional_endpoints_are_null()
+    public async Task Discover_MissingOptionalEndpoints_SetsNull()
     {
         var handler = new StubHandler(() => Json("""{"issuer":"https://id.example.test","jwks_uri":"https://id.example.test/jwks"}"""));
         var discovery = new OidcDiscovery(Options(), new HttpClient(handler), new TestClock(T0));

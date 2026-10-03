@@ -14,7 +14,7 @@ public class TagSetTests
         ((Result<T>.Failure)r).Error;
 
     [Fact]
-    public void Header_Empty_Returns_Empty()
+    public void ParseHeader_EmptyHeader_ReturnsEmpty()
     {
         var r = TagSet.ParseHeader(null);
         Assert.Empty(OkTags(r));

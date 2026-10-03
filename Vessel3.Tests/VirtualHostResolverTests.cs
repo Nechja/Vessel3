@@ -67,7 +67,7 @@ public class VirtualHostResolverTests
     [InlineData("photos.localhost:9000", "photos")]
     [InlineData("DOCS.localhost:9000", "docs")]
     [InlineData("static-site.s3.example.com:443", "static-site")]
-    public void Extracts_Valid_Virtual_Host_Bucket(string host, string expectedBucket)
+    public void TryExtractBucket_ValidVirtualHost_ExtractsBucket(string host, string expectedBucket)
     {
         string[] baseDomains = ["s3.local", "localhost", "s3.example.com"];
         var registry = new MockRegistry([]);
@@ -90,7 +90,7 @@ public class VirtualHostResolverTests
     [InlineData("invalid-.localhost:9000")]
     [InlineData("ab.localhost:9000")]
     [InlineData("")]
-    public void Rejects_Invalid_Or_Base_Host(string host)
+    public void TryExtractBucket_InvalidOrBaseHost_ReturnsFalse(string host)
     {
         string[] baseDomains = ["s3.local", "localhost", "s3.example.com"];
         var registry = new MockRegistry([]);
@@ -116,7 +116,7 @@ public class VirtualHostResolverTests
     }
 
     [Fact]
-    public void Custom_Domain_Matches_Existing_Bucket()
+    public void TryExtractBucket_CustomDomain_MatchesExistingBucket()
     {
         string[] baseDomains = ["localhost"];
         var registry = new MockRegistry(["mysite.lan", "docs.company.internal"]);

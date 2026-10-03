@@ -35,7 +35,7 @@ public class BucketLifecycleTests : IDisposable
         Size: body.Length, ContentType: "text/plain", Metadata: new Dictionary<string, string>());
 
     [Fact]
-    public void TrySealForDelete_Seals_Empty_Bucket_Against_Writes()
+    public void TrySealForDelete_EmptyBucket_SealsAgainstWrites()
     {
         using var b = new Bucket("b", Path.Combine(root, "b"), sync, durable);
         b.Open();
@@ -46,7 +46,7 @@ public class BucketLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void TrySealForDelete_Refuses_A_NonEmpty_Bucket_Which_Stays_Writable()
+    public void TrySealForDelete_NonEmptyBucket_RefusesAndStaysWritable()
     {
         using var b = new Bucket("b", Path.Combine(root, "b"), sync, durable);
         b.Open();
@@ -57,7 +57,7 @@ public class BucketLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Delete_Of_A_NonEmpty_Bucket_Fails()
+    public void Delete_NonEmptyBucket_Fails()
     {
         var reg = Registry();
         reg.Create("mybucket");
@@ -68,7 +68,7 @@ public class BucketLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Create_Delete_Recreate_Same_Name_Leaves_No_Zombie()
+    public void Recreate_RepeatedSameName_LeavesNoZombie()
     {
         var reg = Registry();
         Assert.IsType<Result<bool>.Success>(reg.Create("mybucket"));
@@ -81,7 +81,7 @@ public class BucketLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Access_After_Delete_Reports_NoSuchBucket()
+    public void Access_AfterDelete_ReportsNoSuchBucket()
     {
         var reg = Registry();
         reg.Create("mybucket");

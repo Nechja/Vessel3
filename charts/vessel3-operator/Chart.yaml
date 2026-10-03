@@ -1,0 +1,16 @@
+apiVersion: v2
+name: vessel3-operator
+description: Kubernetes Operator for Vessel3 Object Storage and GitOps Resource Management
+type: application
+version: 0.1.0
+appVersion: "3.0.0"
+keywords:
+  - s3
+  - storage
+  - operator
+  - gitops
+  - vessel3
+  - aot
+home: https://github.com/Nechja/Vessel3
+maintainers:
+  - name: Nechja

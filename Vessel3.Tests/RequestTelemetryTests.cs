@@ -43,7 +43,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Fast_Success_Is_Counted_But_Not_Logged()
+    public async Task LogRequest_FastSuccess_CountsWithoutLogging()
     {
         var (mw, log) = Build(slowMs: 1000);
 
@@ -65,7 +65,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Slow_Request_Logs_A_Warning_With_Stage_Breakdown()
+    public async Task LogRequest_SlowRequest_LogsWarningWithBreakdown()
     {
         var (mw, log) = Build(slowMs: 10);
 
@@ -92,7 +92,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Server_Error_Status_Logs_Even_When_Fast()
+    public async Task LogRequest_ServerErrorStatus_LogsEvenWhenFast()
     {
         var (mw, log) = Build(slowMs: 1000);
 
@@ -110,7 +110,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Unhandled_Exception_Is_Logged_Counted_And_Rethrown()
+    public async Task LogRequest_UnhandledException_LogsCountsAndRethrows()
     {
         var (mw, log) = Build(slowMs: 1000);
 
@@ -131,7 +131,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Client_Abort_Is_Not_A_Failure()
+    public async Task LogRequest_ClientAbort_DoesNotTreatAsFailure()
     {
         var (mw, log) = Build(slowMs: 1000);
         var ctx = Context();
@@ -150,7 +150,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Zero_Threshold_Disables_Slow_Logging()
+    public async Task LogRequest_ZeroThreshold_DisablesSlowLogging()
     {
         var (mw, log) = Build(slowMs: 0);
 
@@ -164,7 +164,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Unrouted_Request_Is_Counted_As_Other()
+    public async Task LogRequest_UnroutedRequest_CountsAsOther()
     {
         var (mw, _) = Build(slowMs: 1000);
         await mw.InvokeAsync(Context(), ctx => { ctx.Response.StatusCode = 404; return Task.CompletedTask; });
@@ -172,7 +172,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task BadHttpRequest_Is_Counted_As_4xx_And_Not_Logged_As_500()
+    public async Task LogRequest_BadHttpRequest_CountsAs4xxWithout500Log()
     {
         var (mw, log) = Build(slowMs: 1000);
 
@@ -192,7 +192,7 @@ public class RequestTelemetryTests
     }
 
     [Fact]
-    public async Task Slow_Network_Body_Does_Not_Trigger_Slow_Server_Warning()
+    public async Task LogRequest_SlowNetworkBody_DoesNotTriggerSlowServerWarning()
     {
         var (mw, log) = Build(slowMs: 20);
 

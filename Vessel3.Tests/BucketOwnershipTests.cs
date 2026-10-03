@@ -37,7 +37,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Bucket_Created_With_Owner_Persists_And_Can_Be_Retrieved()
+    public void Create_WithOwner_PersistsAndCanBeRetrieved()
     {
         var reg = Registry();
         var createResult = reg.Create("alice-bucket", "usr_alice123");
@@ -54,7 +54,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Bucket_Created_Without_Owner_Has_Null_Owner()
+    public void Create_WithoutOwner_HasNullOwner()
     {
         var reg = Registry();
         reg.Create("orphan-bucket");
@@ -65,7 +65,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void SetOwner_Updates_And_Persists_Ownership()
+    public void SetOwner_ValidOwner_UpdatesAndPersists()
     {
         var reg = Registry();
         reg.Create("team-bucket", "usr_alice");
@@ -90,7 +90,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void List_Filters_By_OwnerId_Correctly()
+    public void List_OwnerId_FiltersCorrectly()
     {
         var reg = Registry();
         reg.Create("bucket-alice-1", "usr_alice");
@@ -117,7 +117,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Create_With_CallerIdentity_Assigns_Owner_And_Enforces_ReadOnly()
+    public void Create_WithCallerIdentity_AssignsOwnerAndEnforcesReadOnly()
     {
         var reg = Registry();
         var alice = new CallerIdentity("usr_alice", "alice", UserRole.Member, "V3AKALICE00000000000");
@@ -139,7 +139,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Delete_With_CallerIdentity_Allows_Owner_Or_Admin_Denies_Other()
+    public void Delete_WithCallerIdentity_AllowsOwnerOrAdminDeniesOther()
     {
         var reg = Registry();
         var alice = new CallerIdentity("usr_alice", "alice", UserRole.Member, "V3AKALICE00000000000");
@@ -164,7 +164,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void List_With_CallerIdentity_Filters_For_Member_Returns_All_For_Admin()
+    public void List_WithCallerIdentity_FiltersForMemberReturnsAllForAdmin()
     {
         var reg = Registry();
         var alice = new CallerIdentity("usr_alice", "alice", UserRole.Member, "V3AKALICE00000000000");
@@ -189,7 +189,7 @@ public class BucketOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Config_Mutations_With_CallerIdentity_Enforce_Authorization()
+    public void Mutations_CallerIdentity_EnforcesAuthorization()
     {
         var reg = Registry();
         var alice = new CallerIdentity("usr_alice", "alice", UserRole.Member, "V3AKALICE00000000000");

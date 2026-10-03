@@ -382,3 +382,104 @@ Query parameters:
   "markersReaped": 12
 }
 ```
+
+---
+
+## Webhook Endpoints
+
+Vessel3 provides native REST endpoints for managing webhooks, testing deliveries, and exporting configurations. Requires `Admin` or write-capable IAM credentials.
+
+### List Webhooks
+```http
+GET /v1/webhooks
+```
+**Response: `200 OK`**
+```json
+[
+  {
+    "id": "whk_01J8R6T3Y9",
+    "name": "CI Deploy",
+    "url": "https://ci.example.com/hooks",
+    "secret": "rainier-secret",
+    "eventFilters": ["container.image.pushed"],
+    "resourceFilters": ["drummer:*"],
+    "active": true,
+    "createdAt": "2026-10-03T12:00:00Z",
+    "lastTriggeredAt": "2026-10-03T12:05:00Z",
+    "lastStatusCode": 200,
+    "lastError": null,
+    "isStatic": false
+  }
+]
+```
+
+### Get Webhook by ID
+```http
+GET /v1/webhooks/{id}
+```
+**Response: `200 OK`** or `404 Not Found`
+
+### Create Webhook
+```http
+POST /v1/webhooks
+Content-Type: application/json
+
+{
+  "name": "ArgoCD Auto Sync",
+  "url": "https://argo.example.com/events",
+  "secret": "hood-secret",
+  "eventFilters": ["container.image.pushed"],
+  "resourceFilters": ["drummer:*"],
+  "active": true
+}
+```
+**Response: `201 Created`**
+
+### Update Webhook
+```http
+PUT /v1/webhooks/{id}
+Content-Type: application/json
+
+{
+  "name": "ArgoCD Auto Sync",
+  "url": "https://argo.example.com/events-v2",
+  "secret": "hood-secret",
+  "eventFilters": ["container.*"],
+  "resourceFilters": ["*"],
+  "active": true
+}
+```
+**Response: `200 OK`**
+
+### Delete Webhook
+```http
+DELETE /v1/webhooks/{id}
+```
+*Returns `400 Bad Request` if the webhook was loaded statically from `webhooks.yaml`.*
+
+**Response: `204 No Content`**
+
+### Test Webhook (Ping)
+Dispatches a mock `vessel.ping` event to the target URL and measures round-trip latency and response code.
+```http
+POST /v1/webhooks/{id}/test
+```
+**Response: `200 OK`**
+```json
+{
+  "webhookId": "whk_01J8R6T3Y9",
+  "success": true,
+  "statusCode": 200,
+  "latencyMs": 35.8,
+  "errorMessage": null,
+  "responseBody": "OK"
+}
+```
+
+### Export Webhooks as YAML
+Returns all active webhooks formatted as declarative YAML suitable for `webhooks.yaml` or GitOps repositories.
+```http
+GET /v1/webhooks/export.yaml
+```
+**Response: `200 OK` (`text/yaml; charset=utf-8`)**
+

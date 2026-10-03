@@ -1,3 +1,4 @@
+using Vessel3.Primitives;
 using Vessel3.Server.Admin;
 using Vessel3.Server.Hosting;
 
@@ -7,7 +8,7 @@ internal static class VesselEndpointExtensions
 {
     public static void MapVesselEndpoints(this WebApplication app)
     {
-        var admin = app.MapGroup("/_admin");
+        var admin = app.MapGroup(ReservedRoutePrefixes.Admin);
         admin.MapPut("/gc", static (HttpContext ctx, IAdminService adminService) => adminService.RunGc(ctx));
         admin.MapPut("/lifecycle", static (HttpContext ctx, IAdminService adminService) => adminService.RunLifecycle(ctx));
         admin.MapPut("/compact", static (HttpContext ctx, IAdminService adminService) => adminService.RunCompact(ctx));

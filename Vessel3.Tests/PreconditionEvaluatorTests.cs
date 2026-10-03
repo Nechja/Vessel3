@@ -31,7 +31,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfMatch_Exact_Pass()
+    public void EvaluateRead_IfMatchExact_Passes()
     {
         var r = new PreconditionEvaluator().Evaluate(
             R(("If-Match", "\"abc123\"")), "abc123", Modified);
@@ -39,7 +39,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfMatch_Wildcard_Pass()
+    public void EvaluateRead_IfMatchWildcard_Passes()
     {
         var r = new PreconditionEvaluator().Evaluate(
             R(("If-Match", "*")), "abc123", Modified);
@@ -47,7 +47,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfMatch_Mismatch_Failed()
+    public void EvaluateRead_IfMatchMismatch_Fails()
     {
         var r = new PreconditionEvaluator().Evaluate(
             R(("If-Match", "\"other\"")), "abc123", Modified);
@@ -55,7 +55,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfNoneMatch_Hit_NotModified()
+    public void EvaluateRead_IfNoneMatchHit_ReturnsNotModified()
     {
         var r = new PreconditionEvaluator().Evaluate(
             R(("If-None-Match", "\"abc123\"")), "abc123", Modified);
@@ -63,7 +63,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfNoneMatch_Star_Hit_NotModified()
+    public void EvaluateRead_IfNoneMatchStarHit_ReturnsNotModified()
     {
         var r = new PreconditionEvaluator().Evaluate(
             R(("If-None-Match", "*")), "abc123", Modified);
@@ -71,7 +71,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfModifiedSince_Older_NotModified()
+    public void EvaluateRead_IfModifiedSinceOlder_ReturnsNotModified()
     {
         var ims = Modified.AddSeconds(60).ToString("R");
         var r = new PreconditionEvaluator().Evaluate(
@@ -80,7 +80,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfModifiedSince_Newer_Pass()
+    public void EvaluateRead_IfModifiedSinceNewer_Passes()
     {
         var ims = Modified.AddSeconds(-60).ToString("R");
         var r = new PreconditionEvaluator().Evaluate(
@@ -89,7 +89,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfUnmodifiedSince_Older_Failed()
+    public void EvaluateRead_IfUnmodifiedSinceOlder_Fails()
     {
         var ius = Modified.AddSeconds(-60).ToString("R");
         var r = new PreconditionEvaluator().Evaluate(
@@ -98,7 +98,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Read_IfNoneMatch_Suppresses_IfModifiedSince()
+    public void EvaluateRead_IfNoneMatch_SuppressesIfModifiedSince()
     {
         var ims = Modified.AddSeconds(60).ToString("R");
         var r = new PreconditionEvaluator().Evaluate(
@@ -132,7 +132,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Write_IfNoneMatchStar_NoCurrent_Pass()
+    public void EvaluateWrite_IfNoneMatchStarNoCurrent_Passes()
     {
         var r = new PreconditionEvaluator().EvaluateForWrite(
             W(("If-None-Match", "*")), currentEtag: null);
@@ -140,7 +140,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Write_IfNoneMatchStar_Existing_Failed()
+    public void EvaluateWrite_IfNoneMatchStarExisting_Fails()
     {
         var r = new PreconditionEvaluator().EvaluateForWrite(
             W(("If-None-Match", "*")), currentEtag: "abc");
@@ -148,7 +148,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Write_IfMatch_NoCurrent_Failed()
+    public void EvaluateWrite_IfMatchNoCurrent_Fails()
     {
         var r = new PreconditionEvaluator().EvaluateForWrite(
             W(("If-Match", "\"abc\"")), currentEtag: null);
@@ -156,7 +156,7 @@ public class PreconditionEvaluatorTests
     }
 
     [Fact]
-    public void Write_IfMatch_Match_Pass()
+    public void EvaluateWrite_IfMatchMatches_Passes()
     {
         var r = new PreconditionEvaluator().EvaluateForWrite(
             W(("If-Match", "\"abc\"")), currentEtag: "abc");

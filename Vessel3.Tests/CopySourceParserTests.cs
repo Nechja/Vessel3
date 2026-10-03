@@ -14,7 +14,7 @@ public class CopySourceParserTests
     [InlineData("bucket%2Fa%2Fb%2Fc.txt", "bucket", "a/b/c.txt")]
     [InlineData("bucket%2Fa%20b.txt", "bucket", "a b.txt")]
     [InlineData("bucket/key.txt?versionId=abc", "bucket", "key.txt")]
-    public void Parses(string raw, string expectBucket, string expectKey)
+    public void TryParse_ValidHeader_ReturnsExpectedBucketAndKey(string raw, string expectBucket, string expectKey)
     {
         Assert.True(CopySource.TryParse(raw, out var bucket, out var key));
         Assert.Equal(expectBucket, bucket);
@@ -32,7 +32,7 @@ public class CopySourceParserTests
     [InlineData("bucket/")]
     [InlineData("/key.txt")]
     [InlineData("%2Fkey.txt")]
-    public void Rejects(string raw)
+    public void TryParse_InvalidHeader_ReturnsFalse(string raw)
     {
         Assert.False(CopySource.TryParse(raw, out string _, out string _));
         Assert.False(CopySource.TryParse(raw, out CopySource? _));

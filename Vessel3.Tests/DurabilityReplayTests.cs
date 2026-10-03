@@ -28,7 +28,7 @@ public class DurabilityReplayTests : IDisposable
         Metadata: new Dictionary<string, string>());
 
     [Fact]
-    public void Restart_Replays_Versions_From_Log()
+    public void Replay_VersionsFromLog_RebuildsState()
     {
         string v1, v2;
         using (var b = new Bucket("b", root, sync, durable))
@@ -50,7 +50,7 @@ public class DurabilityReplayTests : IDisposable
     }
 
     [Fact]
-    public void Replay_Recovers_Suspended_Null_Overwrite()
+    public void Replay_SuspendedNullOverwrite_RecoversSuccessfully()
     {
         using (var b = new Bucket("b", root, sync, durable))
         {
@@ -74,7 +74,7 @@ public class DurabilityReplayTests : IDisposable
     }
 
     [Fact]
-    public void Replay_Recovers_When_Index_Is_Behind_Log()
+    public void Replay_IndexBehindLog_RecoversSuccessfully()
     {
         string sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("orphan"u8.ToArray()));
         string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData("orphan"u8.ToArray()));

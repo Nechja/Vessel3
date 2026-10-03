@@ -94,7 +94,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Options_Returns_Dav_Compliance_Headers()
+    public async Task Options_DavRequest_ReturnsComplianceHeaders()
     {
         var (_, client) = await StartServer("options");
 
@@ -109,7 +109,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Basic_Auth_Challenges_When_Unauthenticated_And_Credentials_Required()
+    public async Task BasicAuth_Unauthenticated_ChallengesWith401()
     {
         var (_, client) = await StartServer("auth", "admin", "secret123");
 
@@ -128,7 +128,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Mkcol_Creates_Bucket_And_Directory_Marker()
+    public async Task Mkcol_ValidCollection_CreatesBucketAndDirectoryMarker()
     {
         var (_, client) = await StartServer("mkcol");
 
@@ -142,7 +142,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Put_Get_Head_And_Byte_Range()
+    public async Task ObjectOps_PutGetHead_SupportsByteRange()
     {
         var (_, client) = await StartServer("putget");
 
@@ -169,7 +169,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Propfind_Service_Root_And_Bucket()
+    public async Task Propfind_ValidTargets_ReturnsProperties()
     {
         var (_, client) = await StartServer("propfind");
 
@@ -196,7 +196,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Copy_And_Move_Operations()
+    public async Task CopyAndMove_ValidResources_ExecutesOperations()
     {
         var (_, client) = await StartServer("copymove");
 
@@ -233,7 +233,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Lock_Unlock_And_Proppatch()
+    public async Task LockAndProppatch_ValidResource_LocksAndProppatches()
     {
         var (_, client) = await StartServer("lockprop");
 
@@ -266,7 +266,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
-    public async Task Delete_Removes_Objects_And_Collections()
+    public async Task Delete_ValidTargets_RemovesObjectsAndCollections()
     {
         var (_, client) = await StartServer("del");
 

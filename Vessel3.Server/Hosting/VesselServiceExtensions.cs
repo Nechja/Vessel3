@@ -37,6 +37,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
         services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold));
         services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
+        services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
     }
 
     private static void AddVesselStorage(this IServiceCollection services, VesselConfig config)
@@ -73,6 +74,39 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IBucketLister, BucketLister>();
         services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
         services.AddSingleton<IAdminService, AdminService>();
+
+        services.AddSingleton<IWebhookStore>(sp =>
+        {
+            var options = sp.GetRequiredService<WebhookStoreOptions>();
+            var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            var store = new SqliteWebhookStore(options, clock);
+
+            var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, "webhooks.yaml");
+            if (File.Exists(yamlPath))
+            {
+                var yamlContent = File.ReadAllText(yamlPath);
+                var loaded = YamlWebhookLoader.LoadFromYaml(yamlContent, clock);
+                if (loaded.TryGetValue(out var staticWebhooks, out _))
+                {
+                    foreach (var sw in staticWebhooks)
+                    {
+                        store.UpsertStaticWebhook(sw);
+                    }
+                }
+            }
+
+            return store;
+        });
+
+        services.AddSingleton<WebhookDeliveryWorker>(sp => new WebhookDeliveryWorker(
+            sp.GetRequiredService<IWebhookStore>(),
+            new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(15) },
+            sp.GetRequiredService<ILogger<WebhookDeliveryWorker>>(),
+            sp.GetService<TimeProvider>()));
+
+        services.AddSingleton<IWebhookEventPublisher>(sp => sp.GetRequiredService<WebhookDeliveryWorker>());
+        services.AddSingleton<IWebhookDeliveryService>(sp => sp.GetRequiredService<WebhookDeliveryWorker>());
+        services.AddHostedService(sp => sp.GetRequiredService<WebhookDeliveryWorker>());
     }
 
     private static void AddVesselProtocols(this IServiceCollection services, VesselConfig config)
@@ -118,6 +152,7 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselHostMiddlewares(this IServiceCollection services)
     {
+        services.AddSingleton<ProbeEndpointMiddleware>();
         services.AddSingleton<RequestTelemetry>();
         services.AddSingleton<MetricsEndpointMiddleware>();
         services.AddSingleton<AdminHostRedirectMiddleware>();

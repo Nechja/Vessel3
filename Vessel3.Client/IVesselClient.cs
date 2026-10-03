@@ -41,4 +41,12 @@ public interface IVesselClient : IDisposable
     Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default);
     Task<Result<IReadOnlyList<string>>> ListContainerTagsAsync(string repo, int limit = 100, string? last = null, CancellationToken ct = default);
     Task<Result> DeleteContainerManifestAsync(string repo, string reference, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooksAsync(CancellationToken ct = default);
+    Task<Result<WebhookDto>> GetWebhookAsync(string id, CancellationToken ct = default);
+    Task<Result<WebhookDto>> CreateWebhookAsync(CreateWebhookDto dto, CancellationToken ct = default);
+    Task<Result<WebhookDto>> UpdateWebhookAsync(string id, UpdateWebhookDto dto, CancellationToken ct = default);
+    Task<Result> DeleteWebhookAsync(string id, CancellationToken ct = default);
+    Task<Result<WebhookTestResultDto>> TestWebhookAsync(string id, CancellationToken ct = default);
+    Task<Result<string>> ExportWebhooksYamlAsync(CancellationToken ct = default);
 }

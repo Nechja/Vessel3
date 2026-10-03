@@ -33,7 +33,7 @@ public sealed class ChunkStagerTests : IDisposable
     }
 
     [Fact]
-    public async Task Session_Lifecycle_Create_Stage_Commit()
+    public async Task Session_FullLifecycle_CreatesStagesAndCommits()
     {
         var ct = TestContext.Current.CancellationToken;
         var session = Assert.IsType<Result<StagedSession>.Success>(
@@ -73,7 +73,7 @@ public sealed class ChunkStagerTests : IDisposable
     }
 
     [Fact]
-    public void Abort_Deletes_Session_Directory()
+    public void Abort_ExistingSession_DeletesSessionDirectory()
     {
         var session = Assert.IsType<Result<StagedSession>.Success>(
             stager.CreateSession("test-bucket", "abort.txt", "text/plain", new Dictionary<string, string>())).Value;
@@ -85,7 +85,7 @@ public sealed class ChunkStagerTests : IDisposable
     }
 
     [Fact]
-    public void ReapAbandonedSessions_Deletes_Expired_Sessions()
+    public void ReapAbandonedSessions_ExpiredSessions_Deletes()
     {
         var session = Assert.IsType<Result<StagedSession>.Success>(
             stager.CreateSession("test-bucket", "old.txt", "text/plain", new Dictionary<string, string>())).Value;

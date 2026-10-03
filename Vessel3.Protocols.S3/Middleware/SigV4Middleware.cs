@@ -1,18 +1,13 @@
 
+using Vessel3.Primitives;
+
 namespace Vessel3.Server.S3;
 
 internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper http) : IMiddleware
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
-        if (ctx.Request.Path.StartsWithSegments("/v1")
-            || ctx.Request.Path.StartsWithSegments("/v2")
-            || ctx.Request.Path.StartsWithSegments("/dav")
-            || ctx.Request.Path.StartsWithSegments("/webdav")
-            || ctx.Request.Path.StartsWithSegments("/_admin")
-            || ctx.Request.Path.StartsWithSegments("/_ui")
-            || ctx.Request.Path.StartsWithSegments("/_site")
-            || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
+        if (ReservedRoutePrefixes.Matches(ctx.Request.Path.Value))
         {
             await next(ctx);
             return;

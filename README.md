@@ -5,36 +5,30 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
-A single-binary, S3-compatible object server.
+A single-binary object server built for homelabs and software testing.
 
-Built for homelab and single app use.
+I don't have a roadmap yet, but I'm working toward an all-in-one storage system for homelabs.
 
 ---
 
 ## What it is
 
-- Made with .NET 10, because why not.
-- The S3 wire protocol. AWS CLI, MinIO `mc`, boto3, and AWS SDKs talk to it without code changes.
-- The Azure Blob Storage wire protocol. Azure SDKs (`Azure.Storage.Blobs`), AzCopy, Azure CLI, and Storage Explorer talk to it directly, with drop-in Azurite (`devstoreaccount1`) compatibility.
-- SigV4-signed requests, including the `STREAMING-UNSIGNED-PAYLOAD-TRAILER` mode boto3 uses by default.
-- Built-in multi-user IAM: local SQLite identity store (`iam.db`), roles (`Admin`, `Member`, `ReadOnly`), user status (`Active`/`Suspended`), and scoped access keys with TTL and revocation.
-- Bucket ownership & capability isolation: tenants only see and manage their own buckets; capability checks (`Read`, `Write`, `Admin`); canned ACLs (`public-read`, `private`).
-- Multi-protocol server: S3, Azure Blob Storage, and WebDAV (RFC 4918 Class 1 & 2) alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
-- WebDAV network drive mounting: Mount Vessel3 directly in Windows Explorer, macOS Finder, Linux (`davfs2`), and mobile sync apps at `/dav/`.
-- Multi-protocol container registry: OCI Distribution Spec / Docker Registry v2 (`/v2/...`) for storing and serving container images directly from the shared blob pool.
-- Virtual-host routing, static website hosting, lifecycle rules, multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
-- Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
-- Atomic overwrites. A reader looking up a key during a concurrent same-key overwrite sees the old value or the new value, never absence.
-- Embedded Web UI (`/_ui`) with bucket browsing, container repo exploration, file inspection, uploads, Admin tools, and IAM Directory.
-- Cool.
+- Self-hosted and object storage for a homelab or test setup: one place for your files and the data your applications need to store.
+- Compatible with common S3 and Azure storage clients
+- WebDAV clients that can use it like a network drive
+- Includes a browser interface (optional) 
+- A place to store container images.
+- Designed to keep writes consistent even during unexpected server problems.
+- dotnet 10 because why not
 
 ## What it isn't
 
-- Not a cluster.
-- Not enterprise AWS IAM. There are no complex JSON policy documents, role-assumption chains, or cross-account trust boundaries. Access is capability-based (`Read`, `Write`, `Admin`) scoped by bucket ownership.
-- Not a full-blown webserver. It can host static sites out of a bucket (`index.html`, error docs, folder redirects), but it serves bytes. Put Caddy in front for TLS, certs, and rate-limiting.
-- Not tuned for thousands of concurrent uploaders.
-- Not something made to be the best thing you've ever used.
+- It isn't managed for you. You run it, and you're responsible for the machine, its storage, and keeping your data backed up.
+- It doesn't keep a second copy of your data on another server or automatically stay available if this one fails (yet).
+- It isn't a full replacement for a network-attached storage system
+- It can serve a simple website, but it isn't meant to do everything those systems do.
+- It isn't built for large teams or heavy, high-traffic workloads. It's a personal project for homelabs and testing, and it's still growing.
+- The best code ever written
 
 ---
 

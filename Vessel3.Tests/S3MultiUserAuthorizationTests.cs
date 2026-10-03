@@ -269,7 +269,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Unauthenticated_Mode_Creates_Bucket_Puts_Gets_Lists_Without_Credentials()
+    public async Task UnauthenticatedMode_AnyRequest_AllowsOperationsWithoutCredentials()
     {
         var verifier = new AlwaysPassVerifier();
 
@@ -305,7 +305,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task Solo_Authenticated_Mode_Accepts_Root_Key_And_Rejects_Unauthenticated()
+    public async Task SoloAuthenticatedMode_RootKey_AcceptsRootAndRejectsUnauthenticated()
     {
         var rootCred = new Credential("AKIASOLO000000000001", "solosecret0000000000000000000000001", null, null);
         var store = new CredentialStore(rootCred, clock);
@@ -336,7 +336,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_BucketCreation_Sets_Owner()
+    public async Task BucketCreation_MultiUser_SetsOwner()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;
@@ -355,7 +355,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_ListBuckets_Scopes_To_Owner_Admin_Sees_All()
+    public async Task ListBuckets_MultiUser_ScopesToOwnerAndAdminSeesAll()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;
@@ -395,7 +395,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_PrivateBucket_Enforces_Isolation()
+    public async Task PrivateBucket_MultiUser_EnforcesIsolation()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;
@@ -431,7 +431,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_PublicRead_Allows_Other_User_And_Anonymous_Read_Blocks_Write()
+    public async Task PublicRead_MultiUser_AllowsReadAndBlocksWrite()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;
@@ -474,7 +474,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_ReadOnly_User_Denied_Mutations()
+    public async Task ReadOnlyUser_MultiUser_DeniesMutations()
     {
         var charlieUser = ((Result<User>.Success)identityRegistry.CreateUser("charlie", UserRole.ReadOnly)).Value;
         var charlieKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(charlieUser.Id)).Value;
@@ -500,7 +500,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_DeleteBucket_Requires_Owner_Or_Admin()
+    public async Task DeleteBucket_MultiUser_RequiresOwnerOrAdmin()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;
@@ -533,7 +533,7 @@ public class S3MultiUserAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiUser_RevokedKey_And_SuspendedUser_Cannot_Access()
+    public async Task Authenticate_RevokedKeyAndSuspendedUser_DeniesAccess()
     {
         var aliceUser = ((Result<User>.Success)identityRegistry.CreateUser("alice", UserRole.Member)).Value;
         var aliceKey = ((Result<AccessKey>.Success)identityRegistry.CreateAccessKey(aliceUser.Id)).Value;

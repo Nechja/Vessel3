@@ -140,7 +140,7 @@ public class RangeParserTests
     }
 
     [Fact]
-    public void TryParse_Returns_False_On_Non_Normal()
+    public void TryParse_NonNormalRange_ReturnsFalse()
     {
         Assert.False(S3ByteRange.TryParse("bytes=500-", 100, out _, out _));
         Assert.False(S3ByteRange.TryParse("invalid", 100, out _, out _));

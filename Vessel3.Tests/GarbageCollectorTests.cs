@@ -39,7 +39,7 @@ public class GarbageCollectorTests : IDisposable
     private string BlobPath(string sha) => Path.Combine(blobsRoot, sha[..2], sha[2..4], sha);
 
     [Fact]
-    public async Task Gc_Keeps_Blobs_Of_A_Completed_Multipart_Object()
+    public async Task Sweep_CompletedMultipart_KeepsBlobs()
     {
         registry.Create("mybucket");
         var ct = TestContext.Current.CancellationToken;
@@ -64,7 +64,7 @@ public class GarbageCollectorTests : IDisposable
     }
 
     [Fact]
-    public void Reap_Removes_Aged_MetaLess_Orphan_But_Keeps_Live_Upload()
+    public void Reap_AgedMetaLessOrphan_RemovesOrphanKeepsLiveUpload()
     {
         registry.Create("mybucket");
         var live = ((Result<CreateUploadOutcome>.Success)multipart.Create(
@@ -84,7 +84,7 @@ public class GarbageCollectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Deletes_An_Unreferenced_Aged_Blob()
+    public async Task Sweep_UnreferencedAgedBlob_DeletesBlob()
     {
         var orphan = ((Result<StoredBlob>.Success)await blobs.Write(
             new MemoryStream(Encoding.UTF8.GetBytes("nobody points at me")), null, ChecksumIntent.None, TestContext.Current.CancellationToken)).Value;
@@ -97,7 +97,7 @@ public class GarbageCollectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Sweeps_Across_Shards()
+    public async Task Sweep_MultipleShards_SweepsAcrossShards()
     {
         registry.Create("mybucket");
         var ct = TestContext.Current.CancellationToken;
@@ -131,7 +131,7 @@ public class GarbageCollectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Gc_Reaps_Abandoned_Temp_Blobs_But_Keeps_Recent_Ones()
+    public async Task Reap_AbandonedTempBlobs_ReapsOldKeepsRecent()
     {
         var tmpDir = Path.Combine(blobsRoot, "tmp");
         Directory.CreateDirectory(tmpDir);

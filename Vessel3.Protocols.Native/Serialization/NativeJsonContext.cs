@@ -36,6 +36,44 @@ public readonly record struct GcReportDto(int BlobsDeleted, int UploadsReaped);
 
 public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
 
+public readonly record struct WebhookDto(
+    string Id,
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters,
+    bool Active,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastTriggeredAt,
+    int? LastStatusCode,
+    string? LastError,
+    bool IsStatic);
+
+public readonly record struct CreateWebhookDto(
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters,
+    bool Active);
+
+public readonly record struct UpdateWebhookDto(
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters,
+    bool Active);
+
+public readonly record struct WebhookTestResultDto(
+    string WebhookId,
+    bool Success,
+    int? StatusCode,
+    double LatencyMs,
+    string? ErrorMessage,
+    string? ResponseBody);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(BucketDto))]
 [JsonSerializable(typeof(IReadOnlyList<BucketDto>))]
@@ -60,4 +98,10 @@ public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
 [JsonSerializable(typeof(ErrorDto))]
 [JsonSerializable(typeof(GcReportDto))]
 [JsonSerializable(typeof(SweepReportDto))]
+[JsonSerializable(typeof(WebhookDto))]
+[JsonSerializable(typeof(IReadOnlyList<WebhookDto>))]
+[JsonSerializable(typeof(List<WebhookDto>))]
+[JsonSerializable(typeof(CreateWebhookDto))]
+[JsonSerializable(typeof(UpdateWebhookDto))]
+[JsonSerializable(typeof(WebhookTestResultDto))]
 internal partial class NativeJsonContext : JsonSerializerContext;

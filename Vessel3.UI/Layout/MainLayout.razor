@@ -48,6 +48,10 @@
 
             <div class="sidebar-section">
                 <div class="sidebar-section-title">System</div>
+                <NavLink href="webhooks" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="bolt" />
+                    <span class="sidebar-label">Webhooks</span>
+                </NavLink>
                 <NavLink href="admin" class="sidebar-item" @onclick="CloseMobileMenu">
                     <Icon Name="gear" />
                     <span class="sidebar-label">Maintenance</span>
@@ -202,6 +206,10 @@
             if ("maintenance".Contains(query, StringComparison.OrdinalIgnoreCase) || "admin".Contains(query, StringComparison.OrdinalIgnoreCase) || "system".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 results.Add(new SearchResult("Maintenance", "Cluster configuration & maintenance", "admin", "gear", "Navigation"));
+            }
+            if ("webhooks".Contains(query, StringComparison.OrdinalIgnoreCase) || "events".Contains(query, StringComparison.OrdinalIgnoreCase) || "notifications".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Webhooks", "Event subscriptions & HTTP notifications", "webhooks", "bolt", "Navigation"));
             }
 
             var matchingBuckets = allBuckets

@@ -38,7 +38,7 @@ public class VirtualHostRoutingTests : IDisposable
     }
 
     [Fact]
-    public void Admin_Host_Root_Redirects_To_Ui()
+    public void AdminHostRedirect_RootPath_RedirectsToUi()
     {
         string[] baseDomains = ["s3.local", "localhost"];
         var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
@@ -63,7 +63,7 @@ public class VirtualHostRoutingTests : IDisposable
     }
 
     [Fact]
-    public void Admin_Host_Subpath_Redirects_To_Ui_Prefix()
+    public void AdminHostRedirect_Subpath_RedirectsToUiPrefix()
     {
         string[] baseDomains = ["s3.local", "localhost"];
         var resolver = new VirtualHostResolver(registry, new VirtualHostOptions(baseDomains));
@@ -89,7 +89,7 @@ public class VirtualHostRoutingTests : IDisposable
     }
 
     [Fact]
-    public void SigV4_Verifier_Passes_Virtual_Host_Canonical_Uri()
+    public void SigV4Verifier_VirtualHost_PassesCanonicalUri()
     {
         const string ak = "AKIAIOSFODNN7EXAMPLE";
         const string sk = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";

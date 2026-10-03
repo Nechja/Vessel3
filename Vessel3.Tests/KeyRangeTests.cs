@@ -13,14 +13,14 @@ public class KeyRangeTests
     [InlineData("a퟿", "a")]
     [InlineData("a\U0010FFFF", "b")]
     [InlineData("a\U0010FFFF\U0010FFFF", "b")]
-    public void Successor_Is_Next_Key_After_All_Prefixed_Keys(string prefix, string expected) =>
+    public void Successor_PrefixedKeys_ReturnsNextKey(string prefix, string expected) =>
         Assert.Equal(expected, KeyRange.Successor(prefix));
 
     [Theory]
     [InlineData("")]
     [InlineData("\U0010FFFF")]
     [InlineData("\U0010FFFF\U0010FFFF")]
-    public void Successor_Is_Null_When_Nothing_Follows(string prefix) =>
+    public void Successor_NothingFollows_ReturnsNull(string prefix) =>
         Assert.Null(KeyRange.Successor(prefix));
 
     [Theory]
@@ -30,7 +30,7 @@ public class KeyRangeTests
     [InlineData("a😀")]
     [InlineData("a퟿")]
     [InlineData("a\U0010FFFF")]
-    public void Successor_Orders_Correctly_In_Utf8(string prefix)
+    public void Successor_Utf8Encoding_OrdersCorrectly(string prefix)
     {
         var hi = KeyRange.Successor(prefix)!;
         static int Cmp(string a, string b) => System.Text.Encoding.UTF8.GetBytes(a).AsSpan().SequenceCompareTo(System.Text.Encoding.UTF8.GetBytes(b));

@@ -43,7 +43,7 @@ public sealed class BatchDeleteTests : IDisposable
         Assert.IsType<Result<DeleteOutcome>.Success>(r).Value;
 
     [Fact]
-    public void Unversioned_batch_appends_one_record()
+    public void DeleteBatch_Unversioned_AppendsSingleRecord()
     {
         bucket.AppendPut("a", Req("a"));
         bucket.AppendPut("b", Req("b"));
@@ -62,7 +62,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Versioned_batch_creates_distinct_markers()
+    public void DeleteBatch_Versioned_CreatesDistinctMarkers()
     {
         bucket.SetVersioning(VersioningStatus.Enabled);
         bucket.AppendPut("a", Req("a"));
@@ -83,7 +83,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Suspended_batch_reuses_null_version()
+    public void DeleteBatch_SuspendedBucket_ReusesNullVersion()
     {
         bucket.SetVersioning(VersioningStatus.Suspended);
         bucket.AppendPut("a", Req("a"));
@@ -97,7 +97,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Retention_blocked_key_does_not_fail_batch()
+    public void DeleteBatch_RetentionBlockedKey_DoesNotFailBatch()
     {
         bucket.SetVersioning(VersioningStatus.Enabled);
         var held = bucket.AppendPut("held", Req("h") with
@@ -119,7 +119,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Duplicate_keys_evaluate_sequentially()
+    public void DeleteBatch_DuplicateKeys_EvaluatesSequentially()
     {
         bucket.AppendPut("a", Req("a"));
 
@@ -133,7 +133,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Missing_key_reports_not_found_outcome()
+    public void DeleteBatch_MissingKey_ReportsNotFound()
     {
         var results = bucket.AppendDeleteBatch([new BatchDeleteItem("ghost", null, false)]);
         var outcome = Ok(results[0]);
@@ -142,7 +142,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Batch_survives_replay()
+    public void DeleteBatch_Replay_Survives()
     {
         bucket.AppendPut("a", Req("a"));
         bucket.AppendPut("b", Req("b"));
@@ -160,7 +160,7 @@ public sealed class BatchDeleteTests : IDisposable
     }
 
     [Fact]
-    public void Missing_bucket_fails_whole_batch()
+    public void DeleteBatch_MissingBucket_FailsWholeBatch()
     {
         var regRoot = Path.Combine(Path.GetTempPath(), "vessel3-batchreg-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(regRoot);

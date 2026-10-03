@@ -11,7 +11,7 @@ public class PutTaggingEventTests
     private static string Tmp() => Path.Combine(Path.GetTempPath(), "vessel3-tests-" + Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void PutTagging_Applies_Via_LogReplay()
+    public void Replay_PutTaggingEvent_AppliesTags()
     {
         var dir = Tmp();
         Directory.CreateDirectory(dir);
@@ -79,7 +79,7 @@ public class PutTaggingEventTests
     }
 
     [Fact]
-    public void CurrentKind_Distinguishes_Put_And_DeleteMarker()
+    public void CurrentKind_EntryTypes_DistinguishesPutAndDeleteMarker()
     {
         var dir = Tmp();
         Directory.CreateDirectory(dir);

@@ -10,7 +10,7 @@ public class S3SubresourceResolverTests
     private readonly S3SubresourceResolver resolver = new();
 
     [Fact]
-    public void Empty_Query_Returns_None()
+    public void Resolve_EmptyQuery_ReturnsNone()
     {
         var query = new QueryCollection();
         Assert.Equal(S3BucketSubresource.None, resolver.ResolveBucket(query));
@@ -56,7 +56,7 @@ public class S3SubresourceResolverTests
     }
 
     [Fact]
-    public void UploadId_With_Empty_Value_Returns_None()
+    public void ResolveKey_EmptyUploadIdValue_ReturnsNone()
     {
         var query = new QueryCollection(new Dictionary<string, StringValues>
         {

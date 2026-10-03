@@ -44,6 +44,44 @@ public readonly record struct ContainerCatalogDto(IReadOnlyList<string> Reposito
 
 public readonly record struct ContainerTagsDto(string Name, IReadOnlyList<string> Tags);
 
+public sealed record WebhookDto(
+    string Id,
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters,
+    bool Active,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastTriggeredAt,
+    int? LastStatusCode,
+    string? LastError,
+    bool IsStatic);
+
+public sealed record CreateWebhookDto(
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters = null,
+    bool Active = true);
+
+public sealed record UpdateWebhookDto(
+    string Name,
+    string Url,
+    string? Secret,
+    IReadOnlyList<string> EventFilters,
+    IReadOnlyList<string>? ResourceFilters = null,
+    bool Active = true);
+
+public sealed record WebhookTestResultDto(
+    string WebhookId,
+    bool Success,
+    int? StatusCode,
+    double LatencyMs,
+    string? ErrorMessage,
+    string? ResponseBody);
+
 public sealed record VesselObjectDownload(
     Stream Content,
     string ContentType,
@@ -85,4 +123,10 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(ContainerCatalogDto))]
 [JsonSerializable(typeof(ContainerTagsDto))]
 [JsonSerializable(typeof(OciErrorsDto))]
+[JsonSerializable(typeof(WebhookDto))]
+[JsonSerializable(typeof(IReadOnlyList<WebhookDto>))]
+[JsonSerializable(typeof(List<WebhookDto>))]
+[JsonSerializable(typeof(CreateWebhookDto))]
+[JsonSerializable(typeof(UpdateWebhookDto))]
+[JsonSerializable(typeof(WebhookTestResultDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;

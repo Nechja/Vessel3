@@ -18,7 +18,7 @@ public class ReadGateTests : IDisposable
     }
 
     [Fact]
-    public async Task Read_After_Dispose_Does_Not_Strand_The_Read_Gate()
+    public async Task Acquire_AfterDispose_DoesNotStrandReadGate()
     {
         var index = new BucketIndex(Path.Combine(root, "index.db"));
         index.Open();
@@ -33,7 +33,7 @@ public class ReadGateTests : IDisposable
     }
 
     [Fact]
-    public async Task Multiple_Readers_Can_Execute_Concurrently()
+    public async Task Acquire_MultipleReaders_ExecutesConcurrently()
     {
         var index = new BucketIndex(Path.Combine(root, "index.db"));
         index.Open();

@@ -50,7 +50,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public void Matches_only_post_to_root()
+    public void Matches_RootPost_MatchesOnlyPostToRoot()
     {
         var sts = new SecurityTokenService(new FakeVerifier(new VerifiedIdentity("a", ["b"])), new CredentialStore(null, new TestClock(T0)), new SecurityTokenXmlWriter());
         var post = new DefaultHttpContext().Request;
@@ -70,7 +70,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Issues_session_credentials_for_a_verified_token()
+    public async Task AssumeRoleWithWebIdentity_VerifiedToken_IssuesSessionCredentials()
     {
         var (ctx, store, verifier, sts) = Request("Action=AssumeRoleWithWebIdentity&Version=2011-06-15&WebIdentityToken=eyJ.abc.def&RoleArn=arn:aws:iam::0:role/x&RoleSessionName=ui");
         await sts.Handle(ctx);
@@ -89,7 +89,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Honors_duration_seconds()
+    public async Task AssumeRoleWithWebIdentity_DurationSeconds_HonorsRequestedDuration()
     {
         var (ctx, store, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds=7200");
         await sts.Handle(ctx);
@@ -101,7 +101,7 @@ public class StsEndpointTests
     [InlineData("60")]
     [InlineData("99999")]
     [InlineData("abc")]
-    public async Task Rejects_out_of_range_duration(string duration)
+    public async Task AssumeRoleWithWebIdentity_OutOfRangeDuration_Rejects(string duration)
     {
         var (ctx, _, _, sts) = Request($"Action=AssumeRoleWithWebIdentity&WebIdentityToken=t&DurationSeconds={duration}");
         await sts.Handle(ctx);
@@ -110,7 +110,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Accepts_parameters_in_query_string()
+    public async Task AssumeRoleWithWebIdentity_QueryStringParams_Accepts()
     {
         var (ctx, _, verifier, sts) = Request("", query: "?Action=AssumeRoleWithWebIdentity&WebIdentityToken=fromquery");
         await sts.Handle(ctx);
@@ -119,7 +119,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Rejects_other_actions()
+    public async Task AssumeRoleWithWebIdentity_UnknownAction_Rejects()
     {
         var (ctx, _, _, sts) = Request("Action=GetCallerIdentity");
         await sts.Handle(ctx);
@@ -128,7 +128,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Rejects_missing_token()
+    public async Task AssumeRoleWithWebIdentity_MissingToken_Rejects()
     {
         var (ctx, _, _, sts) = Request("Action=AssumeRoleWithWebIdentity");
         await sts.Handle(ctx);
@@ -137,7 +137,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Maps_verifier_errors_to_sts_error_response()
+    public async Task AssumeRoleWithWebIdentity_VerifierError_MapsToStsResponse()
     {
         var (ctx, store, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=bad", outcome: new ExpiredIdentityTokenError());
         await sts.Handle(ctx);
@@ -148,7 +148,7 @@ public class StsEndpointTests
     }
 
     [Fact]
-    public async Task Access_denied_is_403()
+    public async Task AssumeRoleWithWebIdentity_AccessDenied_Returns403()
     {
         var (ctx, _, _, sts) = Request("Action=AssumeRoleWithWebIdentity&WebIdentityToken=t", outcome: new AccessDeniedError("nope"));
         await sts.Handle(ctx);

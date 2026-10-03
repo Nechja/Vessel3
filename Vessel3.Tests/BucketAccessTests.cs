@@ -43,7 +43,7 @@ public class BucketAccessTests : IDisposable
     }
 
     [Fact]
-    public void Access_Default_Is_Private_And_Persists()
+    public void Access_Default_IsPrivateAndPersists()
     {
         var reg1 = Registry();
         reg1.Create("b-access");
@@ -75,7 +75,7 @@ public class BucketAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadOnly_Blocks_Mutations_In_Dispatchers()
+    public async Task Dispatchers_ReadOnly_BlocksMutations()
     {
         var reg = Registry();
         reg.Create("ro-bucket");
@@ -140,7 +140,7 @@ public class BucketAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task PublicRead_Allows_Anonymous_Bypass_In_Middleware()
+    public async Task Middleware_PublicRead_AllowsAnonymousBypass()
     {
         var reg = Registry();
         reg.Create("pub-bucket");
@@ -165,7 +165,7 @@ public class BucketAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task Put_And_Get_BucketAcl_Wire_Protocol()
+    public async Task WireProtocol_BucketAcl_PutsAndGets()
     {
         var reg = Registry();
         reg.Create("acl-bucket");
@@ -213,7 +213,7 @@ public class BucketAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task Admin_Get_And_Set_BucketAccess()
+    public async Task BucketAccess_AdminCaller_GetsAndSets()
     {
         var reg = Registry();
         reg.Create("adm-bucket");

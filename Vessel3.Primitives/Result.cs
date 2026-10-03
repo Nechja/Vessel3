@@ -26,6 +26,10 @@ internal sealed record NoSuchVersionError(string Key, string VersionId)
     : Error("NoSuchVersion", $"The specified version does not exist: {Key}@{VersionId}")
 { public override int Status => 404; }
 
+internal sealed record NoSuchWebhookError(string Id)
+    : Error("NoSuchWebhook", $"The specified webhook does not exist: {Id}")
+{ public override int Status => 404; }
+
 internal sealed record InvalidPathError(string Detail)
     : Error("InvalidPath", Detail)
 { public override int Status => 400; }

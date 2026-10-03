@@ -33,7 +33,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public void Scopes_Accumulate_Into_The_Current_Trace()
+    public void Trace_NestedScopes_AccumulatesIntoCurrentTrace()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -48,15 +48,20 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public void Without_A_Current_Trace_Scopes_Are_NoOps()
+    public void Trace_NullCurrent_ScopesAreNoOps()
     {
         RequestTrace.Current = null;
-        using (RequestTrace.Time(Stage.Body)) { }
-        RequestTrace.Since(Stage.Query, Stopwatch.GetTimestamp());
+        var ex = Record.Exception(() =>
+        {
+            using (RequestTrace.Time(Stage.Body)) { }
+            RequestTrace.Since(Stage.Query, Stopwatch.GetTimestamp());
+        });
+        Assert.Null(ex);
     }
 
+
     [Fact]
-    public async Task Trace_Flows_Across_Await_And_Into_Child_Tasks()
+    public async Task Trace_AsyncFlow_FlowsAcrossAwaitAndChildTasks()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -81,7 +86,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Key_Dispatcher_Stamps_Action_Bucket_Key_And_Marks_Handled()
+    public async Task KeyDispatcher_ValidRequest_StampsActionBucketKey()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -97,7 +102,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Bucket_Dispatcher_Stamps_Action_And_Bucket()
+    public async Task BucketDispatcher_ValidRequest_StampsActionAndBucket()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -113,7 +118,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Unrouted_Request_Leaves_Action_Unset()
+    public async Task UnroutedRequest_Default_LeavesActionUnset()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -126,7 +131,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Put_Records_Every_Write_Stage()
+    public async Task Put_Stages_RecordsEveryWriteStage()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -148,7 +153,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public void List_And_Lookup_Record_Read_Stages()
+    public void ListAndLookup_Stages_RecordReadStages()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -162,7 +167,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Queued_Writer_Records_Gate_Wait()
+    public async Task QueuedWriter_GateWait_RecordsWaitTime()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -179,7 +184,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Uncontended_Writer_Records_No_Gate_Wait()
+    public async Task UncontendedWriter_GateWait_RecordsNoWaitTime()
     {
         var trace = new RequestTrace();
         RequestTrace.Current = trace;
@@ -188,7 +193,7 @@ public sealed class RequestTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task Contended_Write_Lock_Is_Measured()
+    public async Task Trace_ContendedWriteLock_IsMeasured()
     {
         var ct = TestContext.Current.CancellationToken;
         var bucket = registry.OpenBuckets().Single();
