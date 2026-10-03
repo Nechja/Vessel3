@@ -86,6 +86,36 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
     }
 
+    public async Task<Result<BucketWebsiteDto?>> GetBucketWebsiteAsync(string bucket, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, $"v1/buckets/{Uri.EscapeDataString(bucket)}/website");
+        using var res = await http.SendAsync(req, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return (BucketWebsiteDto?)null;
+        }
+
+        var parsed = await ReadJson(res, VesselJsonContext.Default.BucketWebsiteDto, ct);
+        return parsed.TryGetValue(out var dto, out var err)
+            ? (BucketWebsiteDto?)dto
+            : err;
+    }
+
+    public async Task<Result> SetBucketWebsiteAsync(string bucket, BucketWebsiteDto website, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Put, $"v1/buckets/{Uri.EscapeDataString(bucket)}/website");
+        req.Content = CreateJsonContent(website, VesselJsonContext.Default.BucketWebsiteDto);
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
+    public async Task<Result> DeleteBucketWebsiteAsync(string bucket, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, $"v1/buckets/{Uri.EscapeDataString(bucket)}/website");
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
     public async Task<Result<ObjectsPageDto>> ListObjectsAsync(
         string bucket,
         string? prefix = null,

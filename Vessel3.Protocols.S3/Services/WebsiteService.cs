@@ -76,7 +76,7 @@ internal sealed class WebsiteService(
             if (precond is Precondition.Failed) return Results.StatusCode(412);
 
             ctx.Response.ContentLength = stat.Size;
-            ctx.Response.ContentType = stat.ContentType;
+            ctx.Response.ContentType = ResolveContentType(targetKey, stat.ContentType);
             ctx.Response.Headers.ETag = $"\"{stat.Etag}\"";
             ctx.Response.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
             S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, stat.SystemHeaders);
@@ -86,9 +86,11 @@ internal sealed class WebsiteService(
         if (!string.IsNullOrEmpty(cfg.ErrorDocument)
             && objects.Stat(bucket, cfg.ErrorDocument, versionId: null) is Result<ObjectStat>.Success { Value: var errStat })
         {
-            ctx.Response.StatusCode = 404;
+            ctx.Response.StatusCode = string.Equals(cfg.ErrorDocument, cfg.IndexDocument, StringComparison.OrdinalIgnoreCase)
+                ? StatusCodes.Status200OK
+                : StatusCodes.Status404NotFound;
             ctx.Response.ContentLength = errStat.Size;
-            ctx.Response.ContentType = errStat.ContentType;
+            ctx.Response.ContentType = ResolveContentType(cfg.ErrorDocument, errStat.ContentType);
             return Results.Empty;
         }
 
@@ -119,9 +121,10 @@ internal sealed class WebsiteService(
             ctx.Response.Headers.ETag = $"\"{obj.Etag}\"";
             S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, obj.SystemHeaders);
 
+            var contentType = ResolveContentType(targetKey, obj.ContentType);
             return Results.File(
                 obj.Body,
-                obj.ContentType,
+                contentType,
                 lastModified: obj.LastModified,
                 enableRangeProcessing: true);
         }
@@ -137,13 +140,16 @@ internal sealed class WebsiteService(
         if (!string.IsNullOrEmpty(cfg.ErrorDocument)
             && objects.Get(bucket, cfg.ErrorDocument, versionId: null) is Result<StoredObject>.Success { Value: var errObj })
         {
-            ctx.Response.StatusCode = 404;
+            ctx.Response.StatusCode = string.Equals(cfg.ErrorDocument, cfg.IndexDocument, StringComparison.OrdinalIgnoreCase)
+                ? StatusCodes.Status200OK
+                : StatusCodes.Status404NotFound;
             ctx.Response.Headers.ETag = $"\"{errObj.Etag}\"";
             S3HeaderCodec.EmitSystemHeaders(ctx.Response.Headers, errObj.SystemHeaders);
 
+            var errContentType = ResolveContentType(cfg.ErrorDocument, errObj.ContentType);
             return Results.File(
                 errObj.Body,
-                errObj.ContentType,
+                errContentType,
                 lastModified: errObj.LastModified,
                 enableRangeProcessing: false);
         }
@@ -153,4 +159,14 @@ internal sealed class WebsiteService(
             "text/html",
             statusCode: 404);
     }
+
+    private static readonly Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider ContentTypeProvider = new();
+
+    private static string ResolveContentType(string key, string? storedContentType) =>
+        !string.IsNullOrEmpty(storedContentType) && !string.Equals(storedContentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)
+            ? storedContentType
+            : ContentTypeProvider.TryGetContentType(key, out var inferred) ? inferred
+            : key.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase) ? "application/wasm"
+            : key.EndsWith(".webmanifest", StringComparison.OrdinalIgnoreCase) ? "application/manifest+json"
+            : storedContentType ?? "application/octet-stream";
 }

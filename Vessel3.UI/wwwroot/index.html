@@ -30,6 +30,15 @@
                 }
             }
         });
+        window.vesselGetFilePaths = function (inputId) {
+            var el = document.getElementById(inputId);
+            if (!el || !el.files) return [];
+            var paths = [];
+            for (var i = 0; i < el.files.length; i++) {
+                paths.push(el.files[i].webkitRelativePath || el.files[i].name);
+            }
+            return paths;
+        };
     </script>
 </body>
 </html>

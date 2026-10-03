@@ -32,6 +32,10 @@
                     <Icon Name="upload" />
                     <span class="sidebar-label">Uploads</span>
                 </NavLink>
+                <NavLink href="websites" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="globe" />
+                    <span class="sidebar-label">Websites</span>
+                </NavLink>
             </div>
 
             <div class="sidebar-section">
@@ -186,6 +190,10 @@
             if ("uploads".Contains(query, StringComparison.OrdinalIgnoreCase) || "multipart".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 results.Add(new SearchResult("Uploads", "Active multipart uploads", "uploads", "upload", "Navigation"));
+            }
+            if ("websites".Contains(query, StringComparison.OrdinalIgnoreCase) || "static hosting".Contains(query, StringComparison.OrdinalIgnoreCase) || "deploy".Contains(query, StringComparison.OrdinalIgnoreCase) || "vite".Contains(query, StringComparison.OrdinalIgnoreCase) || "blazor".Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(new SearchResult("Static Websites", "Deploy Vite, Blazor WASM & static sites", "websites", "globe", "Navigation"));
             }
             if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
             {

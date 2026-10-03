@@ -10,6 +10,7 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
 |---|---|
 | [**S3 Protocol Support Matrix**](s3-protocol-support.md) | Detailed compatibility matrix of all supported Amazon S3 API operations, subresources, headers, and limitations. |
 | [**S3 Client & Tooling Guide**](s3-api-and-tools.md) | Configuration and usage recipes for AWS CLI, MinIO `mc`, Python (`boto3`), and `rclone`. |
+| [**Azure Blob Storage Guide**](azure-blob-storage.md) | Protocol compatibility matrix, Azurite emulation, and setup recipes for Azure SDKs, AzCopy, Azure CLI, and Storage Explorer. |
 | [**IAM & Access Control**](iam-and-access-control.md) | Multi-user model, user roles (`Admin`, `Member`, `ReadOnly`), access key lifecycle, bucket ownership, and isolation rules. |
 | [**Native REST API**](native-api.md) | Full endpoint specification for the `/v1/...` REST API covering IAM, buckets, objects, and maintenance sweeps. |
 | [**C# .NET Client SDK**](client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient` / `VesselClient`). |
@@ -22,9 +23,10 @@ Vessel3 is a single-binary, high-durability object server featuring full Amazon 
 
 ## System Architecture
 
-- **Client Interfaces**: Standard S3 SDKs, AWS CLI, MinIO `mc`, Python `boto3`, Docker, Podman, ORAS, HTTP clients, and web browsers.
+- **Client Interfaces**: Standard S3 SDKs, AWS CLI, MinIO `mc`, Python `boto3`, Azure SDKs, AzCopy, Azure CLI, Azure Storage Explorer, Docker, Podman, ORAS, HTTP clients, and web browsers.
 - **Protocol Dispatch**: Multi-protocol support on a single port:
   - **S3 Wire Protocol**: SigV4 authentication, STS web identity, and standard XML serialization.
+  - **Azure Blob Storage Wire Protocol**: SharedKey / SharedKeyLite HMAC-SHA256 authentication, Block Blobs, staged blocks (`comp=block`/`comp=blocklist`), and Azurite emulation.
   - **Native REST API**: `/v1/...` with Bearer JWT or `Vessel` token authentication and JSON serialization.
   - **Container Repos (OCI)**: `/v2/...` OCI / Docker Registry v2 with Bearer token authentication and JSON manifests.
 - **Middleware Pipeline**: Request telemetry, Prometheus metrics (`/metrics`), virtual-host domain resolution, CORS, and auth dispatch.

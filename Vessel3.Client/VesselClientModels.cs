@@ -8,6 +8,8 @@ public readonly record struct BucketAccessDto(bool PublicRead, bool ReadOnly);
 
 public readonly record struct BucketVersioningDto(string Status);
 
+public readonly record struct BucketWebsiteDto(string IndexDocument, string? ErrorDocument = null);
+
 public readonly record struct ObjectSummaryDto(string Key, long Size, string ETag, DateTimeOffset LastModified, string? VersionId);
 
 public readonly record struct ObjectsPageDto(IReadOnlyList<ObjectSummaryDto> Objects, IReadOnlyList<string> Prefixes, bool IsTruncated, string? NextMarker);
@@ -60,6 +62,7 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(IReadOnlyList<BucketDto>))]
 [JsonSerializable(typeof(BucketAccessDto))]
 [JsonSerializable(typeof(BucketVersioningDto))]
+[JsonSerializable(typeof(BucketWebsiteDto))]
 [JsonSerializable(typeof(ObjectSummaryDto))]
 [JsonSerializable(typeof(ObjectsPageDto))]
 [JsonSerializable(typeof(PutObjectResultDto))]

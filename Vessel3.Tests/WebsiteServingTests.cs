@@ -177,4 +177,60 @@ public class WebsiteServingTests : IDisposable
         var statusRes = Assert.IsAssignableFrom<IStatusCodeHttpResult>(res);
         Assert.Equal(StatusCodes.Status304NotModified, statusRes.StatusCode);
     }
+
+    [Fact]
+    public async Task Serves_Wasm_File_With_ApplicationWasm_MimeType()
+    {
+        const string bucket = "mysite";
+        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
+        var wasmBytes = new byte[] { 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+        var putRes = await objects.Put(
+            bucket, "_framework/app.wasm", new MemoryStream(wasmBytes),
+            declaredSize: wasmBytes.Length, contentType: "application/octet-stream",
+            declaredSha256: null, declaredMd5Base64: null,
+            metadata: new Dictionary<string, string>(), tags: new Dictionary<string, string>(),
+            declaredChecksums: ChecksumSet.Empty, ct: TestContext.Current.CancellationToken);
+        Assert.True(putRes.TryGetValue(out _, out _));
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+
+        var res = await websiteService.Serve(bucket, "/_framework/app.wasm", ctx);
+        var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
+        Assert.Equal("application/wasm", fileRes.ContentType);
+    }
+
+    [Fact]
+    public async Task Serves_Webmanifest_File_With_ManifestJson_MimeType()
+    {
+        const string bucket = "mysite";
+        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
+        await SeedObject(bucket, "app.webmanifest", "{}", "application/octet-stream");
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+
+        var res = await websiteService.Serve(bucket, "/app.webmanifest", ctx);
+        var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
+        Assert.Equal("application/manifest+json", fileRes.ContentType);
+    }
+
+    [Fact]
+    public async Task Serves_Spa_Fallback_With_200_OK_When_ErrorDocument_Matches_IndexDocument()
+    {
+        const string bucket = "mysite";
+        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
+        await SeedObject(bucket, "index.html", "<div id='app'>SPA</div>", "text/html");
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+
+        var res = await websiteService.Serve(bucket, "/users/settings/profile", ctx);
+        Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+        var fileRes = Assert.IsAssignableFrom<IContentTypeHttpResult>(res);
+        Assert.Equal("text/html", fileRes.ContentType);
+    }
 }

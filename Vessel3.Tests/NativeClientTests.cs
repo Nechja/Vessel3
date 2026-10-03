@@ -477,4 +477,79 @@ public class NativeClientTests : IAsyncDisposable
         Assert.True(afterTagsRes.TryGetValue(out var afterTags, out _));
         Assert.Empty(afterTags);
     }
+
+    [Fact]
+    public async Task Website_Endpoints_And_Direct_Serving_RoundTrip()
+    {
+        var (app, client) = await StartServer(
+            "website-e2e",
+            accessKey: "root-key",
+            secretKey: "root-secret",
+            clientAccessKey: "root-key",
+            clientSecretKey: "root-secret");
+
+        var createBucket = await client.CreateBucketAsync("mysite");
+        Assert.True(createBucket is Result.OkResult);
+
+        var initialWeb = await client.GetBucketWebsiteAsync("mysite");
+        Assert.True(initialWeb.TryGetValue(out var initialCfg, out _));
+        Assert.Null(initialCfg);
+
+        var setWeb = await client.SetBucketWebsiteAsync("mysite", new BucketWebsiteDto("index.html", "index.html"));
+        Assert.True(setWeb is Result.OkResult);
+
+        var getWeb = await client.GetBucketWebsiteAsync("mysite");
+        Assert.True(getWeb.TryGetValue(out var configured, out _));
+        Assert.NotNull(configured);
+        Assert.Equal("index.html", configured.Value.IndexDocument);
+        Assert.Equal("index.html", configured.Value.ErrorDocument);
+
+        using (var indexStream = new MemoryStream("<h1>Hello Vessel3 Website</h1>"u8.ToArray()))
+        {
+            var putIndex = await client.PutObjectAsync("mysite", "index.html", indexStream, "text/html");
+            Assert.True(putIndex.TryGetValue(out _, out _));
+        }
+
+        using (var wasmStream = new MemoryStream([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]))
+        {
+            var putWasm = await client.PutObjectAsync("mysite", "app.wasm", wasmStream, "application/octet-stream");
+            Assert.True(putWasm.TryGetValue(out _, out _));
+        }
+
+        using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false });
+        var serverUrl = app.Urls.First();
+
+        using (var noRedirectHttp = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false }))
+        {
+            var redirectResp = await noRedirectHttp.GetAsync($"{serverUrl}/_site/mysite");
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, redirectResp.StatusCode);
+            Assert.Equal("/_site/mysite/", redirectResp.Headers.Location?.OriginalString);
+        }
+
+        var indexResp = await http.GetAsync($"{serverUrl}/_site/mysite/");
+        Assert.Equal(System.Net.HttpStatusCode.OK, indexResp.StatusCode);
+        Assert.Equal("text/html", indexResp.Content.Headers.ContentType?.MediaType);
+        var indexText = await indexResp.Content.ReadAsStringAsync();
+        Assert.Contains("Hello Vessel3 Website", indexText);
+
+        var wasmResp = await http.GetAsync($"{serverUrl}/_site/mysite/app.wasm");
+        Assert.Equal(System.Net.HttpStatusCode.OK, wasmResp.StatusCode);
+        Assert.Equal("application/wasm", wasmResp.Content.Headers.ContentType?.MediaType);
+
+        var spaResp = await http.GetAsync($"{serverUrl}/_site/mysite/deep/client/route");
+        Assert.Equal(System.Net.HttpStatusCode.OK, spaResp.StatusCode);
+        Assert.Equal("text/html", spaResp.Content.Headers.ContentType?.MediaType);
+        var spaText = await spaResp.Content.ReadAsStringAsync();
+        Assert.Contains("Hello Vessel3 Website", spaText);
+
+        var delWeb = await client.DeleteBucketWebsiteAsync("mysite");
+        Assert.True(delWeb is Result.OkResult);
+
+        var afterDeleteWeb = await client.GetBucketWebsiteAsync("mysite");
+        Assert.True(afterDeleteWeb.TryGetValue(out var deletedCfg, out _));
+        Assert.Null(deletedCfg);
+
+        var disabledResp = await http.GetAsync($"{serverUrl}/_site/mysite/");
+        Assert.False(disabledResp.IsSuccessStatusCode);
+    }
 }
