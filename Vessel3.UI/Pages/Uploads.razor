@@ -201,7 +201,8 @@
         try
         {
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
-            var res = await Client.PutObjectAsync(bucket, key, stream, string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+            var contentType = MimeHelper.GetMimeType(file.Name, file.ContentType);
+            var res = await Client.PutObjectAsync(bucket, key, stream, contentType);
             if (!res.TryGetValue(out _, out var err))
             {
                 job.State = UploadState.Failed;

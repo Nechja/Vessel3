@@ -9,6 +9,7 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
             || ctx.Request.Path.StartsWithSegments("/v2")
             || ctx.Request.Path.StartsWithSegments("/_admin")
             || ctx.Request.Path.StartsWithSegments("/_ui")
+            || ctx.Request.Path.StartsWithSegments("/_site")
             || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
         {
             await next(ctx);

@@ -4,12 +4,14 @@
   <Project Path="Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj" />
   <Project Path="Vessel3.Protocols.Native/Vessel3.Protocols.Native.csproj" />
   <Project Path="Vessel3.Protocols.Oci/Vessel3.Protocols.Oci.csproj" />
+  <Project Path="Vessel3.Protocols.Azure/Vessel3.Protocols.Azure.csproj" />
   <Project Path="Vessel3.Client/Vessel3.Client.csproj" />
   <Project Path="Vessel3.Server/Vessel3.Server.csproj" />
   <Project Path="Vessel3.UI/Vessel3.UI.csproj" />
   <Folder Name="/tests/">
     <Project Path="Vessel3.Tests/Vessel3.Tests.csproj" />
     <Project Path="Vessel3.Tests.AwsCompatibility/Vessel3.Tests.AwsCompatibility.csproj" />
+    <Project Path="Vessel3.Tests.AzureCompatibility/Vessel3.Tests.AzureCompatibility.csproj" />
     <Project Path="Vessel3.Bench/Vessel3.Bench.csproj" />
   </Folder>
 </Solution>

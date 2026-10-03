@@ -20,4 +20,5 @@ artifacts/
 !README.md
 !.gitattributes
 bench
+scratch/
 !docs/**

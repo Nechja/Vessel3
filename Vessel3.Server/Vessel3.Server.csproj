@@ -35,6 +35,7 @@
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Oci\Vessel3.Protocols.Oci.csproj" />
+    <ProjectReference Include="..\Vessel3.Protocols.Azure\Vessel3.Protocols.Azure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

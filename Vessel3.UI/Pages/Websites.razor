@@ -1,0 +1,695 @@
+@page "/websites"
+@using System.IO.Compression
+@inject IVesselClient Client
+@inject NavigationManager Nav
+@inject UiNotifications Toast
+@inject IJSRuntime JS
+
+<div class="stack" style="gap: var(--space-5);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">Static Websites</span>
+            <span class="counter">@activeWebsites.Count</span>
+        </div>
+        <div class="toolbar-actions">
+            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                <Icon Name="refresh" /> refresh
+            </button>
+            <a href="#deploy-section" class="btn btn-primary">
+                <Icon Name="upload" /> deploy website
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="callout callout-danger">
+            <div>@errorMessage</div>
+        </div>
+    }
+
+    <div class="stack" style="gap: var(--space-3);">
+        <h2 style="font-size: var(--text-base); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+            Active Sites (@activeWebsites.Count)
+        </h2>
+
+        @if (loading)
+        {
+            <div class="panel empty-state">loading configured websites...</div>
+        }
+        else if (activeWebsites.Count == 0)
+        {
+            <div class="panel empty-state">
+                no static websites configured yet. Deploy your first Vite, Blazor WASM, or static site below.
+            </div>
+        }
+        else
+        {
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>bucket</th>
+                            <th>index doc</th>
+                            <th>error / spa doc</th>
+                            <th>preview url</th>
+                            <th style="text-align: right;">actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var site in activeWebsites)
+                        {
+                            <tr>
+                                <td>
+                                    <a href="buckets/@site.Bucket" class="row align-center" style="text-decoration:none; color:var(--color-text); font-weight:var(--weight-semibold); gap:var(--space-2);">
+                                        <Icon Name="globe" Class="faint" />
+                                        <span class="mono">@site.Bucket</span>
+                                    </a>
+                                </td>
+                                <td><span class="mono muted">@site.Config.IndexDocument</span></td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(site.Config.ErrorDocument))
+                                    {
+                                        <span class="mono muted">@site.Config.ErrorDocument</span>
+                                        @if (site.Config.ErrorDocument == site.Config.IndexDocument)
+                                        {
+                                            <span class="badge badge-accent" style="margin-left: var(--space-2);">SPA</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    <a href="@GetDirectSiteUrl(site.Bucket)" target="_blank" rel="noopener noreferrer" class="row align-center mono" style="gap: var(--space-1); font-size: var(--text-xs); color: var(--color-mint);">
+                                        <span>@GetDirectSiteUrl(site.Bucket)</span>
+                                        <Icon Name="arrow-right" Class="icon-xs" />
+                                    </a>
+                                </td>
+                                <td style="text-align: right;">
+                                    <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => SelectBucketForRedeploy(site.Bucket))">
+                                            redeploy
+                                        </button>
+                                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopyUrl(GetDirectSiteUrl(site.Bucket)))">
+                                            <Icon Name="copy" /> copy url
+                                        </button>
+                                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Disable website hosting" @onclick="@(() => DisableHosting(site.Bucket))">
+                                            <Icon Name="trash" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <div id="deploy-section" class="panel stack" style="gap: var(--space-4); margin-top: var(--space-2);">
+        <div class="stack" style="gap: var(--space-1);">
+            <h2 style="font-size: var(--text-lg); font-weight: var(--weight-bold);">Deploy Static Website</h2>
+            <p class="muted" style="font-size: var(--text-sm);">
+                Upload a Vite build output (`dist/`), Blazor WebAssembly publish directory (`wwwroot/`), or static HTML/CSS/JS files.
+            </p>
+        </div>
+
+        @if (deployedSuccess)
+        {
+            <div class="callout callout-success stack" style="gap: var(--space-3);">
+                <div style="font-weight: var(--weight-bold);">Website successfully deployed to @targetBucket!</div>
+                <div class="row" style="gap: var(--space-3); flex-wrap: wrap;">
+                    <a href="@GetDirectSiteUrl(targetBucket)" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+                        <Icon Name="globe" /> open website
+                    </a>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopyUrl(GetDirectSiteUrl(targetBucket)))">
+                        <Icon Name="copy" /> copy direct url
+                    </button>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="ResetDeployForm">
+                        deploy another
+                    </button>
+                </div>
+                <div class="mono" style="font-size: var(--text-xs); color: var(--color-text-muted);">
+                    Direct URL: @GetDirectSiteUrl(targetBucket)
+                </div>
+            </div>
+        }
+
+        <div class="grid grid-2" style="gap: var(--space-4);">
+            <div class="field">
+                <label>Target Bucket</label>
+                <div class="row" style="gap: var(--space-2); margin-bottom: var(--space-2);">
+                    <button type="button" class="btn btn-sm @(!isNewBucket ? "btn-primary" : "btn-ghost")" @onclick="@(() => isNewBucket = false)">
+                        existing bucket
+                    </button>
+                    <button type="button" class="btn btn-sm @(isNewBucket ? "btn-primary" : "btn-ghost")" @onclick="@(() => isNewBucket = true)">
+                        create new bucket
+                    </button>
+                </div>
+
+                @if (isNewBucket)
+                {
+                    <input class="input mono" placeholder="my-new-website-bucket" @bind="newBucketName" />
+                }
+                else
+                {
+                    <select class="select mono" @bind="selectedExistingBucket">
+                        <option value="">-- select bucket --</option>
+                        @foreach (var b in allBuckets)
+                        {
+                            <option value="@b.Name">@b.Name</option>
+                        }
+                    </select>
+                }
+            </div>
+
+            <div class="field">
+                <label>Framework Preset</label>
+                <div class="row" style="gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2);">
+                    <button type="button" class="btn btn-sm @(preset == FrameworkPreset.ViteSpa ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(FrameworkPreset.ViteSpa))">
+                        Vite / React / Vue (SPA)
+                    </button>
+                    <button type="button" class="btn btn-sm @(preset == FrameworkPreset.BlazorWasm ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(FrameworkPreset.BlazorWasm))">
+                        Blazor WASM
+                    </button>
+                    <button type="button" class="btn btn-sm @(preset == FrameworkPreset.StaticHtml ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(FrameworkPreset.StaticHtml))">
+                        Static HTML
+                    </button>
+                    <button type="button" class="btn btn-sm @(preset == FrameworkPreset.Custom ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(FrameworkPreset.Custom))">
+                        Custom
+                    </button>
+                </div>
+
+                <div class="grid grid-2" style="gap: var(--space-2);">
+                    <div>
+                        <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Index Document</label>
+                        <input class="input mono" @bind="indexDocument" disabled="@(preset != FrameworkPreset.Custom)" />
+                    </div>
+                    <div>
+                        <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Error / SPA Fallback</label>
+                        <input class="input mono" @bind="errorDocument" disabled="@(preset != FrameworkPreset.Custom)" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Website Files Source</label>
+            <div class="row" style="gap: var(--space-2); margin-bottom: var(--space-2);">
+                <button type="button" class="btn btn-sm @(sourceMode == SourceMode.Folder ? "btn-primary" : "btn-ghost")" @onclick="@(() => sourceMode = SourceMode.Folder)">
+                    Upload Folder (dist/ or wwwroot/)
+                </button>
+                <button type="button" class="btn btn-sm @(sourceMode == SourceMode.Zip ? "btn-primary" : "btn-ghost")" @onclick="@(() => sourceMode = SourceMode.Zip)">
+                    Upload ZIP Archive (.zip)
+                </button>
+                <button type="button" class="btn btn-sm @(sourceMode == SourceMode.Files ? "btn-primary" : "btn-ghost")" @onclick="@(() => sourceMode = SourceMode.Files)">
+                    Upload Files
+                </button>
+            </div>
+
+            @if (sourceMode == SourceMode.Folder)
+            {
+                <InputFile id="vesselFolderInput" webkitdirectory directory multiple OnChange="OnFolderSelected" style="display:none;" />
+                <label for="vesselFolderInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                    <Icon Name="folder" Class="icon-lg" />
+                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                        Select or drop build folder (e.g. dist/, build/, wwwroot/)
+                    </div>
+                    <div class="muted" style="font-size: var(--text-xs);">
+                        All subdirectories (assets/, _framework/, etc.) will have their exact paths preserved
+                    </div>
+                </label>
+            }
+            else if (sourceMode == SourceMode.Zip)
+            {
+                <InputFile id="vesselZipInput" accept=".zip" OnChange="OnZipSelected" style="display:none;" />
+                <label for="vesselZipInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                    <Icon Name="upload" Class="icon-lg" />
+                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                        Select or drop .zip archive (e.g. dist.zip)
+                    </div>
+                    <div class="muted" style="font-size: var(--text-xs);">
+                        Extracted directly in browser and uploaded with full folder structure
+                    </div>
+                </label>
+            }
+            else
+            {
+                <InputFile id="vesselFilesInput" multiple OnChange="OnFilesSelected" style="display:none;" />
+                <label for="vesselFilesInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                    <Icon Name="upload" Class="icon-lg" />
+                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                        Select multiple files to upload
+                    </div>
+                </label>
+            }
+        </div>
+
+        @if (selectedFiles.Count > 0)
+        {
+            <div class="callout callout-info">
+                <div class="row align-center" style="justify-content: space-between;">
+                    <div>
+                        <strong>@selectedFiles.Count files ready to deploy</strong>
+                        <span class="muted mono" style="font-size: var(--text-xs); margin-left: var(--space-2);">(@Fmt.Bytes(totalSizeBytes))</span>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="ClearSelectedFiles">
+                        clear
+                    </button>
+                </div>
+                <div style="margin-top: var(--space-2); max-height: 120px; overflow-y: auto;">
+                    @foreach (var f in selectedFiles.Take(8))
+                    {
+                        <div class="mono muted" style="font-size: var(--text-xs);">
+                            @f.RelativePath (@Fmt.Bytes(f.Size))
+                        </div>
+                    }
+                    @if (selectedFiles.Count > 8)
+                    {
+                        <div class="mono muted" style="font-size: var(--text-xs);">
+                            ...and @(selectedFiles.Count - 8) more files
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="row align-center" style="gap: var(--space-4); margin-top: var(--space-1);">
+            <div class="row align-center" style="gap: var(--space-2);">
+                <input type="checkbox" id="chkCleanBucket" @bind="cleanBeforeDeploy" />
+                <label for="chkCleanBucket" style="text-transform:none; cursor:pointer;">Clean existing files in bucket before deploy</label>
+            </div>
+            <div class="row align-center" style="gap: var(--space-2);">
+                <input type="checkbox" id="chkPublicRead" @bind="enablePublicRead" />
+                <label for="chkPublicRead" style="text-transform:none; cursor:pointer;">Set Public Read access (required for public hosting)</label>
+            </div>
+        </div>
+
+        @if (isDeploying)
+        {
+            <div class="stack" style="gap: var(--space-2);">
+                <div class="row align-center" style="justify-content: space-between; font-size: var(--text-sm);">
+                    <span class="mono">@deployStatusText</span>
+                    <span class="mono muted">@deployProgressPercent% (@deployCurrentIndex/@selectedFiles.Count)</span>
+                </div>
+                <div style="width: 100%; height: 8px; background: var(--color-surface-sunken); border-radius: var(--radius-pill); overflow: hidden;">
+                    <div style="width: @(deployProgressPercent)%; height: 100%; background: var(--color-mint); transition: width 0.2s ease;"></div>
+                </div>
+            </div>
+        }
+
+        <div class="row" style="gap: var(--space-3); margin-top: var(--space-2);">
+            <button type="button" class="btn btn-primary" @onclick="DeployWebsite" disabled="@(isDeploying || selectedFiles.Count == 0 || (isNewBucket && string.IsNullOrWhiteSpace(newBucketName)) || (!isNewBucket && string.IsNullOrEmpty(selectedExistingBucket)))">
+                <Icon Name="globe" /> @(isDeploying ? "deploying..." : "deploy website")
+            </button>
+            @if (selectedFiles.Count > 0 && !isDeploying)
+            {
+                <button type="button" class="btn btn-ghost" @onclick="ClearSelectedFiles">
+                    cancel
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private enum FrameworkPreset { ViteSpa, BlazorWasm, StaticHtml, Custom }
+    private enum SourceMode { Folder, Zip, Files }
+
+    private sealed record SiteEntry(string Bucket, BucketWebsiteDto Config);
+    private sealed record FilePayload(string RelativePath, long Size, Func<Task<Stream>> OpenStream);
+
+    private List<SiteEntry> activeWebsites = [];
+    private List<BucketDto> allBuckets = [];
+    private bool loading = true;
+    private string? errorMessage;
+
+    private bool isNewBucket = true;
+    private string newBucketName = "";
+    private string selectedExistingBucket = "";
+    private string targetBucket = "";
+
+    private FrameworkPreset preset = FrameworkPreset.ViteSpa;
+    private string indexDocument = "index.html";
+    private string errorDocument = "index.html";
+
+    private SourceMode sourceMode = SourceMode.Folder;
+    private readonly List<FilePayload> selectedFiles = [];
+    private long totalSizeBytes = 0;
+
+    private bool cleanBeforeDeploy = false;
+    private bool enablePublicRead = true;
+
+    private bool isDeploying = false;
+    private string deployStatusText = "";
+    private int deployCurrentIndex = 0;
+    private int deployProgressPercent = 0;
+    private bool deployedSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        loading = true;
+        errorMessage = null;
+        activeWebsites.Clear();
+
+        try
+        {
+            var res = await Client.ListBucketsAsync();
+            if (res.TryGetValue(out var buckets, out var err))
+            {
+                allBuckets = buckets.OrderBy(b => b.Name).ToList();
+
+                foreach (var b in allBuckets)
+                {
+                    var webRes = await Client.GetBucketWebsiteAsync(b.Name);
+                    if (webRes.TryGetValue(out var cfg, out _) && cfg is not null)
+                    {
+                        activeWebsites.Add(new SiteEntry(b.Name, cfg.Value));
+                    }
+                }
+            }
+            else
+            {
+                errorMessage = err.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void SetPreset(FrameworkPreset p)
+    {
+        preset = p;
+        switch (p)
+        {
+            case FrameworkPreset.ViteSpa:
+            case FrameworkPreset.BlazorWasm:
+                indexDocument = "index.html";
+                errorDocument = "index.html";
+                break;
+            case FrameworkPreset.StaticHtml:
+                indexDocument = "index.html";
+                errorDocument = "404.html";
+                break;
+            case FrameworkPreset.Custom:
+                break;
+        }
+    }
+
+    private void SelectBucketForRedeploy(string bucket)
+    {
+        isNewBucket = false;
+        selectedExistingBucket = bucket;
+        var existing = activeWebsites.FirstOrDefault(s => s.Bucket == bucket);
+        if (existing is not null)
+        {
+            indexDocument = existing.Config.IndexDocument;
+            errorDocument = existing.Config.ErrorDocument ?? "";
+        }
+    }
+
+    private async Task DisableHosting(string bucket)
+    {
+        try
+        {
+            var res = await Client.DeleteBucketWebsiteAsync(bucket);
+            if (!res.TryGetError(out var err))
+            {
+                Toast.Success($"Disabled static website hosting for {bucket}");
+                await Refresh();
+            }
+            else
+            {
+                Toast.Error($"Failed to disable hosting: {err.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private void OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        selectedFiles.Clear();
+        totalSizeBytes = 0;
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 2000))
+        {
+            var f = file;
+            selectedFiles.Add(new FilePayload(f.Name, f.Size, async () => f.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024)));
+            totalSizeBytes += f.Size;
+        }
+    }
+
+    private async Task OnFolderSelected(InputFileChangeEventArgs e)
+    {
+        selectedFiles.Clear();
+        totalSizeBytes = 0;
+
+        try
+        {
+            var files = e.GetMultipleFiles(maximumFileCount: 2000).ToList();
+            var paths = await JS.InvokeAsync<string[]>("vesselGetFilePaths", "vesselFolderInput");
+            var commonPrefix = GetCommonDirectoryPrefix(paths);
+
+            for (var i = 0; i < files.Count; i++)
+            {
+                var f = files[i];
+                var path = (paths != null && i < paths.Length && !string.IsNullOrEmpty(paths[i])) ? paths[i] : f.Name;
+                if (!string.IsNullOrEmpty(commonPrefix) && path.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    path = path[commonPrefix.Length..].TrimStart('/');
+                }
+                selectedFiles.Add(new FilePayload(path, f.Size, async () => f.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024)));
+                totalSizeBytes += f.Size;
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error scanning folder: {ex.Message}");
+        }
+    }
+
+    private async Task OnZipSelected(InputFileChangeEventArgs e)
+    {
+        selectedFiles.Clear();
+        totalSizeBytes = 0;
+
+        var file = e.File;
+        if (file is null) return;
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024).CopyToAsync(ms);
+            ms.Position = 0;
+
+            using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
+            var entries = archive.Entries
+                .Where(entry => !string.IsNullOrEmpty(entry.Name) && !entry.FullName.EndsWith('/'))
+                .ToList();
+
+            var paths = entries.Select(en => en.FullName).ToArray();
+            var commonPrefix = GetCommonDirectoryPrefix(paths);
+
+            foreach (var entry in entries)
+            {
+                var cleanPath = entry.FullName;
+                if (!string.IsNullOrEmpty(commonPrefix) && cleanPath.StartsWith(commonPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleanPath = cleanPath[commonPrefix.Length..].TrimStart('/');
+                }
+
+                var entryBytes = new byte[entry.Length];
+                using (var es = entry.Open())
+                {
+                    var read = 0;
+                    while (read < entryBytes.Length)
+                    {
+                        var chunk = await es.ReadAsync(entryBytes.AsMemory(read, entryBytes.Length - read));
+                        if (chunk == 0) break;
+                        read += chunk;
+                    }
+                }
+
+                selectedFiles.Add(new FilePayload(cleanPath, entryBytes.Length, () => Task.FromResult<Stream>(new MemoryStream(entryBytes))));
+                totalSizeBytes += entryBytes.Length;
+            }
+
+            Toast.Success($"Unpacked {selectedFiles.Count} files from {file.Name}");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to read zip archive: {ex.Message}");
+        }
+    }
+
+    private static string GetCommonDirectoryPrefix(IReadOnlyList<string>? paths)
+    {
+        if (paths == null || paths.Count == 0) return "";
+        var firstSlash = paths[0].IndexOf('/');
+        if (firstSlash < 0) return "";
+
+        var prefix = paths[0][..(firstSlash + 1)];
+        foreach (var p in paths)
+        {
+            if (!p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return "";
+            }
+        }
+        return prefix;
+    }
+
+    private void ClearSelectedFiles()
+    {
+        selectedFiles.Clear();
+        totalSizeBytes = 0;
+    }
+
+    private void ResetDeployForm()
+    {
+        deployedSuccess = false;
+        selectedFiles.Clear();
+        totalSizeBytes = 0;
+    }
+
+    private async Task DeployWebsite()
+    {
+        targetBucket = isNewBucket ? newBucketName.Trim().ToLowerInvariant() : selectedExistingBucket;
+        if (string.IsNullOrWhiteSpace(targetBucket))
+        {
+            Toast.Error("Please enter or select a bucket name");
+            return;
+        }
+
+        if (selectedFiles.Count == 0)
+        {
+            Toast.Error("No files selected to deploy");
+            return;
+        }
+
+        isDeploying = true;
+        deployedSuccess = false;
+        deployCurrentIndex = 0;
+        deployProgressPercent = 0;
+        deployStatusText = "Preparing deployment...";
+        StateHasChanged();
+
+        try
+        {
+            if (isNewBucket)
+            {
+                deployStatusText = $"Creating bucket '{targetBucket}'...";
+                StateHasChanged();
+                var createRes = await Client.CreateBucketAsync(targetBucket);
+                if (createRes.TryGetError(out var createErr))
+                {
+                    Toast.Error($"Failed to create bucket: {createErr.Message}");
+                    isDeploying = false;
+                    return;
+                }
+            }
+
+            if (cleanBeforeDeploy)
+            {
+                deployStatusText = "Cleaning existing objects in bucket...";
+                StateHasChanged();
+                var listRes = await Client.ListObjectsAsync(targetBucket, limit: 1000);
+                if (listRes.TryGetValue(out var page, out _))
+                {
+                    foreach (var obj in page.Objects)
+                    {
+                        await Client.DeleteObjectAsync(targetBucket, obj.Key);
+                    }
+                }
+            }
+
+            for (var i = 0; i < selectedFiles.Count; i++)
+            {
+                var file = selectedFiles[i];
+                deployCurrentIndex = i + 1;
+                deployProgressPercent = (int)((double)(i + 1) / selectedFiles.Count * 90);
+                deployStatusText = $"Uploading ({deployCurrentIndex}/{selectedFiles.Count}): {file.RelativePath}";
+                StateHasChanged();
+
+                await using var stream = await file.OpenStream();
+                var mime = MimeHelper.GetMimeType(file.RelativePath);
+                var putRes = await Client.PutObjectAsync(targetBucket, file.RelativePath, stream, mime);
+                if (!putRes.TryGetValue(out _, out var putErr))
+                {
+                    Toast.Error($"Failed to upload {file.RelativePath}: {putErr.Message}");
+                    isDeploying = false;
+                    return;
+                }
+            }
+
+            deployStatusText = "Configuring static website routing...";
+            deployProgressPercent = 95;
+            StateHasChanged();
+
+            var webCfg = new BucketWebsiteDto(indexDocument, string.IsNullOrWhiteSpace(errorDocument) ? null : errorDocument);
+            var setWebRes = await Client.SetBucketWebsiteAsync(targetBucket, webCfg);
+            if (setWebRes.TryGetError(out var setWebErr))
+            {
+                Toast.Error($"Files uploaded, but failed to set website config: {setWebErr.Message}");
+                isDeploying = false;
+                return;
+            }
+
+            if (enablePublicRead)
+            {
+                deployStatusText = "Enabling public read access...";
+                StateHasChanged();
+                await Client.SetBucketAccessAsync(targetBucket, new BucketAccessDto(PublicRead: true, ReadOnly: false));
+            }
+
+            deployProgressPercent = 100;
+            deployStatusText = "Deployment complete!";
+            deployedSuccess = true;
+            Toast.Success($"Website successfully deployed to {targetBucket}!");
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Deployment failed: {ex.Message}");
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetDirectSiteUrl(string bucket)
+    {
+        var origin = new Uri(Nav.BaseUri).GetLeftPart(UriPartial.Authority);
+        return $"{origin}/_site/{bucket}/";
+    }
+
+    private async Task CopyUrl(string url)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+            Toast.Success("URL copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+}

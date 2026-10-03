@@ -15,10 +15,11 @@ Built for homelab and single app use.
 
 - Made with .NET 10, because why not.
 - The S3 wire protocol. AWS CLI, MinIO `mc`, boto3, and AWS SDKs talk to it without code changes.
+- The Azure Blob Storage wire protocol. Azure SDKs (`Azure.Storage.Blobs`), AzCopy, Azure CLI, and Storage Explorer talk to it directly, with drop-in Azurite (`devstoreaccount1`) compatibility.
 - SigV4-signed requests, including the `STREAMING-UNSIGNED-PAYLOAD-TRAILER` mode boto3 uses by default.
 - Built-in multi-user IAM: local SQLite identity store (`iam.db`), roles (`Admin`, `Member`, `ReadOnly`), user status (`Active`/`Suspended`), and scoped access keys with TTL and revocation.
 - Bucket ownership & capability isolation: tenants only see and manage their own buckets; capability checks (`Read`, `Write`, `Admin`); canned ACLs (`public-read`, `private`).
-- Dual protocol: S3 wire protocol alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
+- Multi-protocol server: S3 and Azure Blob Storage alongside a native JSON REST API (`/v1/...`) and C# .NET SDK (`Vessel3.Client`).
 - Multi-protocol container registry: OCI Distribution Spec / Docker Registry v2 (`/v2/...`) for storing and serving container images directly from the shared blob pool.
 - Virtual-host routing, static website hosting, lifecycle rules, multipart uploads, presigned URLs, versioning, Object Lock, tagging, per-version retention and legal hold, conditional reads and writes, range and suffix-range GETs, per-object checksums (CRC32, CRC32C, SHA1, SHA256), `EncodingType=url`, `GetObjectAttributes`.
 - Crash-safe persistence. Every write fsyncs. The event log is the source of truth; the SQLite index is rebuildable from it after any crash, including mid-write.
@@ -44,6 +45,7 @@ Full documentation is available in the [`docs/`](docs/README.md) directory:
 |---|---|
 | [**S3 Protocol Support Matrix**](docs/s3-protocol-support.md) | Full compatibility matrix of all supported Amazon S3 API operations, subresources, and headers. |
 | [**S3 Client & Tooling Guide**](docs/s3-api-and-tools.md) | Setup and usage examples for AWS CLI, MinIO `mc`, Python `boto3`, and `rclone`. |
+| [**Azure Blob Storage Guide**](docs/azure-blob-storage.md) | Compatibility matrix, Azurite emulation, and setup recipes for Azure SDKs, AzCopy, Azure CLI, and Storage Explorer. |
 | [**IAM & Access Control**](docs/iam-and-access-control.md) | Multi-user identity model, roles, access key management, bucket ownership, and policy evaluation. |
 | [**Native REST API**](docs/native-api.md) | Specification for the `/v1/...` REST API for IAM, buckets, objects, and administrative sweeps. |
 | [**C# .NET Client SDK**](docs/client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient`). |

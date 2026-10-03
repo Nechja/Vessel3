@@ -141,6 +141,27 @@
                     <option value="Enabled">Enabled</option>
                 </select>
             </div>
+
+            <div class="field">
+                <label>Static Website Hosting</label>
+                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
+                    <input type="checkbox" id="chkWebsite" @bind="websiteEnabled" />
+                    <label for="chkWebsite" style="text-transform:none; cursor:pointer;">Enable Static Website Hosting</label>
+                </div>
+                @if (websiteEnabled)
+                {
+                    <div class="grid grid-2" style="gap: var(--space-2); margin-top: var(--space-2);">
+                        <div>
+                            <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Index Document</label>
+                            <input class="input mono" @bind="websiteIndexDoc" placeholder="index.html" />
+                        </div>
+                        <div>
+                            <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Error / SPA Document</label>
+                            <input class="input mono" @bind="websiteErrorDoc" placeholder="index.html or 404.html" />
+                        </div>
+                    </div>
+                }
+            </div>
         </div>
     </ChildContent>
     <FooterContent>
@@ -172,6 +193,9 @@
     private bool publicRead;
     private bool readOnly;
     private string versioningStatus = "Suspended";
+    private bool websiteEnabled;
+    private string websiteIndexDoc = "index.html";
+    private string websiteErrorDoc = "";
     private bool savingSettings;
 
     protected override Task OnInitializedAsync() => Refresh();
@@ -273,6 +297,17 @@
             versioningStatus = ver.Status;
         }
 
+        websiteEnabled = false;
+        websiteIndexDoc = "index.html";
+        websiteErrorDoc = "";
+        var webRes = await Client.GetBucketWebsiteAsync(bucket);
+        if (webRes.TryGetValue(out var web, out _) && web is not null)
+        {
+            websiteEnabled = true;
+            websiteIndexDoc = web.Value.IndexDocument;
+            websiteErrorDoc = web.Value.ErrorDocument ?? "";
+        }
+
         showSettingsModal = true;
     }
 
@@ -293,6 +328,22 @@
             {
                 Toast.Error($"Failed to update versioning: {vErr.Message}");
                 return;
+            }
+
+            if (websiteEnabled)
+            {
+                var webRes = await Client.SetBucketWebsiteAsync(activeSettingsBucket, new BucketWebsiteDto(
+                    string.IsNullOrWhiteSpace(websiteIndexDoc) ? "index.html" : websiteIndexDoc.Trim(),
+                    string.IsNullOrWhiteSpace(websiteErrorDoc) ? null : websiteErrorDoc.Trim()));
+                if (webRes.TryGetError(out var wErr))
+                {
+                    Toast.Error($"Failed to update website settings: {wErr.Message}");
+                    return;
+                }
+            }
+            else
+            {
+                await Client.DeleteBucketWebsiteAsync(activeSettingsBucket);
             }
 
             Toast.Success($"Settings for '{activeSettingsBucket}' saved");

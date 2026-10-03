@@ -42,12 +42,21 @@
                     <pre class="panel mono" style="max-height: 280px; overflow: auto; background: var(--color-surface-sunken); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word;">@previewText</pre>
                 </div>
             }
+            else if (previewKind == PreviewKind.Notice)
+            {
+                <div class="field">
+                    <label>Preview</label>
+                    <div class="callout callout-info">
+                        <div>@previewText</div>
+                    </div>
+                </div>
+            }
             else if (previewKind == PreviewKind.Image)
             {
                 <div class="field">
                     <label>Image Preview</label>
-                    <div class="panel" style="display: grid; place-items: center; background: var(--color-surface-sunken);">
-                        <img src="@previewUrl" alt="@ObjectKey" style="max-width: 100%; max-height: 300px; border-radius: var(--radius-sm);" />
+                    <div class="panel" style="display: grid; place-items: center; background: repeating-conic-gradient(var(--color-surface-sunken) 0% 25%, var(--color-surface) 0% 50%) 50% / 20px 20px; padding: var(--space-4); border-radius: var(--radius-sm); min-height: 120px;">
+                        <img src="@previewUrl" alt="@ObjectKey" style="max-width: 100%; max-height: 320px; object-fit: contain; border-radius: var(--radius-sm); box-shadow: 0 2px 8px rgba(0,0,0,0.15);" />
                     </div>
                 </div>
             }
@@ -69,11 +78,12 @@
 
 @code {
     const int PreviewCap = 16 * 1024;
+    const int MaxImagePreviewBytes = 16 * 1024 * 1024;
 
     [Parameter, EditorRequired] public string Bucket { get; set; } = "";
     [Parameter, EditorRequired] public string ObjectKey { get; set; } = "";
 
-    enum PreviewKind { None, Text, Image }
+    enum PreviewKind { None, Text, Image, Notice }
 
     private ObjectSummaryDto? info;
     private bool loading = true;
@@ -106,8 +116,32 @@
 
             if (IsImage(ObjectKey))
             {
-                previewKind = PreviewKind.Image;
-                previewUrl = Urls.For(Bucket, ObjectKey);
+                if (stat.Size > MaxImagePreviewBytes)
+                {
+                    previewText = $"Image size ({Fmt.Bytes(stat.Size)}) exceeds maximum inline preview limit ({Fmt.Bytes(MaxImagePreviewBytes)}). Click 'download' to view.";
+                    previewKind = PreviewKind.Notice;
+                }
+                else
+                {
+                    var dlRes = await Client.GetObjectAsync(Bucket, ObjectKey);
+                    if (dlRes.TryGetValue(out var dl, out var dlErr))
+                    {
+                        using (dl)
+                        {
+                            using var ms = new MemoryStream();
+                            await dl.Content.CopyToAsync(ms);
+                            var bytes = ms.ToArray();
+                            var mime = ResolveImageMime(ObjectKey, dl.ContentType, bytes);
+                            previewUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+                            previewKind = PreviewKind.Image;
+                        }
+                    }
+                    else
+                    {
+                        previewText = $"Failed to load image preview: {dlErr.Message}";
+                        previewKind = PreviewKind.Notice;
+                    }
+                }
             }
             else if (IsText(ObjectKey))
             {
@@ -137,6 +171,53 @@
 
     private static bool IsImage(string key) =>
         HasExtension(key, ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif");
+
+    private static string ResolveImageMime(string key, string? declaredContentType, ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47
+            && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A)
+        {
+            return "image/png";
+        }
+
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+        {
+            return "image/jpeg";
+        }
+
+        if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x38 && (bytes[4] == 0x37 || bytes[4] == 0x39) && bytes[5] == 0x61)
+        {
+            return "image/gif";
+        }
+
+        if (bytes.Length >= 12 && bytes[0] == (byte)'R' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F' && bytes[3] == (byte)'F'
+            && bytes[8] == (byte)'W' && bytes[9] == (byte)'E' && bytes[10] == (byte)'B' && bytes[11] == (byte)'P')
+        {
+            return "image/webp";
+        }
+
+        if (bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M')
+        {
+            return "image/bmp";
+        }
+
+        if (!string.IsNullOrEmpty(declaredContentType) &&
+            !string.Equals(declaredContentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return declaredContentType;
+        }
+
+        if (key.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return "image/png";
+        if (key.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || key.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)) return "image/jpeg";
+        if (key.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)) return "image/gif";
+        if (key.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)) return "image/webp";
+        if (key.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)) return "image/svg+xml";
+        if (key.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase)) return "image/bmp";
+        if (key.EndsWith(".ico", StringComparison.OrdinalIgnoreCase)) return "image/x-icon";
+        if (key.EndsWith(".avif", StringComparison.OrdinalIgnoreCase)) return "image/avif";
+
+        return "image/png";
+    }
 
     private static bool IsText(string key) =>
         HasExtension(key, ".txt", ".md", ".log", ".json", ".yaml", ".yml", ".xml", ".csv", ".toml",

@@ -100,6 +100,55 @@ internal static class BucketEndpoints
             return result.Match(() => Results.Ok(), NativeHttpResult.ToHttpResult);
         });
 
+        endpoints.MapGet("/v1/buckets/{bucket}/website", static (string bucket, HttpContext ctx, IBucketRegistry registry) =>
+        {
+            RequestTrace.SetTarget("GetBucketWebsite", bucket);
+            var caller = ctx.GetCaller();
+            if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
+            {
+                return authFail.Error.ToHttpResult();
+            }
+
+            var result = registry.GetWebsite(bucket);
+            return result.Match(
+                cfg => cfg is not null
+                    ? Results.Json(new BucketWebsiteDto(cfg.IndexDocument, cfg.ErrorDocument), NativeJsonContext.Default.BucketWebsiteDto)
+                    : Results.Json(new ErrorDto("NoSuchWebsiteConfiguration", $"The specified bucket does not have a website configuration: {bucket}"), NativeJsonContext.Default.ErrorDto, statusCode: StatusCodes.Status404NotFound),
+                NativeHttpResult.ToHttpResult);
+        });
+
+        endpoints.MapPut("/v1/buckets/{bucket}/website", static async (string bucket, HttpContext ctx, IBucketRegistry registry) =>
+        {
+            RequestTrace.SetTarget("PutBucketWebsite", bucket);
+            var caller = ctx.GetCaller();
+            if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure authFail)
+            {
+                return authFail.Error.ToHttpResult();
+            }
+
+            var body = await ctx.Request.ReadFromJsonAsync(NativeJsonContext.Default.BucketWebsiteDto);
+            if (string.IsNullOrWhiteSpace(body.IndexDocument))
+            {
+                return new InvalidArgumentError("IndexDocument is required").ToHttpResult();
+            }
+
+            var result = registry.SetWebsite(bucket, new WebsiteConfig(body.IndexDocument, body.ErrorDocument));
+            return result.Match(() => Results.Ok(), NativeHttpResult.ToHttpResult);
+        });
+
+        endpoints.MapDelete("/v1/buckets/{bucket}/website", static (string bucket, HttpContext ctx, IBucketRegistry registry) =>
+        {
+            RequestTrace.SetTarget("DeleteBucketWebsite", bucket);
+            var caller = ctx.GetCaller();
+            if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure authFail)
+            {
+                return authFail.Error.ToHttpResult();
+            }
+
+            var result = registry.RemoveWebsite(bucket);
+            return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        });
+
         return endpoints;
     }
 }
