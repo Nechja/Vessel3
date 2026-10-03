@@ -4,5 +4,5 @@ namespace Vessel3.Storage;
 
 internal interface ITokenAuthenticator
 {
-    Task<Result<CallerIdentity>> AuthenticateTokenAsync(string token, CancellationToken ct = default);
+    Task<Result<CallerIdentity>> AuthenticateToken(string token, CancellationToken ct = default);
 }

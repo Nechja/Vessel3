@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
@@ -13,7 +14,7 @@ internal sealed class PutBlobAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.PutBlob;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
         {
@@ -41,7 +42,7 @@ internal sealed class PutBlobAction(
             DeclaredSha256: null,
             DeclaredMd5Base64: string.IsNullOrEmpty(declaredMd5) ? null : declaredMd5,
             Metadata: metadata,
-            Tags: new Dictionary<string, string>(),
+            Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
             Ct: ct);
 

@@ -42,9 +42,6 @@ public static class WebDavServiceExtensions
         return services;
     }
 
-    public static IApplicationBuilder UseVesselWebDav(this IApplicationBuilder app)
-    {
+    public static IApplicationBuilder UseVesselWebDav(this IApplicationBuilder app) =>
         app.UseMiddleware<WebDavProtocolMiddleware>();
-        return app;
-    }
 }

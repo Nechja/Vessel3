@@ -14,9 +14,9 @@ internal sealed class ProppatchAction(IWebDavXmlWriter xml) : IWebDavAction
 
         var res = ctx.Response;
         res.StatusCode = 207;
-        res.ContentType = "application/xml; charset=utf-8";
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
+        res.ContentType = WebDavMediaTypes.XmlUtf8;
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         await xml.WriteProppatchResponse(res.Body, rawPath, ctx.RequestAborted);
         return Results.Empty;

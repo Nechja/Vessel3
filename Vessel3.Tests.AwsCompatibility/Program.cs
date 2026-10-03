@@ -449,7 +449,7 @@ await Run("ConcurrencyStress", async () =>
                     }
                 }
                 catch (OperationCanceledException) { return; }
-                catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404) { /* raced delete */ }
+                catch (AmazonS3Exception ex) when ((int)ex.StatusCode == 404) { }
                 catch (Exception ex) { failures.Add($"reader{rid}: {ex.GetType().Name}: {ex.Message}"); }
             }
         });
@@ -2170,7 +2170,7 @@ await Run("ObjectLockRequiresVersioning", async () =>
     }
     finally
     {
-        try { await s3.DeleteBucketAsync(lbucket); } catch { /* ignore */ }
+        try { await s3.DeleteBucketAsync(lbucket); } catch { }
     }
 });
 

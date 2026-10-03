@@ -15,10 +15,10 @@ internal sealed class LockAction(IWebDavXmlWriter xml) : IWebDavAction
 
         var res = ctx.Response;
         res.StatusCode = StatusCodes.Status200OK;
-        res.ContentType = "application/xml; charset=utf-8";
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
-        res.Headers["Lock-Token"] = $"<{lockToken}>";
+        res.ContentType = WebDavMediaTypes.XmlUtf8;
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
+        res.Headers[WebDavHeaders.LockToken] = $"<{lockToken}>";
 
         await xml.WriteLockDiscovery(res.Body, rawPath, lockToken, null, ctx.RequestAborted);
         return Results.Empty;

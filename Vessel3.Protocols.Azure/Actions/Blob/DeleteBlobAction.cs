@@ -12,7 +12,7 @@ internal sealed class DeleteBlobAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.DeleteBlob;
 
-    public Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
         {

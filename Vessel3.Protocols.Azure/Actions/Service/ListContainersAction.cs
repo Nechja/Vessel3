@@ -12,7 +12,7 @@ internal sealed class ListContainersAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.ListContainers;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
             ? ci
@@ -39,7 +39,7 @@ internal sealed class ListContainersAction(
         ctx.Response.StatusCode = StatusCodes.Status200OK;
         ctx.Response.ContentType = "application/xml";
 
-        await xml.WriteListContainersAsync(
+        await xml.WriteListContainers(
             ctx.Response.Body,
             serviceEndpoint,
             string.IsNullOrEmpty(prefix) ? null : prefix,

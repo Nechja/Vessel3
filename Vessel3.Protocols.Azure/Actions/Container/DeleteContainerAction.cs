@@ -12,7 +12,7 @@ internal sealed class DeleteContainerAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.DeleteContainer;
 
-    public Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container))
         {

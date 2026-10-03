@@ -6,7 +6,7 @@ namespace Vessel3.Protocols.Azure.Serialization;
 
 internal interface IAzureXmlWriter
 {
-    Task WriteListContainersAsync(
+    Task WriteListContainers(
         Stream output,
         string serviceEndpoint,
         string? prefix,
@@ -15,7 +15,7 @@ internal interface IAzureXmlWriter
         IEnumerable<BucketInfo> containers,
         CancellationToken ct);
 
-    Task WriteListBlobsAsync(
+    Task WriteListBlobs(
         Stream output,
         string serviceEndpoint,
         string containerName,
@@ -26,12 +26,12 @@ internal interface IAzureXmlWriter
         ListPage page,
         CancellationToken ct);
 
-    Task WriteServicePropertiesAsync(Stream output, CancellationToken ct);
+    Task WriteServiceProperties(Stream output, CancellationToken ct);
 }
 
 internal sealed class AzureXmlWriter : IAzureXmlWriter
 {
-    public async Task WriteListContainersAsync(
+    public async Task WriteListContainers(
         Stream output,
         string serviceEndpoint,
         string? prefix,
@@ -76,20 +76,20 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
             await w.WriteElementStringAsync(null, "DenyEncryptionScopeOverride", null, "false");
             await w.WriteElementStringAsync(null, "HasImmutabilityPolicy", null, "false");
             await w.WriteElementStringAsync(null, "HasLegalHold", null, "false");
-            await w.WriteEndElementAsync(); // Properties
+            await w.WriteEndElementAsync();
 
-            await w.WriteEndElementAsync(); // Container
+            await w.WriteEndElementAsync();
         }
-        await w.WriteEndElementAsync(); // Containers
+        await w.WriteEndElementAsync();
 
         await w.WriteElementStringAsync(null, "NextMarker", null, "");
 
-        await w.WriteEndElementAsync(); // EnumerationResults
+        await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
     }
 
-    public async Task WriteListBlobsAsync(
+    public async Task WriteListBlobs(
         Stream output,
         string serviceEndpoint,
         string containerName,
@@ -147,33 +147,32 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
                     await w.WriteElementStringAsync(null, "LeaseStatus", null, "unlocked");
                     await w.WriteElementStringAsync(null, "LeaseState", null, "available");
                     await w.WriteElementStringAsync(null, "ServerEncrypted", null, "true");
-                    await w.WriteEndElementAsync(); // Properties
-                    await w.WriteEndElementAsync(); // Blob
+                    await w.WriteEndElementAsync();
+                    await w.WriteEndElementAsync();
                     break;
 
                 case ListEntry.CommonPrefix p:
                     await w.WriteStartElementAsync(null, "BlobPrefix", null);
                     await w.WriteElementStringAsync(null, "Name", null, p.Key);
-                    await w.WriteEndElementAsync(); // BlobPrefix
+                    await w.WriteEndElementAsync();
                     break;
             }
         }
-        await w.WriteEndElementAsync(); // Blobs
+        await w.WriteEndElementAsync();
 
         await w.WriteElementStringAsync(null, "NextMarker", null, page.NextContinuationToken ?? "");
 
-        await w.WriteEndElementAsync(); // EnumerationResults
+        await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
     }
 
-    public async Task WriteServicePropertiesAsync(Stream output, CancellationToken ct)
+    public async Task WriteServiceProperties(Stream output, CancellationToken ct)
     {
         await using var w = XmlWriter.Create(output, AzureXmlDefaults.WriterSettings);
         await w.WriteStartDocumentAsync();
         await w.WriteStartElementAsync(null, "StorageServiceProperties", null);
 
-        // Logging
         await w.WriteStartElementAsync(null, "Logging", null);
         await w.WriteElementStringAsync(null, "Version", null, "1.0");
         await w.WriteElementStringAsync(null, "Delete", null, "false");
@@ -181,32 +180,29 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
         await w.WriteElementStringAsync(null, "Write", null, "false");
         await w.WriteStartElementAsync(null, "RetentionPolicy", null);
         await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync(); // RetentionPolicy
-        await w.WriteEndElementAsync(); // Logging
+        await w.WriteEndElementAsync();
+        await w.WriteEndElementAsync();
 
-        // HourMetrics
         await w.WriteStartElementAsync(null, "HourMetrics", null);
         await w.WriteElementStringAsync(null, "Version", null, "1.0");
         await w.WriteElementStringAsync(null, "Enabled", null, "false");
         await w.WriteStartElementAsync(null, "RetentionPolicy", null);
         await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync(); // RetentionPolicy
-        await w.WriteEndElementAsync(); // HourMetrics
+        await w.WriteEndElementAsync();
+        await w.WriteEndElementAsync();
 
-        // MinuteMetrics
         await w.WriteStartElementAsync(null, "MinuteMetrics", null);
         await w.WriteElementStringAsync(null, "Version", null, "1.0");
         await w.WriteElementStringAsync(null, "Enabled", null, "false");
         await w.WriteStartElementAsync(null, "RetentionPolicy", null);
         await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync(); // RetentionPolicy
-        await w.WriteEndElementAsync(); // MinuteMetrics
+        await w.WriteEndElementAsync();
+        await w.WriteEndElementAsync();
 
-        // Cors
         await w.WriteStartElementAsync(null, "Cors", null);
-        await w.WriteEndElementAsync(); // Cors
+        await w.WriteEndElementAsync();
 
-        await w.WriteEndElementAsync(); // StorageServiceProperties
+        await w.WriteEndElementAsync();
         await w.WriteEndDocumentAsync();
         await w.FlushAsync();
     }

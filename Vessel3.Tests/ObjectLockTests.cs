@@ -20,7 +20,7 @@ public sealed class ObjectLockTests : IDisposable
     public void Dispose()
     {
         registry.Dispose();
-        try { Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
+        try { Directory.Delete(root, recursive: true); } catch { }
     }
 
     private static PutRequest MakePut(string body = "data") => new(

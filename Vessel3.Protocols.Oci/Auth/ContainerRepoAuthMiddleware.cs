@@ -24,7 +24,6 @@ internal sealed class ContainerRepoAuthMiddleware(
             return;
         }
 
-        // Token endpoint handles its own authentication to issue tokens
         if (ctx.Request.Path.Equals("/v2/token", StringComparison.OrdinalIgnoreCase))
         {
             await next(ctx);
@@ -94,7 +93,7 @@ internal sealed class ContainerRepoAuthMiddleware(
 
             if (tokenAuthenticator is not null)
             {
-                var verified = await tokenAuthenticator.AuthenticateTokenAsync(token, ctx.RequestAborted);
+                var verified = await tokenAuthenticator.AuthenticateToken(token, ctx.RequestAborted);
                 if (verified.TryGetValue(out var oidcCaller, out _))
                 {
                     ctx.Items["CallerIdentity"] = oidcCaller;

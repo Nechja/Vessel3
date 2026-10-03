@@ -51,8 +51,8 @@ internal sealed class CopyAction(
             }
         }
 
-        ctx.Response.Headers["DAV"] = "1, 2";
-        ctx.Response.Headers["MS-Author-Via"] = "DAV";
+        ctx.Response.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        ctx.Response.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         return Results.StatusCode(destExists ? StatusCodes.Status204NoContent : StatusCodes.Status201Created);
     }

@@ -118,12 +118,10 @@ public class OciProtocolWireTests : IAsyncDisposable
         const string secret = "TESTSECRET456";
         var (_, client) = await StartServer("auth", key, secret);
 
-        // 1. Initial unauthenticated ping -> 401 Challenge
         var pingRes = await client.GetAsync("/v2/");
         Assert.Equal(HttpStatusCode.Unauthorized, pingRes.StatusCode);
         Assert.True(pingRes.Headers.Contains("Www-Authenticate"));
 
-        // 2. Request token with Basic Auth
         var tokenReq = new HttpRequestMessage(HttpMethod.Get, "/v2/token?service=127.0.0.1&scope=repository:test-app:pull,push");
         var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{key}:{secret}"));
         tokenReq.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
@@ -136,7 +134,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var token = doc.RootElement.GetProperty("token").GetString();
         Assert.False(string.IsNullOrEmpty(token));
 
-        // 3. Ping with Bearer token -> 200 OK
         var authPingReq = new HttpRequestMessage(HttpMethod.Get, "/v2/");
         authPingReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var authPingRes = await client.SendAsync(authPingReq);
@@ -151,13 +148,11 @@ public class OciProtocolWireTests : IAsyncDisposable
         var layerSha = Convert.ToHexStringLower(SHA256.HashData(layerBytes));
         var layerDigest = $"sha256:{layerSha}";
 
-        // 1. Start chunked upload
         var startRes = await client.PostAsync("/v2/my-app/blobs/uploads/", null);
         Assert.Equal(HttpStatusCode.Accepted, startRes.StatusCode);
         Assert.True(startRes.Headers.Contains("Location"));
         var uploadLocation = startRes.Headers.GetValues("Location").First();
 
-        // 2. Upload chunk via PATCH
         var patchReq = new HttpRequestMessage(HttpMethod.Patch, uploadLocation)
         {
             Content = new ByteArrayContent(layerBytes)
@@ -166,18 +161,15 @@ public class OciProtocolWireTests : IAsyncDisposable
         var patchRes = await client.SendAsync(patchReq);
         Assert.Equal(HttpStatusCode.Accepted, patchRes.StatusCode);
 
-        // 3. Commit upload via PUT with ?digest=
         var putRes = await client.PutAsync($"{uploadLocation}?digest={layerDigest}", null);
         Assert.Equal(HttpStatusCode.Created, putRes.StatusCode);
         Assert.Equal($"/v2/my-app/blobs/{layerDigest}", putRes.Headers.GetValues("Location").First());
 
-        // 4. HEAD blob
         var headRes = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, $"/v2/my-app/blobs/{layerDigest}"));
         Assert.Equal(HttpStatusCode.OK, headRes.StatusCode);
         Assert.Equal(layerBytes.Length, headRes.Content.Headers.ContentLength);
         Assert.Equal(layerDigest, headRes.Headers.GetValues("Docker-Content-Digest").First());
 
-        // 5. GET blob
         var getRes = await client.GetAsync($"/v2/my-app/blobs/{layerDigest}");
         Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
         var downloadedBytes = await getRes.Content.ReadAsByteArrayAsync();
@@ -192,7 +184,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var layerSha = Convert.ToHexStringLower(SHA256.HashData(layerBytes));
         var layerDigest = $"sha256:{layerSha}";
 
-        // Monolithic POST with ?digest=
         var postReq = new HttpRequestMessage(HttpMethod.Post, $"/v2/fast-app/blobs/uploads/?digest={layerDigest}")
         {
             Content = new ByteArrayContent(layerBytes)
@@ -200,11 +191,9 @@ public class OciProtocolWireTests : IAsyncDisposable
         var postRes = await client.SendAsync(postReq);
         Assert.Equal(HttpStatusCode.Created, postRes.StatusCode);
 
-        // Verify it exists
         var headRes = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, $"/v2/fast-app/blobs/{layerDigest}"));
         Assert.Equal(HttpStatusCode.OK, headRes.StatusCode);
 
-        // Bad digest mismatch rejection
         var badPostReq = new HttpRequestMessage(HttpMethod.Post, "/v2/fast-app/blobs/uploads/?digest=sha256:0000000000000000000000000000000000000000000000000000000000000000")
         {
             Content = new ByteArrayContent(layerBytes)
@@ -218,7 +207,6 @@ public class OciProtocolWireTests : IAsyncDisposable
     {
         var (_, client) = await StartServer("manifest-flow");
 
-        // 1. Upload a layer first
         var layerBytes = Encoding.UTF8.GetBytes("app-layer-content");
         var layerSha = Convert.ToHexStringLower(SHA256.HashData(layerBytes));
         var layerDigest = $"sha256:{layerSha}";
@@ -229,7 +217,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var uploadRes = await client.SendAsync(uploadPost);
         Assert.Equal(HttpStatusCode.Created, uploadRes.StatusCode);
 
-        // 2. Upload manifest for tag v1.0.0
         var manifestJson = $$"""
         {
             "schemaVersion": 2,
@@ -255,20 +242,17 @@ public class OciProtocolWireTests : IAsyncDisposable
         Assert.True(putManifestRes.Headers.Contains("Docker-Content-Digest"));
         var manifestDigest = putManifestRes.Headers.GetValues("Docker-Content-Digest").First();
 
-        // 3. HEAD manifest by tag and by digest
         var headByTag = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/v2/web-service/manifests/v1.0.0"));
         Assert.Equal(HttpStatusCode.OK, headByTag.StatusCode);
 
         var headByDigest = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, $"/v2/web-service/manifests/{manifestDigest}"));
         Assert.Equal(HttpStatusCode.OK, headByDigest.StatusCode);
 
-        // 4. GET manifest
         var getManifest = await client.GetAsync("/v2/web-service/manifests/v1.0.0");
         Assert.Equal(HttpStatusCode.OK, getManifest.StatusCode);
         var readJson = await getManifest.Content.ReadAsStringAsync();
         Assert.Equal(manifestJson, readJson);
 
-        // 5. GET tags list
         var tagsRes = await client.GetAsync("/v2/web-service/tags/list");
         Assert.Equal(HttpStatusCode.OK, tagsRes.StatusCode);
         var tagsJson = await tagsRes.Content.ReadAsStringAsync();
@@ -277,7 +261,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var tagsArray = tagsDoc.RootElement.GetProperty("tags").EnumerateArray().Select(x => x.GetString()).ToList();
         Assert.Contains("v1.0.0", tagsArray);
 
-        // 6. GET _catalog
         var catRes = await client.GetAsync("/v2/_catalog");
         Assert.Equal(HttpStatusCode.OK, catRes.StatusCode);
         var catJson = await catRes.Content.ReadAsStringAsync();
@@ -291,7 +274,6 @@ public class OciProtocolWireTests : IAsyncDisposable
     {
         var (_, client) = await StartServer("deletes-and-errors");
 
-        // 1. Unknown blob returns 404 with BLOB_UNKNOWN
         var missingBlobRes = await client.GetAsync("/v2/ghost-app/blobs/sha256:1111111111111111111111111111111111111111111111111111111111111111");
         Assert.Equal(HttpStatusCode.NotFound, missingBlobRes.StatusCode);
         var missingBlobJson = await missingBlobRes.Content.ReadAsStringAsync();
@@ -301,7 +283,6 @@ public class OciProtocolWireTests : IAsyncDisposable
             Assert.Equal("BLOB_UNKNOWN", code);
         }
 
-        // 2. Unknown tags returns 404 with NAME_UNKNOWN
         var missingTagsRes = await client.GetAsync("/v2/non-existent-repo/tags/list");
         Assert.Equal(HttpStatusCode.NotFound, missingTagsRes.StatusCode);
         var missingTagsJson = await missingTagsRes.Content.ReadAsStringAsync();
@@ -311,7 +292,6 @@ public class OciProtocolWireTests : IAsyncDisposable
             Assert.Equal("NAME_UNKNOWN", code);
         }
 
-        // 3. Upload cancel flow
         var startRes = await client.PostAsync("/v2/cancel-app/blobs/uploads/", null);
         Assert.Equal(HttpStatusCode.Accepted, startRes.StatusCode);
         var uploadLocation = startRes.Headers.GetValues("Location").First();
@@ -319,11 +299,9 @@ public class OciProtocolWireTests : IAsyncDisposable
         var cancelRes = await client.DeleteAsync(uploadLocation);
         Assert.Equal(HttpStatusCode.NoContent, cancelRes.StatusCode);
 
-        // Fetching canceled upload returns 404
         var getCanceledRes = await client.GetAsync(uploadLocation);
         Assert.Equal(HttpStatusCode.NotFound, getCanceledRes.StatusCode);
 
-        // 4. Manifest push and delete
         var layerBytes = Encoding.UTF8.GetBytes("layer-to-delete");
         var layerDigest = $"sha256:{Convert.ToHexStringLower(SHA256.HashData(layerBytes))}";
         var upRes = await client.PostAsync($"/v2/delete-repo/blobs/uploads/?digest={layerDigest}", new ByteArrayContent(layerBytes));
@@ -345,15 +323,12 @@ public class OciProtocolWireTests : IAsyncDisposable
         var putRes = await client.PutAsync("/v2/delete-repo/manifests/v1.0.0", new StringContent(manifestJson, Encoding.UTF8, "application/vnd.docker.distribution.manifest.v2+json"));
         Assert.Equal(HttpStatusCode.Created, putRes.StatusCode);
 
-        // Verify it exists
         var headRes = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/v2/delete-repo/manifests/v1.0.0"));
         Assert.Equal(HttpStatusCode.OK, headRes.StatusCode);
 
-        // Delete manifest by tag
         var delRes = await client.DeleteAsync("/v2/delete-repo/manifests/v1.0.0");
         Assert.Equal(HttpStatusCode.Accepted, delRes.StatusCode);
 
-        // Verify it is gone
         var headGoneRes = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/v2/delete-repo/manifests/v1.0.0"));
         Assert.Equal(HttpStatusCode.NotFound, headGoneRes.StatusCode);
     }
@@ -374,13 +349,11 @@ public class OciProtocolWireTests : IAsyncDisposable
             oidc: oidcOptions,
             configureServices: s => s.AddSingleton<ITokenVerifier>(fakeVerifier));
 
-        // 1. OIDC Bearer token can fetch empty catalog
         var req = new HttpRequestMessage(HttpMethod.Get, "/v2/_catalog");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "drummer.jwt.token");
         var res = await client.SendAsync(req);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
-        // 2. Upload blob layer for rainier repo
         var layerBytes = Encoding.UTF8.GetBytes("drummer-layer-bytes");
         var layerDigest = $"sha256:{Convert.ToHexStringLower(SHA256.HashData(layerBytes))}";
         var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"/v2/rainier/blobs/uploads/?digest={layerDigest}")
@@ -391,7 +364,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var uploadRes = await client.SendAsync(uploadReq);
         Assert.Equal(HttpStatusCode.Created, uploadRes.StatusCode);
 
-        // 3. Put manifest with tag v1.0.0
         var manifestJson = $$"""
         {
             "schemaVersion": 2,
@@ -413,7 +385,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         var putRes = await client.SendAsync(putReq);
         Assert.Equal(HttpStatusCode.Created, putRes.StatusCode);
 
-        // 4. Verify VesselClient can list container repos and tags using OIDC bearer token
         var vesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "drummer.jwt.token"));
         var reposResult = await vesselClient.ListContainerReposAsync();
         Assert.True(reposResult.TryGetValue(out var repos, out var reposErr), reposErr?.Message);
@@ -423,7 +394,6 @@ public class OciProtocolWireTests : IAsyncDisposable
         Assert.True(tagsResult.TryGetValue(out var tags, out var tagsErr), tagsErr?.Message);
         Assert.Contains("v1.0.0", tags);
 
-        // 5. Verify invalid OIDC bearer token returns 401 with parsed OCI error code
         var badVesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "invalid.jwt.token"));
         var badResult = await badVesselClient.ListContainerReposAsync();
         Assert.False(badResult.TryGetValue(out _, out var badErr));
@@ -447,18 +417,15 @@ public class OciProtocolWireTests : IAsyncDisposable
             oidc: oidcOptions,
             configureServices: s => s.AddSingleton<ITokenVerifier>(fakeVerifier));
 
-        // Create bobby as ReadOnly
         var identity = app.Services.GetRequiredService<IIdentityRegistry>();
         var userRes = identity.CreateUser("bobby", UserRole.ReadOnly);
         Assert.True(userRes.TryGetValue(out _, out _));
 
-        // Read (GET _catalog) is allowed
         var getReq = new HttpRequestMessage(HttpMethod.Get, "/v2/_catalog");
         getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "bobby.jwt.token");
         var getRes = await client.SendAsync(getReq);
         Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
 
-        // Write (POST blob upload) is forbidden (403 DENIED)
         var postReq = new HttpRequestMessage(HttpMethod.Post, "/v2/hood/blobs/uploads/");
         postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "bobby.jwt.token");
         var postRes = await client.SendAsync(postReq);

@@ -10,10 +10,10 @@ internal sealed class OptionsAction : IWebDavAction
     public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
     {
         var res = ctx.Response;
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
-        res.Headers["Allow"] = "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK";
-        res.Headers["Accept-Ranges"] = "bytes";
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
+        res.Headers[WebDavHeaders.Allow] = WebDavHeaders.AllowedMethods;
+        res.Headers[WebDavHeaders.AcceptRanges] = WebDavHeaders.BytesUnit;
 
         return Task.FromResult<IResult>(Results.Ok());
     }

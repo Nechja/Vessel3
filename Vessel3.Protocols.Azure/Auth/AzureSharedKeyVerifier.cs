@@ -56,7 +56,6 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
     {
         var auth = req.Headers.Authorization.ToString();
 
-        // If unauthenticated mode and no Authorization header or dev store account, allow
         if (string.IsNullOrEmpty(auth))
         {
             return isUnauthenticatedMode
@@ -95,14 +94,12 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
 
         var accountToUse = !string.IsNullOrEmpty(headerAccount) ? headerAccount : (pathAccount ?? DevStoreAccount);
 
-        // Resolve secret key
         var (keyBytes, caller) = ResolveKey(accountToUse);
         if (keyBytes is null || caller is null)
         {
             return new InvalidAccessKeyIdError(accountToUse);
         }
 
-        // Build string to sign
         var stringToSign = BuildStringToSign(req, accountToUse);
         using var hmac = new HMACSHA256(keyBytes);
         var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(stringToSign));

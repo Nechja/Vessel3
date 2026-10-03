@@ -21,12 +21,12 @@ internal sealed class WebDavBasicAuthenticator(
         }
 
         var authHeader = request.Headers.Authorization.ToString();
-        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith(WebDavHeaders.BasicScheme, StringComparison.OrdinalIgnoreCase))
         {
             return new HttpError("Unauthorized", "Missing or invalid Basic authentication header", StatusCodes.Status401Unauthorized);
         }
 
-        var b64 = authHeader["Basic ".Length..].Trim();
+        var b64 = authHeader[WebDavHeaders.BasicScheme.Length..].Trim();
         return !TryDecodeBasic(b64, out var key, out var secret)
             ? new HttpError("Unauthorized", "Malformed Basic authentication credentials", StatusCodes.Status401Unauthorized)
             : TryAuthenticateRoot(key, secret, out var rootCaller)

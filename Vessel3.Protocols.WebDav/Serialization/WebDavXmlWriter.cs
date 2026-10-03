@@ -9,7 +9,7 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
     {
         await using var w = XmlWriter.Create(output, WebDavXmlDefaults.WriterSettings);
         await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "multistatus", WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Multistatus, WebDavXmlDefaults.DavNamespace);
 
         foreach (var entry in entries)
         {
@@ -25,31 +25,31 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
     {
         await using var w = XmlWriter.Create(output, WebDavXmlDefaults.WriterSettings);
         await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "prop", WebDavXmlDefaults.DavNamespace);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "lockdiscovery", WebDavXmlDefaults.DavNamespace);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "activelock", WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Prop, WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.LockDiscovery, WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.ActiveLock, WebDavXmlDefaults.DavNamespace);
 
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "locktype", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "write", WebDavXmlDefaults.DavNamespace, string.Empty);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.LockType, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Write, WebDavXmlDefaults.DavNamespace, string.Empty);
         await w.WriteEndElementAsync();
 
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "lockscope", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "exclusive", WebDavXmlDefaults.DavNamespace, string.Empty);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.LockScope, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Exclusive, WebDavXmlDefaults.DavNamespace, string.Empty);
         await w.WriteEndElementAsync();
 
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "depth", WebDavXmlDefaults.DavNamespace, "0");
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Depth, WebDavXmlDefaults.DavNamespace, "0");
         if (!string.IsNullOrEmpty(owner))
         {
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "owner", WebDavXmlDefaults.DavNamespace, owner);
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Owner, WebDavXmlDefaults.DavNamespace, owner);
         }
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "timeout", WebDavXmlDefaults.DavNamespace, "Second-3600");
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Timeout, WebDavXmlDefaults.DavNamespace, "Second-3600");
 
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "locktoken", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "href", WebDavXmlDefaults.DavNamespace, lockToken);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.LockToken, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Href, WebDavXmlDefaults.DavNamespace, lockToken);
         await w.WriteEndElementAsync();
 
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "lockroot", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "href", WebDavXmlDefaults.DavNamespace, lockRoot);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.LockRoot, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Href, WebDavXmlDefaults.DavNamespace, lockRoot);
         await w.WriteEndElementAsync();
 
         await w.WriteEndElementAsync();
@@ -63,13 +63,13 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
     {
         await using var w = XmlWriter.Create(output, WebDavXmlDefaults.WriterSettings);
         await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "multistatus", WebDavXmlDefaults.DavNamespace);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "response", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "href", WebDavXmlDefaults.DavNamespace, href);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "propstat", WebDavXmlDefaults.DavNamespace);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "prop", WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Multistatus, WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Response, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Href, WebDavXmlDefaults.DavNamespace, href);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Propstat, WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Prop, WebDavXmlDefaults.DavNamespace);
         await w.WriteEndElementAsync();
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "status", WebDavXmlDefaults.DavNamespace, "HTTP/1.1 200 OK");
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Status, WebDavXmlDefaults.DavNamespace, WebDavHttpStatusStrings.Http200);
         await w.WriteEndElementAsync();
         await w.WriteEndElementAsync();
         await w.WriteEndElementAsync();
@@ -79,14 +79,14 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
 
     private static async Task WriteResponseElement(XmlWriter w, WebDavResourceEntry entry)
     {
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "response", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "href", WebDavXmlDefaults.DavNamespace, entry.Href);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "propstat", WebDavXmlDefaults.DavNamespace);
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "prop", WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Response, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Href, WebDavXmlDefaults.DavNamespace, entry.Href);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Propstat, WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Prop, WebDavXmlDefaults.DavNamespace);
 
         if (!string.IsNullOrEmpty(entry.DisplayName))
         {
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "displayname", WebDavXmlDefaults.DavNamespace, entry.DisplayName);
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.DisplayName, WebDavXmlDefaults.DavNamespace, entry.DisplayName);
         }
 
         if (entry.IsCollection)
@@ -100,43 +100,43 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
 
         if (entry.LastModified.HasValue)
         {
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "getlastmodified", WebDavXmlDefaults.DavNamespace, WebDavXmlDefaults.ToRfc1123(entry.LastModified.Value));
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.GetLastModified, WebDavXmlDefaults.DavNamespace, WebDavXmlDefaults.ToRfc1123(entry.LastModified.Value));
         }
 
         if (entry.CreationDate.HasValue)
         {
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "creationdate", WebDavXmlDefaults.DavNamespace, WebDavXmlDefaults.ToIso8601(entry.CreationDate.Value));
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.CreationDate, WebDavXmlDefaults.DavNamespace, WebDavXmlDefaults.ToIso8601(entry.CreationDate.Value));
         }
 
         await w.WriteEndElementAsync();
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "status", WebDavXmlDefaults.DavNamespace, "HTTP/1.1 200 OK");
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Status, WebDavXmlDefaults.DavNamespace, WebDavHttpStatusStrings.Http200);
         await w.WriteEndElementAsync();
         await w.WriteEndElementAsync();
     }
 
     private static async Task WriteCollectionProperties(XmlWriter w)
     {
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "resourcetype", WebDavXmlDefaults.DavNamespace);
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "collection", WebDavXmlDefaults.DavNamespace, string.Empty);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.ResourceType, WebDavXmlDefaults.DavNamespace);
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Collection, WebDavXmlDefaults.DavNamespace, string.Empty);
         await w.WriteEndElementAsync();
     }
 
     private static async Task WriteFileProperties(XmlWriter w, WebDavResourceEntry entry)
     {
-        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, "resourcetype", WebDavXmlDefaults.DavNamespace);
+        await w.WriteStartElementAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.ResourceType, WebDavXmlDefaults.DavNamespace);
         await w.WriteEndElementAsync();
 
-        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "getcontentlength", WebDavXmlDefaults.DavNamespace, entry.ContentLength.ToString(CultureInfo.InvariantCulture));
+        await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.GetContentLength, WebDavXmlDefaults.DavNamespace, entry.ContentLength.ToString(CultureInfo.InvariantCulture));
 
         if (!string.IsNullOrEmpty(entry.ContentType))
         {
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "getcontenttype", WebDavXmlDefaults.DavNamespace, entry.ContentType);
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.GetContentType, WebDavXmlDefaults.DavNamespace, entry.ContentType);
         }
 
         if (!string.IsNullOrEmpty(entry.ETag))
         {
             var etag = entry.ETag.StartsWith('"') ? entry.ETag : $"\"{entry.ETag}\"";
-            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, "getetag", WebDavXmlDefaults.DavNamespace, etag);
+            await w.WriteElementStringAsync(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.GetETag, WebDavXmlDefaults.DavNamespace, etag);
         }
     }
 }

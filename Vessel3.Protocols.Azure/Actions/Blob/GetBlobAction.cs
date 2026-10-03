@@ -13,7 +13,7 @@ internal sealed class GetBlobAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.GetBlob;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
         {

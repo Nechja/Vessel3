@@ -175,21 +175,18 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
 
         var middleware = serviceProvider.GetRequiredService<AzureProtocolMiddleware>();
 
-        // 1. Alice creates container 'alice-box'
         {
             var ctx = CreateHttpContext("PUT", $"/{aliceKey.Id}/alice-box?restype=container", aliceKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
             Assert.Equal(StatusCodes.Status201Created, ctx.Response.StatusCode);
         }
 
-        // 2. Bob creates container 'bob-box'
         {
             var ctx = CreateHttpContext("PUT", $"/{bobKey.Id}/bob-box?restype=container", bobKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
             Assert.Equal(StatusCodes.Status201Created, ctx.Response.StatusCode);
         }
 
-        // 3. Alice lists containers -> should only see 'alice-box'
         {
             var ctx = CreateHttpContext("GET", $"/{aliceKey.Id}?comp=list", aliceKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
@@ -202,7 +199,6 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
             Assert.DoesNotContain("<Name>bob-box</Name>", xml);
         }
 
-        // 4. Bob lists containers -> should only see 'bob-box'
         {
             var ctx = CreateHttpContext("GET", $"/{bobKey.Id}?comp=list", bobKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
@@ -215,7 +211,6 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
             Assert.DoesNotContain("<Name>alice-box</Name>", xml);
         }
 
-        // 5. Alice uploads a blob to 'alice-box'
         {
             var ctx = CreateHttpContext("PUT", $"/{aliceKey.Id}/alice-box/hello.txt", aliceKey, "Hello from Alice",
                 h => h["x-ms-blob-type"] = "BlockBlob");
@@ -223,7 +218,6 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
             Assert.Equal(StatusCodes.Status201Created, ctx.Response.StatusCode);
         }
 
-        // 6. Bob attempts to delete 'alice-box' -> should fail (not owner)
         {
             var ctx = CreateHttpContext("DELETE", $"/{bobKey.Id}/alice-box?restype=container", bobKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);
@@ -231,7 +225,6 @@ public sealed class AzureMultiUserAuthorizationTests : IDisposable
             Assert.True(ctx.Response.StatusCode is StatusCodes.Status403Forbidden or StatusCodes.Status404NotFound);
         }
 
-        // 7. Alice reads her blob -> 200 OK with correct content
         {
             var ctx = CreateHttpContext("GET", $"/{aliceKey.Id}/alice-box/hello.txt", aliceKey);
             await middleware.InvokeAsync(ctx, _ => Task.CompletedTask);

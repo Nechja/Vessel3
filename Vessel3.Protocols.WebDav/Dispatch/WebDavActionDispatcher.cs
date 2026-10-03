@@ -24,9 +24,7 @@ internal sealed class WebDavActionDispatcher(
             return new WebDavErrorResult(new MethodNotAllowedError($"Method {ctx.Request.Method} not supported on {ctx.Request.Path}"));
         }
 
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
-            ? ci
-            : CallerIdentity.System;
+        var caller = ctx.GetCaller();
 
         if (!string.IsNullOrEmpty(target.Bucket) && RequiresBucketAuthorization(target))
         {

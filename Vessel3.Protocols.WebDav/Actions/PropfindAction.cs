@@ -17,9 +17,7 @@ internal sealed class PropfindAction(
     public async Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
     {
         var basePrefix = DetermineBasePrefix(ctx.Request.Path.Value);
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
-            ? ci
-            : CallerIdentity.System;
+        var caller = ctx.GetCaller();
 
         var entriesResult = target switch
         {
@@ -34,23 +32,23 @@ internal sealed class PropfindAction(
         }
 
         ctx.Response.StatusCode = 207;
-        ctx.Response.ContentType = "application/xml; charset=utf-8";
-        ctx.Response.Headers["DAV"] = "1, 2";
-        ctx.Response.Headers["MS-Author-Via"] = "DAV";
+        ctx.Response.ContentType = WebDavMediaTypes.XmlUtf8;
+        ctx.Response.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        ctx.Response.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         await xml.WriteMultistatus(ctx.Response.Body, entries, ctx.RequestAborted);
         return Results.Empty;
     }
 
     private static string DetermineBasePrefix(string? path) =>
-        path?.StartsWith("/webdav", StringComparison.OrdinalIgnoreCase) is true
-            ? "/webdav"
-            : "/dav";
+        path?.StartsWith(WebDavRoutes.WebDavPrefix, StringComparison.OrdinalIgnoreCase) is true
+            ? WebDavRoutes.WebDavPrefix
+            : WebDavRoutes.DavPrefix;
 
     private Result<List<WebDavResourceEntry>> BuildServiceRootEntries(string basePrefix, int depth, CallerIdentity caller)
     {
-        var entries = new List<WebDavResourceEntry>
-        {
+        List<WebDavResourceEntry> entries =
+        [
             new(
                 Href: $"{basePrefix}/",
                 DisplayName: string.Empty,
@@ -60,7 +58,7 @@ internal sealed class PropfindAction(
                 ETag: null,
                 LastModified: DateTimeOffset.UtcNow,
                 CreationDate: DateTimeOffset.UtcNow)
-        };
+        ];
 
         if (depth <= 0)
         {
@@ -91,8 +89,8 @@ internal sealed class PropfindAction(
         }
 
         var bucketHref = $"{basePrefix}/{Uri.EscapeDataString(bucket)}/";
-        var entries = new List<WebDavResourceEntry>
-        {
+        List<WebDavResourceEntry> entries =
+        [
             new(
                 Href: bucketHref,
                 DisplayName: bucket,
@@ -102,7 +100,7 @@ internal sealed class PropfindAction(
                 ETag: null,
                 LastModified: DateTimeOffset.UtcNow,
                 CreationDate: DateTimeOffset.UtcNow)
-        };
+        ];
 
         if (depth <= 0)
         {
@@ -148,8 +146,8 @@ internal sealed class PropfindAction(
 
         if (!isCollection)
         {
-            return new List<WebDavResourceEntry>
-            {
+            List<WebDavResourceEntry> itemEntries =
+            [
                 new(
                     Href: href,
                     DisplayName: displayName,
@@ -159,11 +157,12 @@ internal sealed class PropfindAction(
                     ETag: stat.Etag,
                     LastModified: stat.LastModified,
                     CreationDate: stat.LastModified)
-            };
+            ];
+            return itemEntries;
         }
 
-        var entries = new List<WebDavResourceEntry>
-        {
+        List<WebDavResourceEntry> entries =
+        [
             new(
                 Href: href,
                 DisplayName: displayName,
@@ -173,7 +172,7 @@ internal sealed class PropfindAction(
                 ETag: null,
                 LastModified: stat.LastModified,
                 CreationDate: stat.LastModified)
-        };
+        ];
 
         if (depth > 0)
         {
@@ -198,8 +197,8 @@ internal sealed class PropfindAction(
 
         var href = $"{bucketHref}{EncodePath(dirPrefix)}";
         var displayName = cleanPath.TrimEnd('/').Split('/').Last();
-        var entries = new List<WebDavResourceEntry>
-        {
+        List<WebDavResourceEntry> entries =
+        [
             new(
                 Href: href,
                 DisplayName: displayName,
@@ -209,7 +208,7 @@ internal sealed class PropfindAction(
                 ETag: null,
                 LastModified: DateTimeOffset.UtcNow,
                 CreationDate: DateTimeOffset.UtcNow)
-        };
+        ];
 
         if (depth > 0)
         {
@@ -240,13 +239,8 @@ internal sealed class PropfindAction(
     private static void AppendPageEntries(
         IEnumerable<ListEntry> pageEntries,
         string bucketHref,
-        List<WebDavResourceEntry> entries)
-    {
-        foreach (var entry in pageEntries)
-        {
-            entries.Add(CreateEntryFromList(entry, bucketHref));
-        }
-    }
+        List<WebDavResourceEntry> entries) =>
+        entries.AddRange(pageEntries.Select(e => CreateEntryFromList(e, bucketHref)));
 
     private static WebDavResourceEntry CreateEntryFromList(ListEntry entry, string bucketHref) => entry switch
     {
@@ -257,7 +251,7 @@ internal sealed class PropfindAction(
             DisplayName: c.Key.Split('/').Last(),
             IsCollection: false,
             ContentLength: c.Size,
-            ContentType: "application/octet-stream",
+            ContentType: WebDavMediaTypes.OctetStream,
             ETag: c.Etag,
             LastModified: c.LastModified,
             CreationDate: c.LastModified),

@@ -243,7 +243,7 @@ public class TokenVerifierTests : IDisposable
     [Fact]
     public async Task Admin_users_substring_match_sets_is_admin()
     {
-        var token = idp.Token(idp.Claims(T0)); // Subject is "acct_kayla"
+        var token = idp.Token(idp.Claims(T0));
         var verifier = new TokenVerifier(
             OidcOptions.From(idp.Issuer, "vessel3", null, null, null, ["kayla"]).Match(o => o!, e => throw new InvalidOperationException(e.Message)),
             new StaticKeys(idp.Keys()),

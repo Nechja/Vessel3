@@ -36,19 +36,16 @@ public static class ContainerRepoExtensions
         return services;
     }
 
-    public static IApplicationBuilder UseContainerRepos(this IApplicationBuilder app)
-    {
+    public static IApplicationBuilder UseContainerRepos(this IApplicationBuilder app) =>
         app.UseMiddleware<ContainerRepoAuthMiddleware>();
-        return app;
-    }
 
     public static IEndpointRouteBuilder MapContainerRepoEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapMethods("/v2", ["GET", "HEAD"], static (HttpContext ctx, IOciDispatcher dispatcher) =>
-            dispatcher.DispatchAsync("", ctx)).WithOrder(0);
+            dispatcher.Dispatch("", ctx)).WithOrder(0);
 
         endpoints.MapMethods("/v2/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], static (string? path, HttpContext ctx, IOciDispatcher dispatcher) =>
-            dispatcher.DispatchAsync(path ?? "", ctx)).WithOrder(1);
+            dispatcher.Dispatch(path ?? "", ctx)).WithOrder(1);
 
         return endpoints;
     }

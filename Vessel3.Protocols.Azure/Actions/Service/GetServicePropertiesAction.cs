@@ -8,11 +8,11 @@ internal sealed class GetServicePropertiesAction(IAzureXmlWriter xml) : IAzureAc
 {
     public AzureOperationKind Operation => AzureOperationKind.GetServiceProperties;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         ctx.Response.StatusCode = StatusCodes.Status200OK;
         ctx.Response.ContentType = "application/xml";
-        await xml.WriteServicePropertiesAsync(ctx.Response.Body, ctx.RequestAborted);
+        await xml.WriteServiceProperties(ctx.Response.Body, ctx.RequestAborted);
         return Results.Empty;
     }
 }

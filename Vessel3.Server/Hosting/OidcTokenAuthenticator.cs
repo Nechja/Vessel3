@@ -6,7 +6,7 @@ namespace Vessel3.Server.Hosting;
 
 internal sealed class OidcTokenAuthenticator(ITokenVerifier verifier, IIdentityRegistry registry) : ITokenAuthenticator
 {
-    public async Task<Result<CallerIdentity>> AuthenticateTokenAsync(string token, CancellationToken ct = default)
+    public async Task<Result<CallerIdentity>> AuthenticateToken(string token, CancellationToken ct = default)
     {
         var verifyResult = await verifier.Verify(token, ct);
         if (!verifyResult.TryGetValue(out var verified, out var err))

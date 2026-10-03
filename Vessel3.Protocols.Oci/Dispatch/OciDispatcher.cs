@@ -10,7 +10,7 @@ namespace Vessel3.Protocols.Oci;
 
 internal interface IOciDispatcher
 {
-    Task DispatchAsync(string path, HttpContext ctx);
+    Task Dispatch(string path, HttpContext ctx);
 }
 
 internal sealed class OciDispatcher(
@@ -20,7 +20,7 @@ internal sealed class OciDispatcher(
     IContainerRepoTokenService tokenService,
     ContainerRepoAuthOptions options) : IOciDispatcher
 {
-    public async Task DispatchAsync(string path, HttpContext ctx)
+    public async Task Dispatch(string path, HttpContext ctx)
     {
         ctx.Response.Headers.Append("Docker-Distribution-API-Version", "registry/2.0");
         var cleanPath = path.Trim('/');

@@ -242,7 +242,6 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             putManifestCmd.Parameters.AddWithValue("@created", now.ToString("O", CultureInfo.InvariantCulture));
             putManifestCmd.ExecuteNonQuery();
 
-            // Link manifest itself as a referenced blob
             using var selfBlobCmd = conn.CreateCommand();
             selfBlobCmd.Transaction = tx;
             selfBlobCmd.CommandText = """
@@ -254,7 +253,6 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             selfBlobCmd.Parameters.AddWithValue("@blobSha", shaHex);
             selfBlobCmd.ExecuteNonQuery();
 
-            // Link all layer and config blobs
             foreach (var layer in layerDigests)
             {
                 var cleanLayerSha = layer.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
@@ -273,7 +271,6 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
                 linkCmd.ExecuteNonQuery();
             }
 
-            // If reference is a tag, upsert tag
             if (!reference.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
             {
                 using var tagCmd = conn.CreateCommand();
@@ -373,7 +370,6 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             Directory.CreateDirectory(uploadsDir);
             var tempFilePath = Path.Combine(uploadsDir, $"{uploadId}.tmp");
 
-            // Create empty file
             using (var fs = File.Create(tempFilePath)) { }
 
             var now = clock.GetUtcNow();

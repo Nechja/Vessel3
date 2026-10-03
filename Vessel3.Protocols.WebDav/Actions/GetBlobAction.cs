@@ -11,7 +11,10 @@ internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Get;
 
-    public async Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx) =>
+        Task.FromResult(ExecuteCore(target, ctx));
+
+    private IResult ExecuteCore(WebDavRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Bucket))
         {
@@ -31,8 +34,8 @@ internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
         }
 
         var res = ctx.Response;
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         var etagHeader = obj.Etag.StartsWith('"') ? obj.Etag : $"\"{obj.Etag}\"";
 

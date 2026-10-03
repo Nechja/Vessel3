@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Protocols.WebDav.Dispatch;
@@ -19,9 +20,7 @@ internal sealed class MkcolAction(
             return new WebDavErrorResult(new InvalidRequestError("Bucket is required for MKCOL"));
         }
 
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
-            ? ci
-            : CallerIdentity.System;
+        var caller = ctx.GetCaller();
 
         return string.IsNullOrEmpty(target.Path)
             ? CreateBucket(target.Bucket, caller, ctx.Response)
@@ -36,8 +35,8 @@ internal sealed class MkcolAction(
             return new WebDavErrorResult(err);
         }
 
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
         return Results.StatusCode(StatusCodes.Status201Created);
     }
 
@@ -55,11 +54,11 @@ internal sealed class MkcolAction(
             Key: dirKey,
             Body: Stream.Null,
             DeclaredSize: 0,
-            ContentType: "application/x-directory",
+            ContentType: WebDavMediaTypes.Directory,
             DeclaredSha256: null,
             DeclaredMd5Base64: null,
-            Metadata: new Dictionary<string, string>(),
-            Tags: new Dictionary<string, string>(),
+            Metadata: FrozenDictionary<string, string>.Empty,
+            Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
             Ct: ct);
 
@@ -69,8 +68,8 @@ internal sealed class MkcolAction(
             return new WebDavErrorResult(putErr);
         }
 
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
         return Results.StatusCode(StatusCodes.Status201Created);
     }
 }

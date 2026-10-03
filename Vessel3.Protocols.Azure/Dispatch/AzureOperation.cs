@@ -2,13 +2,11 @@ namespace Vessel3.Protocols.Azure.Dispatch;
 
 internal enum AzureOperationKind
 {
-    // Service level
     ListContainers,
     GetServiceProperties,
     SetServiceProperties,
     GetAccountInfo,
 
-    // Container level
     CreateContainer,
     GetContainerProperties,
     DeleteContainer,
@@ -18,7 +16,6 @@ internal enum AzureOperationKind
     SetContainerAcl,
     ListBlobs,
 
-    // Blob level
     PutBlob,
     GetBlob,
     HeadBlob,
@@ -29,7 +26,6 @@ internal enum AzureOperationKind
     GetBlobTags,
     PutBlobTags,
 
-    // Staged Block level
     PutBlock,
     PutBlockList,
     GetBlockList,

@@ -45,7 +45,7 @@ internal sealed class WebDavProtocolMiddleware(
             return;
         }
 
-        ctx.Items["CallerIdentity"] = caller;
+        ctx.SetCaller(caller);
 
         var result = await dispatcher.Dispatch(target, ctx);
         await result.ExecuteAsync(ctx);

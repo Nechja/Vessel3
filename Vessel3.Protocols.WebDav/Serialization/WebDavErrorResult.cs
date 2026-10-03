@@ -14,15 +14,15 @@ internal sealed class WebDavErrorResult(Error error) : IResult
 
         if (statusCode == StatusCodes.Status401Unauthorized)
         {
-            httpContext.Response.Headers.WWWAuthenticate = "Basic realm=\"Vessel3 WebDAV\"";
+            httpContext.Response.Headers.WWWAuthenticate = WebDavHeaders.BasicRealm;
         }
 
-        httpContext.Response.Headers["DAV"] = "1, 2";
-        httpContext.Response.Headers["MS-Author-Via"] = "DAV";
+        httpContext.Response.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        httpContext.Response.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         if (!string.IsNullOrEmpty(error.Message))
         {
-            httpContext.Response.ContentType = "application/xml; charset=utf-8";
+            httpContext.Response.ContentType = WebDavMediaTypes.XmlUtf8;
             var xml = $"""
                 <?xml version="1.0" encoding="utf-8"?>
                 <D:error xmlns:D="DAV:">

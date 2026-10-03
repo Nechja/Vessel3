@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
@@ -12,7 +13,7 @@ internal sealed class PutBlockAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.PutBlock;
 
-    public async Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
         {
@@ -30,7 +31,7 @@ internal sealed class PutBlockAction(
 
         if (session is null)
         {
-            var createRes = stager.CreateSession(target.Container, target.Blob, null, new Dictionary<string, string>());
+            var createRes = stager.CreateSession(target.Container, target.Blob, null, FrozenDictionary<string, string>.Empty);
             if (!createRes.TryGetValue(out session, out var createErr))
             {
                 return new AzureErrorResult(createErr, errorXml);
@@ -58,7 +59,6 @@ internal sealed class PutBlockAction(
             }
             catch (FormatException)
             {
-                // Hex format exception fallback
             }
         }
 

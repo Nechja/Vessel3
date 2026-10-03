@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Protocols.WebDav.Dispatch;
@@ -26,7 +27,7 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
         var isOverwrite = objects.Stat(target.Bucket, cleanPath) is Result<ObjectStat>.Success;
 
         var req = ctx.Request;
-        var contentType = req.ContentType ?? "application/octet-stream";
+        var contentType = req.ContentType ?? WebDavMediaTypes.OctetStream;
 
         var putReq = new ObjectPutRequest(
             Bucket: target.Bucket,
@@ -36,8 +37,8 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
             ContentType: contentType,
             DeclaredSha256: null,
             DeclaredMd5Base64: null,
-            Metadata: new Dictionary<string, string>(),
-            Tags: new Dictionary<string, string>(),
+            Metadata: FrozenDictionary<string, string>.Empty,
+            Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
             Ct: ctx.RequestAborted);
 
@@ -49,8 +50,8 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
 
         var res = ctx.Response;
         res.Headers.ETag = put.Etag.StartsWith('"') ? put.Etag : $"\"{put.Etag}\"";
-        res.Headers["DAV"] = "1, 2";
-        res.Headers["MS-Author-Via"] = "DAV";
+        res.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
+        res.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
         return Results.StatusCode(isOverwrite ? StatusCodes.Status204NoContent : StatusCodes.Status201Created);
     }

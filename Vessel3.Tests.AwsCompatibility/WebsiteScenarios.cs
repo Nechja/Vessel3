@@ -24,7 +24,6 @@ internal static class WebsiteScenarios
         using var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
         using var http = new HttpClient(handler) { BaseAddress = new Uri(endpoint.TrimEnd('/') + "/") };
 
-        // Ensure clean initial state
         await DurabilityTester.CleanupBucket(s3, Bucket);
 
         try
@@ -47,7 +46,6 @@ internal static class WebsiteScenarios
                 }
                 catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
                 {
-                    // Expected in SDK variants that throw on 404
                 }
             });
 
@@ -226,7 +224,6 @@ internal static class WebsiteScenarios
                 }
                 catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
                 {
-                    // Expected in SDK variants that throw on 404
                 }
             });
 
@@ -236,7 +233,6 @@ internal static class WebsiteScenarios
                 req.Headers.Host = customDomainHost;
                 using var resp = await http.SendAsync(req);
 
-                // With website configuration deleted, anonymous GET / must not serve the website index
                 if (resp.StatusCode == HttpStatusCode.OK)
                 {
                     var body = await resp.Content.ReadAsStringAsync();

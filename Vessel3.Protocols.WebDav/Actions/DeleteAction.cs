@@ -13,22 +13,21 @@ internal sealed class DeleteAction(
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Delete;
 
-    public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx) =>
+        Task.FromResult(ExecuteCore(target, ctx));
+
+    private IResult ExecuteCore(WebDavRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Bucket))
         {
-            return Task.FromResult<IResult>(new WebDavErrorResult(new InvalidRequestError("Bucket is required for DELETE")));
+            return new WebDavErrorResult(new InvalidRequestError("Bucket is required for DELETE"));
         }
 
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
-            ? ci
-            : CallerIdentity.System;
+        var caller = ctx.GetCaller();
 
-        var result = string.IsNullOrEmpty(target.Path)
+        return string.IsNullOrEmpty(target.Path)
             ? DeleteBucket(target.Bucket, caller)
             : DeleteResource(target.Bucket, target.Path);
-
-        return Task.FromResult(result);
     }
 
     private IResult DeleteBucket(string bucket, CallerIdentity caller)

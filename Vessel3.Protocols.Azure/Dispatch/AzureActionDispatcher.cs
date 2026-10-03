@@ -8,7 +8,7 @@ namespace Vessel3.Protocols.Azure.Dispatch;
 
 internal interface IAzureActionDispatcher
 {
-    Task<IResult> DispatchAsync(AzureRequestTarget target, HttpContext ctx);
+    Task<IResult> Dispatch(AzureRequestTarget target, HttpContext ctx);
 }
 
 internal sealed class AzureActionDispatcher(
@@ -18,7 +18,7 @@ internal sealed class AzureActionDispatcher(
 {
     private readonly FrozenDictionary<AzureOperationKind, IAzureAction> actions = actions.ToFrozenDictionary(a => a.Operation);
 
-    public async Task<IResult> DispatchAsync(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Dispatch(AzureRequestTarget target, HttpContext ctx)
     {
         if (target.Operation is AzureOperationKind.Unknown || !actions.TryGetValue(target.Operation, out var action))
         {
@@ -38,7 +38,7 @@ internal sealed class AzureActionDispatcher(
             }
         }
 
-        return await action.ExecuteAsync(target, ctx);
+        return await action.Execute(target, ctx);
     }
 
     private static BucketCapability ResolveCapability(AzureOperationKind op) => op switch

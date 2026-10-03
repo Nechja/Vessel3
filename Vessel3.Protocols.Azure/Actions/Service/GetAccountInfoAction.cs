@@ -7,7 +7,7 @@ internal sealed class GetAccountInfoAction : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.GetAccountInfo;
 
-    public Task<IResult> ExecuteAsync(AzureRequestTarget target, HttpContext ctx)
+    public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
         ctx.Response.Headers["x-ms-sku-name"] = "Standard_LRS";
         ctx.Response.Headers["x-ms-account-kind"] = "StorageV2";

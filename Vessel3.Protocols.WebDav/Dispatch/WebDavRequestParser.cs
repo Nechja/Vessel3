@@ -7,10 +7,10 @@ internal static class WebDavRequestParser
     public static bool IsWebDavRequest(HttpRequest req)
     {
         var path = req.Path.Value ?? "/";
-        return path.StartsWith("/dav", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith("/webdav", StringComparison.OrdinalIgnoreCase)
+        return path.StartsWith(WebDavRoutes.DavPrefix, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(WebDavRoutes.WebDavPrefix, StringComparison.OrdinalIgnoreCase)
             || req.Method is "PROPFIND" or "PROPPATCH" or "MKCOL" or "COPY" or "MOVE" or "LOCK" or "UNLOCK"
-            || req.Headers.ContainsKey("Translate");
+            || req.Headers.ContainsKey(WebDavHeaders.Translate);
     }
 
     public static WebDavRequestTarget Parse(HttpRequest req)
@@ -24,10 +24,10 @@ internal static class WebDavRequestParser
         var isCollection = isTrailingSlash || segments.Length <= 1;
 
         var operation = ResolveOperation(req.Method);
-        var depth = ResolveDepth(req.Headers["Depth"].ToString(), operation);
+        var depth = ResolveDepth(req.Headers[WebDavHeaders.Depth].ToString(), operation);
 
-        var destination = req.Headers["Destination"].ToString();
-        var overwrite = !string.Equals(req.Headers["Overwrite"].ToString(), "F", StringComparison.OrdinalIgnoreCase);
+        var destination = req.Headers[WebDavHeaders.Destination].ToString();
+        var overwrite = !string.Equals(req.Headers[WebDavHeaders.Overwrite].ToString(), "F", StringComparison.OrdinalIgnoreCase);
 
         return new WebDavRequestTarget(
             operation,
@@ -68,10 +68,10 @@ internal static class WebDavRequestParser
 
     private static string StripPathPrefix(string path) => path switch
     {
-        _ when path.StartsWith("/dav/", StringComparison.OrdinalIgnoreCase) => path[4..],
-        _ when path.Equals("/dav", StringComparison.OrdinalIgnoreCase) => "/",
-        _ when path.StartsWith("/webdav/", StringComparison.OrdinalIgnoreCase) => path[7..],
-        _ when path.Equals("/webdav", StringComparison.OrdinalIgnoreCase) => "/",
+        _ when path.StartsWith(WebDavRoutes.DavPrefixWithSlash, StringComparison.OrdinalIgnoreCase) => path[WebDavRoutes.DavPrefix.Length..],
+        _ when path.Equals(WebDavRoutes.DavPrefix, StringComparison.OrdinalIgnoreCase) => WebDavRoutes.Root,
+        _ when path.StartsWith(WebDavRoutes.WebDavPrefixWithSlash, StringComparison.OrdinalIgnoreCase) => path[WebDavRoutes.WebDavPrefix.Length..],
+        _ when path.Equals(WebDavRoutes.WebDavPrefix, StringComparison.OrdinalIgnoreCase) => WebDavRoutes.Root,
         _ => path
     };
 
