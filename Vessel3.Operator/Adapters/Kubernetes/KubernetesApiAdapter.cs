@@ -8,13 +8,14 @@ using k8s.Models;
 using Vessel3.Primitives;
 using Vessel3.Operator.Adapters.Kubernetes.Models;
 using Vessel3.Operator.Adapters.Serialization;
+using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 
 namespace Vessel3.Operator.Adapters.Kubernetes;
 
 public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 {
-    public async Task<IReadOnlyList<VesselServerCustomResource>> ListServers(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ServerDeclaration>> ListServers(CancellationToken ct = default)
     {
         try
         {
@@ -24,7 +25,8 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 KubernetesConstants.ServerPlural,
                 cancellationToken: ct);
 
-            return ExtractItems(raw, OperatorJsonContext.Default.VesselServerCustomResource);
+            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselServerCustomResource);
+            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -32,7 +34,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<IReadOnlyList<VesselBucketCustomResource>> ListBuckets(CancellationToken ct = default)
+    public async Task<IReadOnlyList<BucketDeclaration>> ListBuckets(CancellationToken ct = default)
     {
         try
         {
@@ -42,7 +44,8 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 KubernetesConstants.BucketPlural,
                 cancellationToken: ct);
 
-            return ExtractItems(raw, OperatorJsonContext.Default.VesselBucketCustomResource);
+            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselBucketCustomResource);
+            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -50,7 +53,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<IReadOnlyList<VesselUserCustomResource>> ListUsers(CancellationToken ct = default)
+    public async Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default)
     {
         try
         {
@@ -60,7 +63,8 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 KubernetesConstants.UserPlural,
                 cancellationToken: ct);
 
-            return ExtractItems(raw, OperatorJsonContext.Default.VesselUserCustomResource);
+            var items = ExtractItems(raw, OperatorJsonContext.Default.VesselUserCustomResource);
+            return items.Select(KubernetesModelMapper.ToDeclaration).ToList();
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -68,11 +72,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateServerStatus(string @namespace, string name, VesselServerStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateServerStatus(ResourceIdentity id, ServerStatus status, CancellationToken ct = default)
     {
         try
         {
-            var patchDoc = new ServerStatusPatch(status);
+            var patchDoc = KubernetesModelMapper.ToPatch(status);
             var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.ServerStatusPatch);
             var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
 
@@ -80,9 +84,9 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 patch,
                 KubernetesConstants.Group,
                 KubernetesConstants.Version,
-                @namespace,
+                id.Namespace,
                 KubernetesConstants.ServerPlural,
-                name,
+                id.Name,
                 cancellationToken: ct);
 
             return Result.Ok;
@@ -93,11 +97,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateBucketStatus(string @namespace, string name, VesselBucketStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateBucketStatus(ResourceIdentity id, BucketStatus status, CancellationToken ct = default)
     {
         try
         {
-            var patchDoc = new BucketStatusPatch(status);
+            var patchDoc = KubernetesModelMapper.ToPatch(status);
             var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.BucketStatusPatch);
             var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
 
@@ -105,9 +109,9 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 patch,
                 KubernetesConstants.Group,
                 KubernetesConstants.Version,
-                @namespace,
+                id.Namespace,
                 KubernetesConstants.BucketPlural,
-                name,
+                id.Name,
                 cancellationToken: ct);
 
             return Result.Ok;
@@ -118,11 +122,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> UpdateUserStatus(string @namespace, string name, VesselUserStatus status, CancellationToken ct = default)
+    public async Task<Result> UpdateUserStatus(ResourceIdentity id, UserStatus status, CancellationToken ct = default)
     {
         try
         {
-            var patchDoc = new UserStatusPatch(status);
+            var patchDoc = KubernetesModelMapper.ToPatch(status);
             var patchJson = JsonSerializer.Serialize(patchDoc, OperatorJsonContext.Default.UserStatusPatch);
             var patch = new V1Patch(patchJson, V1Patch.PatchType.MergePatch);
 
@@ -130,9 +134,9 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                 patch,
                 KubernetesConstants.Group,
                 KubernetesConstants.Version,
-                @namespace,
+                id.Namespace,
                 KubernetesConstants.UserPlural,
-                name,
+                id.Name,
                 cancellationToken: ct);
 
             return Result.Ok;
@@ -143,11 +147,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result<ServerCredentials>> EnsureServerSecret(string @namespace, string secretName, CancellationToken ct = default)
+    public async Task<Result<ServerCredentials>> EnsureServerSecret(ResourceIdentity id, string secretName, CancellationToken ct = default)
     {
         try
         {
-            var existing = await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
+            var existing = await client.CoreV1.ReadNamespacedSecretAsync(secretName, id.Namespace, cancellationToken: ct);
             if (existing.Data is not null
                 && existing.Data.TryGetValue(KubernetesConstants.AccessKeyField, out var akBytes)
                 && existing.Data.TryGetValue(KubernetesConstants.SecretKeyField, out var skBytes))
@@ -166,7 +170,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
         var secret = new V1Secret
         {
-            Metadata = new V1ObjectMeta { Name = secretName, NamespaceProperty = @namespace },
+            Metadata = new V1ObjectMeta { Name = secretName, NamespaceProperty = id.Namespace },
             Type = "Opaque",
             StringData = new Dictionary<string, string>
             {
@@ -177,7 +181,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
         try
         {
-            await client.CoreV1.CreateNamespacedSecretAsync(secret, @namespace, cancellationToken: ct);
+            await client.CoreV1.CreateNamespacedSecretAsync(secret, id.Namespace, cancellationToken: ct);
             return new ServerCredentials(newAccessKey, newSecretKey);
         }
         catch (Exception ex)
@@ -186,11 +190,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result<ServerCredentials>> FetchServerCredentials(string @namespace, string secretName, CancellationToken ct = default)
+    public async Task<Result<ServerCredentials>> FetchServerCredentials(ResourceIdentity id, string secretName, CancellationToken ct = default)
     {
         try
         {
-            var secret = await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
+            var secret = await client.CoreV1.ReadNamespacedSecretAsync(secretName, id.Namespace, cancellationToken: ct);
             if (secret.Data is not null
                 && secret.Data.TryGetValue(KubernetesConstants.AccessKeyField, out var akBytes)
                 && secret.Data.TryGetValue(KubernetesConstants.SecretKeyField, out var skBytes))
@@ -208,11 +212,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
     }
 
-    public async Task<Result> ReconcileServerWorkload(VesselServerCustomResource server, ServerCredentials credentials, CancellationToken ct = default)
+    public async Task<Result> ReconcileServerWorkload(ServerDeclaration server, ServerCredentials credentials, CancellationToken ct = default)
     {
-        var ns = string.IsNullOrEmpty(server.Metadata.Namespace) ? "default" : server.Metadata.Namespace;
-        var name = server.Metadata.Name;
-        var port = server.Spec.Service.Port;
+        var ns = server.Identity.Namespace;
+        var name = server.Identity.Name;
+        var port = server.Port;
         var labels = new Dictionary<string, string> { ["app.kubernetes.io/name"] = "vessel3", ["app.kubernetes.io/instance"] = name };
 
         var service = new V1Service
@@ -220,7 +224,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             Metadata = new V1ObjectMeta { Name = name, NamespaceProperty = ns, Labels = labels },
             Spec = new V1ServiceSpec
             {
-                Type = server.Spec.Service.Type,
+                Type = "ClusterIP",
                 Selector = labels,
                 Ports = [new V1ServicePort { Name = "http-s3", Port = port, TargetPort = port }]
             }
@@ -232,20 +236,20 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             Spec = new V1StatefulSetSpec
             {
                 ServiceName = name,
-                Replicas = 1,
+                Replicas = server.Replicas,
                 Selector = new V1LabelSelector { MatchLabels = labels },
                 Template = new V1PodTemplateSpec
                 {
                     Metadata = new V1ObjectMeta { Labels = labels },
                     Spec = new V1PodSpec
                     {
-                        SecurityContext = new V1PodSecurityContext { FsGroup = 1654, RunAsUser = 1654, RunAsNonRoot = true },
+                        SecurityContext = new V1PodSecurityContext { FsGroup = 10001, RunAsUser = 10001, RunAsNonRoot = true },
                         Containers = [
                             new V1Container
                             {
                                 Name = "vessel3",
-                                Image = server.Spec.Image,
-                                ImagePullPolicy = server.Spec.ImagePullPolicy,
+                                Image = server.Image,
+                                ImagePullPolicy = server.ImagePullPolicy,
                                 Ports = [new V1ContainerPort { ContainerPort = port, Name = "http" }],
                                 Env = [
                                     new V1EnvVar { Name = "ASPNETCORE_URLS", Value = $"http://0.0.0.0:{port}" },
@@ -266,12 +270,12 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
                         Spec = new V1PersistentVolumeClaimSpec
                         {
                             AccessModes = ["ReadWriteOnce"],
-                            StorageClassName = server.Spec.Storage.StorageClassName,
+                            StorageClassName = server.StorageClassName,
                             Resources = new V1VolumeResourceRequirements
                             {
                                 Requests = new Dictionary<string, ResourceQuantity>
                                 {
-                                    ["storage"] = new(server.Spec.Storage.Size)
+                                    ["storage"] = new(server.StorageSize)
                                 }
                             }
                         }

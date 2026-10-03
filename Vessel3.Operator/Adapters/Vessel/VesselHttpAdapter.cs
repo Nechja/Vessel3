@@ -1,5 +1,6 @@
 using Vessel3.Client;
 using Vessel3.Primitives;
+using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 
 namespace Vessel3.Operator.Adapters.Vessel;
@@ -18,11 +19,17 @@ public sealed class VesselHttpAdapter(IVesselClient client) : IVesselPort
     public async Task<Result> ConfigureVersioning(string bucket, string status, CancellationToken ct = default) =>
         await client.SetBucketVersioningAsync(bucket, status, ct);
 
-    public async Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDto website, CancellationToken ct = default) =>
-        await client.SetBucketWebsiteAsync(bucket, website, ct);
+    public async Task<Result> ConfigureWebsite(string bucket, BucketWebsiteDefinition website, CancellationToken ct = default)
+    {
+        var dto = new BucketWebsiteDto(website.IndexDocument, website.ErrorDocument);
+        return await client.SetBucketWebsiteAsync(bucket, dto, ct);
+    }
 
-    public async Task<Result> ConfigureAccess(string bucket, BucketAccessDto access, CancellationToken ct = default) =>
-        await client.SetBucketAccessAsync(bucket, access, ct);
+    public async Task<Result> ConfigureAccess(string bucket, string access, CancellationToken ct = default)
+    {
+        var dto = new BucketAccessDto(access);
+        return await client.SetBucketAccessAsync(bucket, dto, ct);
+    }
 
     public async Task<Result<BucketStatsSummary>> FetchBucketStats(string bucket, CancellationToken ct = default)
     {
