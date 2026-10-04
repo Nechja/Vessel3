@@ -48,6 +48,59 @@ internal static class AdminEndpoints
             return Results.Json(new SweepReportDto(report.Expired, report.MarkersReaped), NativeJsonContext.Default.SweepReportDto);
         });
 
+        endpoints.MapGet("/v1/admin/logs", static (
+            HttpContext ctx,
+            IServerLogBuffer buffer) =>
+        {
+            RequestTrace.SetTarget("AdminLogs");
+            var caller = ctx.GetCaller();
+            if (caller is null || !caller.IsAdmin)
+            {
+                return new AccessDeniedError("Admin role required").ToHttpResult();
+            }
+
+            var limit = int.TryParse(ctx.Request.Query["limit"], out var l) ? l : 100;
+            var level = ctx.Request.Query.TryGetValue("level", out var lvl) ? lvl.ToString() : null;
+            var protocol = ctx.Request.Query.TryGetValue("protocol", out var proto) ? proto.ToString() : null;
+
+            var logs = buffer.GetRecent(limit, level, protocol);
+            var dtos = new List<ServerLogEntryDto>(logs.Count);
+            foreach (var entry in logs)
+            {
+                dtos.Add(new ServerLogEntryDto(
+                    entry.Id,
+                    entry.Timestamp,
+                    entry.Level,
+                    entry.Source,
+                    entry.Message,
+                    entry.Protocol,
+                    entry.Action,
+                    entry.Subject,
+                    entry.Actor,
+                    entry.StatusCode,
+                    entry.DurationMs,
+                    entry.TraceId,
+                    entry.ErrorDetails));
+            }
+
+            return Results.Json(dtos, NativeJsonContext.Default.ListServerLogEntryDto);
+        });
+
+        endpoints.MapDelete("/v1/admin/logs", static (
+            HttpContext ctx,
+            IServerLogBuffer buffer) =>
+        {
+            RequestTrace.SetTarget("AdminClearLogs");
+            var caller = ctx.GetCaller();
+            if (caller is null || !caller.IsAdmin)
+            {
+                return new AccessDeniedError("Admin role required").ToHttpResult();
+            }
+
+            buffer.Clear();
+            return Results.NoContent();
+        });
+
         return endpoints;
     }
 }

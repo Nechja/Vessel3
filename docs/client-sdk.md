@@ -260,3 +260,73 @@ if (reposResult.TryGetValue(out var repos, out _))
 // Delete a manifest by tag or digest
 await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
 ```
+
+### 9. Server Diagnostics & Access Logs
+
+Query the in-memory access and diagnostic log ring buffer or clear it:
+
+```csharp
+var logsResult = await client.GetServerLogsAsync(limit: 50, level: "Error", protocol: "s3");
+if (logsResult.TryGetValue(out var logs, out _))
+{
+    foreach (var entry in logs)
+    {
+        Console.WriteLine($"[{entry.Timestamp:u}] {entry.Level} {entry.Protocol}: {entry.Message} ({entry.DurationMs}ms)");
+    }
+}
+
+await client.ClearServerLogsAsync();
+```
+
+### 10. Real-Time Domain Event Streaming
+
+Stream live domain events over Server-Sent Events (SSE) using an `IAsyncEnumerable<VesselEventDto>`:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+
+await foreach (var evt in client.StreamEventsAsync(topicFilter: "object.*", resourceFilter: "documents/*", cts.Token))
+{
+    Console.WriteLine($"[{evt.Time:u}] Event: {evt.Type} on {evt.Subject} (ID: {evt.Id})");
+}
+```
+
+### 11. Webhooks Management
+
+Manage asynchronous event webhooks, trigger ping tests, or export declarative configurations for GitOps:
+
+```csharp
+var createResult = await client.CreateWebhookAsync(new CreateWebhookDto(
+    Name: "ArgoCD Auto Sync",
+    Url: "https://argo.example.com/events",
+    Secret: "webhook-secret",
+    EventFilters: ["container.image.pushed", "object.created"],
+    ResourceFilters: ["drummer:*", "production/*"],
+    Active: true));
+
+if (createResult.TryGetValue(out var webhook, out _))
+{
+    var pingResult = await client.TestWebhookAsync(webhook.Id);
+    if (pingResult.TryGetValue(out var ping, out _))
+    {
+        Console.WriteLine($"Ping success: {ping.Success} ({ping.LatencyMs}ms, HTTP {ping.StatusCode})");
+    }
+
+    await client.UpdateWebhookAsync(webhook.Id, new UpdateWebhookDto(
+        Name: "ArgoCD Auto Sync v2",
+        Url: "https://argo.example.com/events-v2",
+        Secret: "webhook-secret",
+        EventFilters: ["*"],
+        ResourceFilters: ["*"],
+        Active: true));
+
+    var yamlResult = await client.ExportWebhooksYamlAsync();
+    if (yamlResult.TryGetValue(out var yaml, out _))
+    {
+        File.WriteAllText("webhooks.yaml", yaml);
+    }
+
+    await client.DeleteWebhookAsync(webhook.Id);
+}
+```
+

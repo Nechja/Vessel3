@@ -327,4 +327,78 @@ if (yamlResult.TryGetValue(out var yaml, out _))
 {
     Console.WriteLine(yaml);
 }
+
+// 4. Real-time event streaming (SSE)
+await foreach (var evt in client.StreamEventsAsync(topicFilter: "object.*, container.*", resourceFilter: "photos/*"))
+{
+    Console.WriteLine($"[{evt.Time:O}] {evt.Type} on {evt.Subject} by {evt.Actor}");
+}
 ```
+
+---
+
+## Real-Time Event Streaming (Server-Sent Events)
+
+In addition to webhook callbacks, Vessel3 provides a live Server-Sent Events (SSE) streaming endpoint for web applications, CLI utilities, and downstream services.
+
+### Endpoint: `GET /v1/events/stream`
+
+#### Query Parameters
+- `topics` *(optional)*: Comma-separated list or wildcard event types to subscribe to (e.g. `object.*`, `container.image.pushed`, `*`). Defaults to `*`.
+- `resource` *(optional)*: Resource prefix or pattern filter (e.g. `my-bucket/*`).
+
+#### Headers & Authentication
+Requires HTTP Bearer token or IAM credentials (`Admin` or `Member` role).
+
+#### SSE Wire Format
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+
+: connected
+
+event: object.created
+id: evt_01J8R5...
+data: {"id":"evt_01J8R5...","type":"object.created","source":"/vessel3","subject":"my-bucket/report.pdf","time":"2026-10-04T18:00:00Z","data":{"bucket":"my-bucket","key":"report.pdf","size":"10240","eTag":"..."},"specVersion":"1.0","actor":"admin"}
+
+: keep-alive
+```
+
+---
+
+## Kubernetes Operator: `VesselWebhook` CRD
+
+When deploying Vessel3 in Kubernetes via GitOps (ArgoCD, Flux, Helm), webhooks can be declared natively as `VesselWebhook` custom resources:
+
+```yaml
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselWebhook
+metadata:
+  name: container-push-webhook
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-cluster
+  name: "argo-event-listener"
+  url: "http://argo-events-webhook.argo-events.svc:12000/push"
+  secretRef:
+    secretName: "webhook-signing-key"
+    key: "secret"
+  eventFilters:
+    - "container.image.pushed"
+    - "object.created"
+  resourceFilters:
+    - "production/*"
+  active: true
+status:
+  phase: Ready
+  webhookId: "wh_01J8R..."
+```
+
+The Vessel3 Operator reconciles declarative webhooks against the target cluster:
+- Validates and resolves secret references securely from cluster secrets.
+- Creates or updates webhooks idempotently when specifications change.
+- Reports status conditions and last delivery status back into Kubernetes custom resource status.
+

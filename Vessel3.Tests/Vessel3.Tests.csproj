@@ -14,6 +14,7 @@
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <AnalysisLevel>none</AnalysisLevel>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --no-banner</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>

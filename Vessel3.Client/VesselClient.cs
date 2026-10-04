@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Vessel3.Primitives;
@@ -298,6 +299,31 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return await ReadJson(res, VesselJsonContext.Default.SweepReportDto, ct);
     }
 
+    public async Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogsAsync(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default)
+    {
+        var query = $"?limit={limit}";
+        if (!string.IsNullOrEmpty(level))
+        {
+            query += $"&level={Uri.EscapeDataString(level)}";
+        }
+
+        if (!string.IsNullOrEmpty(protocol))
+        {
+            query += $"&protocol={Uri.EscapeDataString(protocol)}";
+        }
+
+        using var req = CreateRequest(HttpMethod.Get, $"v1/admin/logs{query}");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.IReadOnlyListServerLogEntryDto, ct);
+    }
+
+    public async Task<Result> ClearServerLogsAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, "v1/admin/logs");
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
     public async Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default)
     {
         var query = $"?n={limit}" + (last is not null ? $"&last={Uri.EscapeDataString(last)}" : "");
@@ -381,6 +407,103 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         }
         var yaml = await res.Content.ReadAsStringAsync(ct);
         return yaml;
+    }
+
+    public async IAsyncEnumerable<VesselEventDto> StreamEventsAsync(
+        string? topicFilter = null,
+        string? resourceFilter = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var path = "v1/events/stream";
+        var queryParams = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(topicFilter))
+        {
+            queryParams.Add($"topics={Uri.EscapeDataString(topicFilter)}");
+        }
+        if (!string.IsNullOrWhiteSpace(resourceFilter))
+        {
+            queryParams.Add($"resource={Uri.EscapeDataString(resourceFilter)}");
+        }
+        if (queryParams.Count > 0)
+        {
+            path += "?" + string.Join('&', queryParams);
+        }
+
+        using var req = CreateRequest(HttpMethod.Get, path);
+        using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        res.EnsureSuccessStatusCode();
+
+        await using var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        string? eventType = null;
+        string? eventId = null;
+        string? data = null;
+
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (string.IsNullOrEmpty(line))
+            {
+                var payload = data;
+                eventType = null;
+                eventId = null;
+                data = null;
+
+                if (string.IsNullOrEmpty(payload))
+                {
+                    continue;
+                }
+
+                VesselEventDto? evt = null;
+                try
+                {
+                    evt = JsonSerializer.Deserialize(payload, VesselJsonContext.Default.VesselEventDto);
+                }
+                catch
+                {
+                }
+
+                if (evt is not null)
+                {
+                    yield return evt;
+                }
+
+                continue;
+            }
+
+            if (line.StartsWith(':'))
+            {
+                continue;
+            }
+
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0)
+            {
+                continue;
+            }
+
+            var field = line[..colonIndex].Trim();
+            var value = line[(colonIndex + 1)..].TrimStart();
+
+            switch (field)
+            {
+                case "event":
+                    eventType = value;
+                    break;
+                case "id":
+                    eventId = value;
+                    break;
+                case "data":
+                    data = value;
+                    break;
+            }
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)

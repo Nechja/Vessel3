@@ -25,9 +25,16 @@ namespace Vessel3.Operator.Adapters.Serialization;
 [JsonSerializable(typeof(VesselUserSpec))]
 [JsonSerializable(typeof(VesselUserStatus))]
 [JsonSerializable(typeof(UserStatusPatch))]
+[JsonSerializable(typeof(VesselWebhookCustomResource))]
+[JsonSerializable(typeof(List<VesselWebhookCustomResource>))]
+[JsonSerializable(typeof(VesselWebhookSpec))]
+[JsonSerializable(typeof(WebhookSecretSpec))]
+[JsonSerializable(typeof(VesselWebhookStatus))]
+[JsonSerializable(typeof(WebhookStatusPatch))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 public sealed partial class OperatorJsonContext : JsonSerializerContext;
 
 public sealed record ServerStatusPatch([property: JsonPropertyName("status")] VesselServerStatus Status);
 public sealed record BucketStatusPatch([property: JsonPropertyName("status")] VesselBucketStatus Status);
 public sealed record UserStatusPatch([property: JsonPropertyName("status")] VesselUserStatus Status);
+public sealed record WebhookStatusPatch([property: JsonPropertyName("status")] VesselWebhookStatus Status);

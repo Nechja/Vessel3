@@ -18,6 +18,9 @@ I don't have a roadmap yet, but I'm working toward an all-in-one storage system 
 - WebDAV clients that can use it like a network drive
 - Includes a browser interface (optional) 
 - A place to store container images.
+- Real-time event notifications via Webhooks and Server-Sent Events (SSE).
+- Built-in OpenTelemetry distributed tracing (`ActivitySource`) and Prometheus metrics.
+- Kubernetes Operator (`VesselWebhook`, `VesselBucket`, `VesselUser`, `VesselServer`) for declarative GitOps.
 - Designed to keep writes consistent even during unexpected server problems.
 - dotnet 10 because why not
 
@@ -44,10 +47,11 @@ Full documentation is available in the [`docs/`](docs/README.md) directory:
 | [**IAM & Access Control**](docs/iam-and-access-control.md) | Multi-user identity model, roles, access key management, bucket ownership, and policy evaluation. |
 | [**Native REST API**](docs/native-api.md) | Specification for the `/v1/...` REST API for IAM, buckets, objects, and administrative sweeps. |
 | [**C# .NET Client SDK**](docs/client-sdk.md) | Guide and code recipes for the `Vessel3.Client` package (`IVesselClient`). |
+| [**Webhooks & Event Notifications**](docs/webhooks.md) | Real-time event notifications, live SSE stream (`/v1/events/stream`), declarative YAML, UI, and Kubernetes CRDs. |
 | [**Container Repos (OCI Registry)**](docs/container-repos.md) | OCI / Docker Registry v2 container repo distribution specification, auth, and usage recipes. |
 | [**WebDAV Protocol & Network Drives**](docs/webdav.md) | RFC 4918 WebDAV support, Class 1 & 2 operations, and mounting recipes for Windows, macOS, Linux, and mobile. |
 | [**Environment Variables Cheat Sheet**](docs/env-cheat-sheet.md) | Complete environment variable reference, category breakdown, and copy-paste `.env` profiles. |
-| [**Deployment & Operations**](docs/deployment-and-operations.md) | Docker, Kubernetes, systemd service, reverse proxy setup (Caddy), compaction, and GC. |
+| [**Deployment & Operations**](docs/deployment-and-operations.md) | Docker, Kubernetes, systemd service, reverse proxy setup (Caddy), OpenTelemetry tracing, and GC. |
 | [**OIDC & Single Sign-On**](docs/oidc-and-sso.md) | OpenID Connect federation, STS AssumeRoleWithWebIdentity, JIT provisioning, and Web UI PKCE. |
 
 ---
@@ -100,6 +104,19 @@ using var client = new VesselClient(
 var bucketsResult = await client.ListBucketsAsync();
 ```
 
+### 4. Stream Live Events (C# SDK)
+
+```csharp
+using var cts = new CancellationTokenSource();
+await foreach (var evt in client.StreamEventsAsync(
+    topicFilter: "s3.*",
+    resourceFilter: "my-bucket/*",
+    cancellationToken: cts.Token))
+{
+    Console.WriteLine($"[{evt.Time}] {evt.Type} on {evt.Subject}");
+}
+```
+
 ---
 
 ## Configuration
@@ -113,6 +130,8 @@ All configuration is provided via environment variables. See the [**Environment 
 | `VESSEL3_SECRET_KEY` | *unset* (auth disabled) | Root SigV4 secret key. |
 | `VESSEL3_REGION` | `us-east-1` | Region string for SigV4 and location constraints. |
 | `VESSEL3_DOMAIN` | *unset* (path-style only) | Base domains for virtual-host routing (`s3.example.com,localhost`). `admin.<domain>` routes to the Web UI. |
+| `VESSEL3_OTEL_ENABLED` | `false` | Enables OpenTelemetry distributed tracing and W3C traceparent propagation. |
+| `VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT` | *unset* | OTLP HTTP trace collector endpoint (e.g. `http://otel-collector:4318/v1/traces`). |
 | `VESSEL3_METRICS_TOKEN` | *unset* | Bearer token required for `/metrics` when queried from non-loopback IPs. |
 | `VESSEL3_METRICS_ALLOW_ANONYMOUS` | `false` | When `true`, `/metrics` is public. |
 | `VESSEL3_LIFECYCLE_INTERVAL_SECONDS` | `3600` | Background lifecycle sweep frequency in seconds (`0` disables). |

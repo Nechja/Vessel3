@@ -383,6 +383,45 @@ Query parameters:
 }
 ```
 
+### Query Server & Access Logs
+```http
+GET /v1/admin/logs?limit=100&level=Error&protocol=s3
+```
+Query parameters:
+- `limit` (optional): Maximum log entries to return (default: `100`, max: `1000`).
+- `level` (optional): Filter by log level (`Information`, `Warning`, `Error`).
+- `protocol` (optional): Filter by protocol engine (`s3`, `azure`, `oci`, `native`, `webdav`).
+
+**Response: `200 OK`**
+```json
+[
+  {
+    "id": "c1f7b03b708d4b319aa53e9a78123456",
+    "timestamp": "2026-10-04T19:00:00.000Z",
+    "level": "Information",
+    "source": "Access",
+    "message": "PUT /v1/buckets/my-bucket -> 200",
+    "protocol": "native",
+    "action": "CreateBucket",
+    "subject": "my-bucket",
+    "actor": "admin",
+    "statusCode": 200,
+    "durationMs": 14.2,
+    "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "errorDetails": null
+  }
+]
+```
+
+### Clear Server Logs
+```http
+DELETE /v1/admin/logs
+```
+Flushes all entries from the in-memory server log buffer.
+
+**Response: `204 No Content`**
+
+
 ---
 
 ## Webhook Endpoints
@@ -482,4 +521,35 @@ Returns all active webhooks formatted as declarative YAML suitable for `webhooks
 GET /v1/webhooks/export.yaml
 ```
 **Response: `200 OK` (`text/yaml; charset=utf-8`)**
+
+---
+
+## Event Streaming Endpoints
+
+Vessel3 supports real-time event streaming via Server-Sent Events (SSE) adhering to the CloudEvents v1.0 standard. Clients can subscribe to domain events across object mutations, bucket lifecycle, and container image pushes.
+
+### Stream Domain Events (SSE)
+```http
+GET /v1/events/stream?topics=object.created,container.image.pushed&resource=photos/*
+```
+Query parameters:
+- `topics` (optional): Comma-separated list or wildcard pattern of event types to subscribe to (e.g. `object.created`, `container.*`, or `*`). Default: `*`.
+- `resource` (optional): Resource target filter or wildcard prefix (e.g. `bucket-name/*`, `container-repo:*`, or `*`). Default: `*`.
+
+**Headers:**
+- `Accept: text/event-stream`
+- Authentication header required (`Authorization: Bearer ...` or S3/Native access key).
+
+**Response: `200 OK` (`text/event-stream`)**
+```text
+: connected
+
+event: object.created
+id: evt_01J8R8W1XYZ
+data: {"id":"evt_01J8R8W1XYZ","source":"/vessel3/us-east-1","type":"object.created","resource":"photos/vacation.jpg","time":"2026-10-04T19:15:30.123Z","data":{"size":2048576,"etag":"a5c8...","versionId":null}}
+
+: ping
+```
+*Note: Vessel3 sends a periodic `: ping` comment every 15 seconds to prevent intermediate proxy timeouts.*
+
 

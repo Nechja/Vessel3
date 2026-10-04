@@ -1,3 +1,4 @@
+using Vessel3.Client;
 using Vessel3.Operator.Domain.Models;
 using Vessel3.Primitives;
 
@@ -14,4 +15,9 @@ public interface IVesselPort : IDisposable
 
     Task<Result> EnsureUser(string username, string role, CancellationToken ct = default);
     Task<Result<UserAccessKey>> IssueAccessKey(string username, string? description = null, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooks(CancellationToken ct = default);
+    Task<Result<WebhookDto>> EnsureWebhook(CreateWebhookDto dto, CancellationToken ct = default);
+    Task<Result<WebhookDto>> UpdateWebhook(string id, UpdateWebhookDto dto, CancellationToken ct = default);
+    Task<Result> DeleteWebhook(string id, CancellationToken ct = default);
 }

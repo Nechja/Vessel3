@@ -30,6 +30,12 @@ if [ ! -x "$SERVER_BIN" ]; then
   dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
 fi
 
+PROBE_BIN=$ROOT/Vessel3.Tests.AzureCompatibility/bin/Release/net10.0/vessel3-tests-azure
+if [ ! -x "$PROBE_BIN" ]; then
+  echo "building probe (Release)..."
+  dotnet build "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --nologo -v q > /dev/null
+fi
+
 rm -rf "$DATA_DIR" "$SERVER_LOG"
 mkdir -p "$DATA_DIR"
 
@@ -41,4 +47,4 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
-dotnet run --project "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --no-launch-profile
+dotnet run --project "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --no-build --no-launch-profile

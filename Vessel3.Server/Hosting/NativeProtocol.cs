@@ -34,5 +34,6 @@ internal sealed class NativeProtocol : IVesselProtocol
         endpoints.MapIdentityEndpoints();
         endpoints.MapAdminEndpoints();
         endpoints.MapWebhookEndpoints();
+        endpoints.MapEventStreamEndpoints();
     }
 }

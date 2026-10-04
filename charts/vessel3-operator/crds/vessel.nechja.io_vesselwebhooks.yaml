@@ -1,0 +1,111 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vesselwebhooks.vessel.nechja.io
+spec:
+  group: vessel.nechja.io
+  names:
+    kind: VesselWebhook
+    listKind: VesselWebhookList
+    plural: vesselwebhooks
+    singular: vesselwebhook
+    shortNames:
+      - vwh
+      - vwebhook
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Name
+          type: string
+          jsonPath: .spec.name
+        - name: URL
+          type: string
+          jsonPath: .spec.url
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - serverRef
+                - name
+                - url
+              properties:
+                serverRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                name:
+                  type: string
+                url:
+                  type: string
+                secretRef:
+                  type: object
+                  required:
+                    - secretName
+                  properties:
+                    secretName:
+                      type: string
+                    secretNamespace:
+                      type: string
+                    key:
+                      type: string
+                      default: "secret"
+                eventFilters:
+                  type: array
+                  items:
+                    type: string
+                resourceFilters:
+                  type: array
+                  items:
+                    type: string
+                active:
+                  type: boolean
+                  default: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                webhookId:
+                  type: string
+                observedGeneration:
+                  type: integer
+                lastTriggeredAt:
+                  type: string
+                lastStatusCode:
+                  type: integer
+                lastError:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

@@ -159,6 +159,26 @@ metrics:
 
 Stop the old workload before the StatefulSet starts. 
 
+With Argo CD, do it in this order, one commit per step:
+
+1. **Protect the volume.** Most dynamic provisioners create PVs with
+   `reclaimPolicy: Delete`, so anything that removes the old claim deletes the
+   data. Set the PV to `Retain`, and annotate the claim with
+   `argocd.argoproj.io/sync-options: Prune=false,Delete=false`.
+2. **Scale the old workload to 0** and wait for the pod to exit. Argo prunes
+   after it applies, so doing this in the same commit as the switch briefly
+   runs two servers on one data directory.
+3. **Switch the Application to the chart.** Don't change the Application spec
+   and the contents of its old source path in the same commit: the app can
+   pick up the new path under its old spec, prune the old workload, and create
+   nothing from the chart until the stale sync gives up.
+4. **Run `helm test`** (or check the chart's test pod). It fails if the server
+   came up accepting anonymous requests while auth is configured.
+
+Any Argo hook Jobs alongside the chart (bucket bootstrap and the like) should
+use `hook-delete-policy: BeforeHookCreation,HookSucceeded`. Otherwise a failed
+run left under the same name blocks every later sync.
+
 ### Operator Chart (`charts/vessel3-operator`)
 
 ```bash

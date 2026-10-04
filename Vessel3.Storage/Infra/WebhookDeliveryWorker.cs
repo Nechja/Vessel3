@@ -14,17 +14,20 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
     private readonly TimeProvider clock;
     private readonly ILogger<WebhookDeliveryWorker> logger;
     private readonly Channel<VesselEvent> channel;
+    private readonly IEventStreamHub? streamHub;
 
     public WebhookDeliveryWorker(
         IWebhookStore store,
         HttpClient http,
         ILogger<WebhookDeliveryWorker> logger,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IEventStreamHub? streamHub = null)
     {
         this.store = store;
         this.http = http;
         this.logger = logger;
         this.clock = clock ?? TimeProvider.System;
+        this.streamHub = streamHub;
         this.channel = Channel.CreateBounded<VesselEvent>(new BoundedChannelOptions(10_000)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -35,6 +38,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
     public void Publish(VesselEvent @event)
     {
         channel.Writer.TryWrite(@event);
+        streamHub?.Publish(@event);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

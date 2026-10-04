@@ -17,8 +17,8 @@ export VESSEL3_DATA=$DATA_DIR
 export VESSEL3_ACCESS_KEY=admin
 export VESSEL3_SECRET_KEY=adminpassword123
 export VESSEL3_OCI_ENABLED=true
-export NO_PROXY="*"
-export no_proxy="*"
+export NO_PROXY="127.0.0.1,localhost,::1,*"
+export no_proxy="127.0.0.1,localhost,::1,*"
 unset HTTP_PROXY http_proxy HTTPS_PROXY https_proxy
 
 SERVER_PID=

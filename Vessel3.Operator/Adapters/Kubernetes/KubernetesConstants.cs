@@ -7,6 +7,7 @@ public static class KubernetesConstants
     public const string ServerPlural = "vesselservers";
     public const string BucketPlural = "vesselbuckets";
     public const string UserPlural = "vesselusers";
+    public const string WebhookPlural = "vesselwebhooks";
 
     public const string DefaultNamespace = "default";
 

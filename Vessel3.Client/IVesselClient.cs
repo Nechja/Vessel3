@@ -37,6 +37,8 @@ public interface IVesselClient : IDisposable
 
     Task<Result<GcReportDto>> RunGcAsync(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default);
     Task<Result<SweepReportDto>> RunSweepAsync(string? nowOverride = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogsAsync(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default);
+    Task<Result> ClearServerLogsAsync(CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default);
     Task<Result<IReadOnlyList<string>>> ListContainerTagsAsync(string repo, int limit = 100, string? last = null, CancellationToken ct = default);
@@ -49,4 +51,6 @@ public interface IVesselClient : IDisposable
     Task<Result> DeleteWebhookAsync(string id, CancellationToken ct = default);
     Task<Result<WebhookTestResultDto>> TestWebhookAsync(string id, CancellationToken ct = default);
     Task<Result<string>> ExportWebhooksYamlAsync(CancellationToken ct = default);
+
+    IAsyncEnumerable<VesselEventDto> StreamEventsAsync(string? topicFilter = null, string? resourceFilter = null, CancellationToken ct = default);
 }

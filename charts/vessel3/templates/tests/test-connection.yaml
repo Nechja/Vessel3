@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "vessel3.fullname" . }}-test
+  labels:
+    {{- include "vessel3.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: check
+      image: curlimages/curl:8.11.1
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+      env:
+        - name: ENDPOINT
+          value: http://{{ include "vessel3.fullname" . }}:{{ .Values.service.port }}
+        - name: AUTH_CONFIGURED
+          value: {{ ternary "true" "false" (ne (include "vessel3.authSecretName" .) "") | quote }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$ENDPOINT{{ .Values.probes.readiness.path }}")
+          echo "readyz: $code"
+          [ "$code" = 200 ]
+          # With auth configured, an unsigned ListBuckets must be refused. A
+          # 200 here means the server came up with auth off.
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$ENDPOINT/")
+          echo "anonymous ListBuckets: $code (auth configured: $AUTH_CONFIGURED)"
+          if [ "$AUTH_CONFIGURED" = true ] && [ "$code" = 200 ]; then
+            echo "FAIL: auth is configured but anonymous requests are accepted"
+            exit 1
+          fi
