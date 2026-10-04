@@ -2,7 +2,7 @@ namespace Vessel3.Storage;
 
 public sealed class ServerLogBuffer(int capacity = 1_000) : IServerLogBuffer
 {
-    private readonly ServerLogEntry?[] entries = new ServerLogEntry?[Math.Max(10, capacity)];
+    private readonly ServerLogEntry?[] entries = new ServerLogEntry?[Math.Max(1, capacity)];
     private readonly Lock sync = new();
     private int head;
     private int count;

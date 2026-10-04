@@ -57,7 +57,6 @@ public sealed class ServerLogBufferTests : IAsyncDisposable
         Assert.Equal("2", logs[1].Id);
         Assert.Equal("1", logs[2].Id);
 
-        // Add 4th item, 1st should roll off
         buffer.Log(new ServerLogEntry("4", DateTimeOffset.UtcNow, "Error", "Access", "Req 4"));
         var rolled = buffer.GetRecent(10);
         Assert.Equal(3, rolled.Count);
@@ -133,31 +132,27 @@ public sealed class ServerLogBufferTests : IAsyncDisposable
         runningApps.Add(app);
 
         var serverUrl = app.Urls.First();
-        using var client = new VesselClient(serverUrl);
+        using IVesselClient client = new VesselClient(serverUrl);
 
-        // Perform an action to generate an access log
         var createResult = await client.CreateBucketAsync("test-log-bucket");
-        Assert.True(createResult.IsSuccess);
+        Assert.True(createResult is Result.OkResult);
 
-        // Fetch logs via Client SDK
         var logsResult = await client.GetServerLogsAsync(limit: 50);
-        Assert.True(logsResult.IsSuccess);
-        var logs = logsResult.Value;
+        Assert.True(logsResult.TryGetValue(out var logs, out _));
+        Assert.NotNull(logs);
         Assert.NotEmpty(logs);
 
-        // Verify that the create bucket request was logged
         var createBucketLog = logs.FirstOrDefault(l => l.Action == "CreateBucket" || l.Message.Contains("test-log-bucket"));
         Assert.NotNull(createBucketLog);
         Assert.Equal("Information", createBucketLog.Level);
         Assert.Equal(200, createBucketLog.StatusCode);
 
-        // Test clear logs
         var clearResult = await client.ClearServerLogsAsync();
-        Assert.True(clearResult.IsSuccess);
+        Assert.True(clearResult is Result.OkResult);
 
         var logsAfterClear = await client.GetServerLogsAsync(limit: 50);
-        Assert.True(logsAfterClear.IsSuccess);
-        // It may only have the DELETE /v1/admin/logs request itself that just ran
-        Assert.True(logsAfterClear.Value.Count <= 1);
+        Assert.True(logsAfterClear.TryGetValue(out var clearedLogs, out _));
+        Assert.NotNull(clearedLogs);
+        Assert.True(clearedLogs.Count <= 1);
     }
 }

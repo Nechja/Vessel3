@@ -97,7 +97,6 @@ public sealed class EventStreamingTests : IAsyncDisposable
         Assert.Equal("usr_123", receivedBySub2.Subject);
         Assert.False(sub2.Reader.TryRead(out _));
 
-        // Test disposal
         sub1.Dispose();
         await sub1.Reader.Completion;
     }
@@ -141,16 +140,13 @@ public sealed class EventStreamingTests : IAsyncDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var enumerator = client.StreamEventsAsync("object.*", ct: cts.Token).GetAsyncEnumerator(cts.Token);
 
-        // Advance to establish connection
         var moveNextTask = enumerator.MoveNextAsync().AsTask();
 
-        // Wait until SSE connection is established and subscribed
         while (hub.SubscriberCount == 0 && !cts.IsCancellationRequested)
         {
             await Task.Delay(10, cts.Token);
         }
 
-        // Publish event
         var domainEvent = VesselEvents.ObjectCreated("photos", "vacation.png", 2048, "etag-123", "v1", "sha256-abc", "image/png");
         hub.Publish(domainEvent);
 

@@ -350,7 +350,6 @@
     private enum Tab { Events, Logs }
     private Tab activeTab = Tab.Events;
 
-    // Live events state
     private readonly List<VesselEventDto> liveEvents = [];
     private CancellationTokenSource? streamCts;
     private Task? streamTask;
@@ -361,7 +360,6 @@
     private VesselEventDto? inspectedEvent;
     private const int MaxEventBufferSize = 300;
 
-    // Server logs state
     private List<ServerLogEntryDto> serverLogs = [];
     private bool loadingLogs;
     private bool autoRefreshLogs;
@@ -426,14 +424,13 @@
             }
             catch (OperationCanceledException)
             {
-                // Normal shutdown
             }
             catch (Exception ex)
             {
                 await InvokeAsync(() =>
                 {
                     isStreaming = false;
-                    Toast.Warning($"Event stream disconnected: {ex.Message}");
+                    Toast.Error($"Event stream disconnected: {ex.Message}");
                     StateHasChanged();
                 });
             }
@@ -511,8 +508,6 @@
         return "badge-neutral";
     }
 
-    // --- Server Logs Logic ---
-
     private async Task RefreshLogs()
     {
         loadingLogs = true;
@@ -521,11 +516,11 @@
             var res = await Client.GetServerLogsAsync(logLimit, selectedLevel, selectedProtocol);
             if (res.TryGetValue(out var logs, out var err))
             {
-                serverLogs = new List<ServerLogEntryDto>(logs);
+                serverLogs = [.. logs];
             }
             else
             {
-                Toast.Danger(err.Message);
+                Toast.Error(err.Message);
             }
         }
         finally
@@ -537,14 +532,14 @@
     private async Task ClearLogs()
     {
         var res = await Client.ClearServerLogsAsync();
-        if (res.IsSuccess)
+        if (!res.TryGetError(out var err))
         {
             serverLogs.Clear();
             Toast.Success("Server logs cleared");
         }
         else
         {
-            Toast.Danger("Failed to clear server logs");
+            Toast.Error(err.Message);
         }
     }
 
@@ -626,7 +621,6 @@
             }
             catch
             {
-                // Ignore task cancellation on dispose
             }
         }
     }

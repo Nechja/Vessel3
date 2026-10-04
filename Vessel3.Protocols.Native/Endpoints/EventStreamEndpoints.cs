@@ -68,7 +68,6 @@ public static class EventStreamEndpoints
         }
         catch (OperationCanceledException)
         {
-            // Subscriber disconnected cleanly
         }
     }
 }

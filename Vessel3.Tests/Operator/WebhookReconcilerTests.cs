@@ -85,7 +85,6 @@ public sealed class WebhookReconcilerTests
         var webhookId = ResourceIdentity.Create("update-webhook", "default");
         var serverId = ResourceIdentity.Create("vessel-store", "storage");
 
-        // Seed existing webhook
         var existing = new WebhookDto(
             Id: "existing-wh-1",
             Name: "stream-events",
