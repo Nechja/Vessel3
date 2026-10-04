@@ -150,11 +150,19 @@ internal static class CorsAndAccessScenarios
     {
         await Step("PutBucketAcl_PublicRead", async () =>
         {
+#if AWSSDK_V3
             await s3.PutACLAsync(new PutACLRequest
             {
                 BucketName = Bucket,
                 CannedACL = S3CannedACL.PublicRead,
             });
+#else
+            await s3.PutBucketAclAsync(new PutBucketAclRequest
+            {
+                BucketName = Bucket,
+                CannedACL = S3CannedACL.PublicRead,
+            });
+#endif
         });
 
         await Step("AnonymousRead_SucceedsOnPublicReadBucket", async () =>
@@ -171,11 +179,19 @@ internal static class CorsAndAccessScenarios
 
         await Step("PutBucketAcl_Private", async () =>
         {
+#if AWSSDK_V3
             await s3.PutACLAsync(new PutACLRequest
             {
                 BucketName = Bucket,
                 CannedACL = S3CannedACL.Private,
             });
+#else
+            await s3.PutBucketAclAsync(new PutBucketAclRequest
+            {
+                BucketName = Bucket,
+                CannedACL = S3CannedACL.Private,
+            });
+#endif
         });
 
         await Step("AnonymousRead_FailsOnPrivateBucket", async () =>
