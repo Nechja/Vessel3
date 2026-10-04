@@ -33,6 +33,12 @@ if [ ! -x "$SERVER_BIN" ]; then
   dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
 fi
 
+PROBE_BIN=$ROOT/Vessel3.Tests.AwsCompatibility/bin/Release/net10.0/vessel3-tests-aws
+if [ ! -x "$PROBE_BIN" ]; then
+  echo "building probe (Release)..."
+  dotnet build "$ROOT/Vessel3.Tests.AwsCompatibility" -c Release --nologo -v q > /dev/null
+fi
+
 rm -rf "$DATA_DIR" "$SERVER_LOG"
 mkdir -p "$DATA_DIR"
 
