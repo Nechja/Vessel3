@@ -450,26 +450,30 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
 
             if (string.IsNullOrEmpty(line))
             {
-                if (!string.IsNullOrEmpty(data))
-                {
-                    VesselEventDto? evt = null;
-                    try
-                    {
-                        evt = JsonSerializer.Deserialize(data, VesselJsonContext.Default.VesselEventDto);
-                    }
-                    catch
-                    {
-                    }
-
-                    if (evt is not null)
-                    {
-                        yield return evt;
-                    }
-                }
-
+                var payload = data;
                 eventType = null;
                 eventId = null;
                 data = null;
+
+                if (string.IsNullOrEmpty(payload))
+                {
+                    continue;
+                }
+
+                VesselEventDto? evt = null;
+                try
+                {
+                    evt = JsonSerializer.Deserialize(payload, VesselJsonContext.Default.VesselEventDto);
+                }
+                catch
+                {
+                }
+
+                if (evt is not null)
+                {
+                    yield return evt;
+                }
+
                 continue;
             }
 
@@ -487,17 +491,17 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
             var field = line[..colonIndex].Trim();
             var value = line[(colonIndex + 1)..].TrimStart();
 
-            if (field == "event")
+            switch (field)
             {
-                eventType = value;
-            }
-            else if (field == "id")
-            {
-                eventId = value;
-            }
-            else if (field == "data")
-            {
-                data = value;
+                case "event":
+                    eventType = value;
+                    break;
+                case "id":
+                    eventId = value;
+                    break;
+                case "data":
+                    data = value;
+                    break;
             }
         }
     }

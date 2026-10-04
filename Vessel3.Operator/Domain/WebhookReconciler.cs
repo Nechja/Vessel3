@@ -20,86 +20,85 @@ public sealed partial class WebhookReconciler(
             return ReconciliationOutcome.Failure(clientErr.Message);
         }
 
-        using (vessel)
+        using var clientScope = vessel;
+
+        string? secretValue = null;
+        if (webhook.SecretRef is { } secRef)
         {
-            string? secretValue = null;
-            if (webhook.SecretRef is { } secRef)
+            var secretResult = await k8s.FetchSecretValue(secRef.Namespace, secRef.Name, secRef.Key, ct);
+            if (!secretResult.TryGetValue(out var resolvedSecret, out var secErr))
             {
-                var secretResult = await k8s.FetchSecretValue(secRef.Namespace, secRef.Name, secRef.Key, ct);
-                if (!secretResult.TryGetValue(out var resolvedSecret, out var secErr))
-                {
-                    LogSecretError(logger, secRef.Name, secErr.Message);
-                    await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, secErr.Message, ct);
-                    return ReconciliationOutcome.Failure(secErr.Message);
-                }
-
-                secretValue = resolvedSecret;
+                LogSecretError(logger, secRef.Name, secErr.Message);
+                await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, secErr.Message, ct);
+                return ReconciliationOutcome.Failure(secErr.Message);
             }
 
-            var listResult = await vessel.ListWebhooks(ct);
-            if (!listResult.TryGetValue(out var existingHooks, out var listErr))
+            secretValue = resolvedSecret;
+        }
+
+        var listResult = await vessel.ListWebhooks(ct);
+        if (!listResult.TryGetValue(out var existingHooks, out var listErr))
+        {
+            LogWebhookError(logger, webhook.Name, listErr.Message);
+            await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, listErr.Message, ct);
+            return ReconciliationOutcome.Failure(listErr.Message);
+        }
+
+        var existing = existingHooks.FirstOrDefault(h => string.Equals(h.Name, webhook.Name, StringComparison.OrdinalIgnoreCase));
+        var desiredEvents = webhook.EventFilters is { Count: > 0 } ef ? ef : ["*"];
+
+        if (existing is null)
+        {
+            var createDto = new CreateWebhookDto(
+                webhook.Name,
+                webhook.Url,
+                secretValue,
+                desiredEvents,
+                webhook.ResourceFilters,
+                webhook.Active);
+
+            var createResult = await vessel.EnsureWebhook(createDto, ct);
+            if (!createResult.TryGetValue(out var created, out var createErr))
             {
-                LogWebhookError(logger, webhook.Name, listErr.Message);
-                await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, listErr.Message, ct);
-                return ReconciliationOutcome.Failure(listErr.Message);
+                LogWebhookError(logger, webhook.Name, createErr.Message);
+                await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, createErr.Message, ct);
+                return ReconciliationOutcome.Failure(createErr.Message);
             }
 
-            var existing = existingHooks.FirstOrDefault(h => string.Equals(h.Name, webhook.Name, StringComparison.OrdinalIgnoreCase));
-            var desiredEvents = webhook.EventFilters is { Count: > 0 } ? webhook.EventFilters : (IReadOnlyList<string>)["*"];
-
-            if (existing is null)
-            {
-                var createDto = new CreateWebhookDto(
-                    webhook.Name,
-                    webhook.Url,
-                    secretValue,
-                    desiredEvents,
-                    webhook.ResourceFilters,
-                    webhook.Active);
-
-                var createResult = await vessel.EnsureWebhook(createDto, ct);
-                if (!createResult.TryGetValue(out var created, out var createErr))
-                {
-                    LogWebhookError(logger, webhook.Name, createErr.Message);
-                    await UpdateStatus(webhook.Identity, PhaseNames.Error, null, null, null, createErr.Message, ct);
-                    return ReconciliationOutcome.Failure(createErr.Message);
-                }
-
-                await UpdateStatus(webhook.Identity, PhaseNames.Ready, created.Id, created.LastTriggeredAt, created.LastStatusCode, null, ct);
-                return ReconciliationOutcome.Success();
-            }
-
-            var needsUpdate = existing.Url != webhook.Url
-                || (secretValue is not null && existing.Secret != secretValue)
-                || existing.Active != webhook.Active
-                || !AreListsEqual(existing.EventFilters, desiredEvents)
-                || !AreNullableListsEqual(existing.ResourceFilters, webhook.ResourceFilters);
-
-            if (needsUpdate)
-            {
-                var updateDto = new UpdateWebhookDto(
-                    webhook.Name,
-                    webhook.Url,
-                    secretValue ?? existing.Secret,
-                    desiredEvents,
-                    webhook.ResourceFilters,
-                    webhook.Active);
-
-                var updateResult = await vessel.UpdateWebhook(existing.Id, updateDto, ct);
-                if (!updateResult.TryGetValue(out var updated, out var updateErr))
-                {
-                    LogWebhookError(logger, webhook.Name, updateErr.Message);
-                    await UpdateStatus(webhook.Identity, PhaseNames.Error, existing.Id, existing.LastTriggeredAt, existing.LastStatusCode, updateErr.Message, ct);
-                    return ReconciliationOutcome.Failure(updateErr.Message);
-                }
-
-                await UpdateStatus(webhook.Identity, PhaseNames.Ready, updated.Id, updated.LastTriggeredAt, updated.LastStatusCode, null, ct);
-                return ReconciliationOutcome.Success();
-            }
-
-            await UpdateStatus(webhook.Identity, PhaseNames.Ready, existing.Id, existing.LastTriggeredAt, existing.LastStatusCode, null, ct);
+            await UpdateStatus(webhook.Identity, PhaseNames.Ready, created.Id, created.LastTriggeredAt, created.LastStatusCode, null, ct);
             return ReconciliationOutcome.Success();
         }
+
+        var needsUpdate = existing.Url != webhook.Url
+            || (secretValue is not null && existing.Secret != secretValue)
+            || existing.Active != webhook.Active
+            || !AreListsEqual(existing.EventFilters, desiredEvents)
+            || !AreNullableListsEqual(existing.ResourceFilters, webhook.ResourceFilters);
+
+        if (needsUpdate)
+        {
+            var updateDto = new UpdateWebhookDto(
+                webhook.Name,
+                webhook.Url,
+                secretValue ?? existing.Secret,
+                desiredEvents,
+                webhook.ResourceFilters,
+                webhook.Active);
+
+            var updateResult = await vessel.UpdateWebhook(existing.Id, updateDto, ct);
+            if (!updateResult.TryGetValue(out var updated, out var updateErr))
+            {
+                LogWebhookError(logger, webhook.Name, updateErr.Message);
+                await UpdateStatus(webhook.Identity, PhaseNames.Error, existing.Id, existing.LastTriggeredAt, existing.LastStatusCode, updateErr.Message, ct);
+                return ReconciliationOutcome.Failure(updateErr.Message);
+            }
+
+            await UpdateStatus(webhook.Identity, PhaseNames.Ready, updated.Id, updated.LastTriggeredAt, updated.LastStatusCode, null, ct);
+            return ReconciliationOutcome.Success();
+        }
+
+        await UpdateStatus(webhook.Identity, PhaseNames.Ready, existing.Id, existing.LastTriggeredAt, existing.LastStatusCode, null, ct);
+        return ReconciliationOutcome.Success();
     }
 
     private async Task UpdateStatus(
