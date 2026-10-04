@@ -224,6 +224,8 @@ Vessel3 guarantees crash-safe durability without distributed consensus:
 
 ## 6. Telemetry & Monitoring
 
+### 6.1 Prometheus Metrics
+
 Vessel3 exports Prometheus metrics at:
 ```http
 GET /metrics
@@ -237,3 +239,142 @@ Key metric families:
 - `vessel3_bucket_objects`: Object count per bucket.
 
 Access to `/metrics` from non-loopback addresses requires `Authorization: Bearer <VESSEL3_METRICS_TOKEN>` unless `VESSEL3_METRICS_ALLOW_ANONYMOUS=true` is set.
+
+---
+
+### 6.2 OpenTelemetry Distributed Tracing
+
+Vessel3 provides native distributed tracing via .NET `ActivitySource("Vessel3")` with zero third-party agent dependencies, full W3C Trace Context propagation, and native OTLP/HTTP export.
+
+#### Configuration
+
+| Environment Variable | Default | Purpose |
+|---|---|---|
+| `VESSEL3_OTEL_ENABLED` | `false` | Enables native distributed tracing activities and `traceparent` propagation. |
+| `VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT` | *unset* | OTLP HTTP trace collector endpoint (e.g., `http://otel-collector:4318/v1/traces`). Automatically enables OTel when set. |
+| `VESSEL3_OTEL_SERVICE_NAME` | `vessel3` | Logical service name emitted in OpenTelemetry resource attributes. |
+
+#### W3C Trace Context Propagation
+
+- **Inbound Context**: If an incoming request includes a W3C `traceparent` header (e.g., `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`), Vessel3 parses it and binds the server activity as a child span of the caller's trace context.
+- **Outbound Context**: Every response includes the active `traceparent` header, allowing callers and downstream proxies to correlate requests end-to-end.
+
+#### Span Attributes & Multi-Protocol Semantic Conventions
+
+Every request span is enriched with contextual attributes:
+- `rpc.system`: Protocol classifier (`s3`, `azure-blob`, `native`, `container-registry`, `webdav`, `metrics`, `admin`, `web-ui`).
+- `http.request.method`: HTTP method (`GET`, `PUT`, `DELETE`, etc.).
+- `vessel3.protocol`: Protocol engine handling the request.
+- `vessel3.action`: Protocol-specific operation (e.g., `PutObject`, `GetObject`, `ListBlobs`, `StreamEvents`).
+- `vessel3.bucket`: Target bucket or repository name (when applicable).
+- `vessel3.key`: Target object key or blob name (when applicable).
+- `vessel3.actor`: Authenticated identity (access key, username, or client ID).
+- `http.response.status_code`: Final HTTP status code.
+
+In the event of an unhandled exception or 5xx response, the activity status is automatically flagged as `ActivityStatusCode.Error` with the exception description recorded on the span.
+
+#### OpenTelemetry Collector & Jaeger Integration
+
+```yaml
+services:
+  vessel3:
+    image: ghcr.io/nechja/vessel3:latest-ui
+    environment:
+      - ASPNETCORE_URLS=http://0.0.0.0:9000
+      - VESSEL3_DATA=/data
+      - VESSEL3_ACCESS_KEY=V3AKADMINEXAMPLE1234
+      - VESSEL3_SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b
+      - VESSEL3_OTEL_ENABLED=true
+      - VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - VESSEL3_OTEL_SERVICE_NAME=vessel3-storage
+    ports:
+      - "9000:9000"
+    volumes:
+      - vessel3-data:/data
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4318:4318" # OTLP HTTP receiver
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686" # Jaeger UI
+```
+
+Collector configuration (`otel-collector-config.yaml`):
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/jaeger]
+```
+
+---
+
+## 7. Kubernetes Operator Management
+
+The Vessel3 Kubernetes Operator (`vessel3-operator`) provides declarative GitOps lifecycle management for Vessel3 clusters via Custom Resource Definitions under the `vessel.nechja.io` group.
+
+### Custom Resource Definitions (CRDs)
+
+| CRD | Kind | Description |
+|---|---|---|
+| `vesselservers.vessel.nechja.io` | `VesselServer` | Manages Vessel3 server deployments, persistent storage claims, service bindings, and credentials. |
+| `vesselbuckets.vessel.nechja.io` | `VesselBucket` | Declaratively manages bucket creation, versioning state, and access policies. |
+| `vesselusers.vessel.nechja.io` | `VesselUser` | Manages IAM identities, role assignments (`Admin`, `Member`, `ReadOnly`), and access keys. |
+| `vesselwebhooks.vessel.nechja.io` | `VesselWebhook` | Declaratively manages webhook endpoints, secret bindings, event subscriptions, and resource filters. |
+
+### Installing via Helm
+
+```sh
+# Install CRDs
+kubectl apply -f deploy/crds/
+
+# Install Operator via Helm
+helm install vessel3-operator ./charts/vessel3-operator \
+  --namespace vessel3-system \
+  --create-namespace
+```
+
+### Declarative Webhook Example
+
+```yaml
+apiVersion: vessel.nechja.io/v1alpha1
+kind: VesselWebhook
+metadata:
+  name: container-events
+  namespace: storage
+spec:
+  serverRef:
+    name: vessel-primary
+  name: "tekton-pipeline-trigger"
+  url: "http://el-tekton-listener.ci.svc:8080"
+  secretRef:
+    secretName: "webhook-auth"
+    key: "token"
+  eventFilters:
+    - "container.image.pushed"
+    - "s3.object.created"
+  resourceFilters:
+    - "production/*"
+  active: true
+```
+

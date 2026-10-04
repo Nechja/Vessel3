@@ -49,4 +49,6 @@ public interface IVesselClient : IDisposable
     Task<Result> DeleteWebhookAsync(string id, CancellationToken ct = default);
     Task<Result<WebhookTestResultDto>> TestWebhookAsync(string id, CancellationToken ct = default);
     Task<Result<string>> ExportWebhooksYamlAsync(CancellationToken ct = default);
+
+    IAsyncEnumerable<VesselEventDto> StreamEventsAsync(string? topicFilter = null, string? resourceFilter = null, CancellationToken ct = default);
 }

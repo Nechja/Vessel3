@@ -29,6 +29,9 @@ All configuration in Vessel3 is supplied via environment variables. No configura
 | `VESSEL3_OCI_ENABLED` | Boolean | `true` | Protocols | Enables OCI / Docker Registry v2 container repository protocol (`/v2/...`). |
 | `VESSEL3_WEBDAV_ENABLED` | Boolean | `true` | Protocols | Enables WebDAV HTTP extensions (PROPFIND, MKCOL, MOVE, COPY, etc.). |
 | `VESSEL3_WEBHOOKS_FILE` | Path | `<VESSEL3_DATA>/webhooks.yaml` | Webhooks | Optional explicit path to declarative static `webhooks.yaml` file. |
+| `VESSEL3_OTEL_ENABLED` | Boolean | `false` | OpenTelemetry | Enables native `ActivitySource` distributed tracing and OTLP export. |
+| `VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT` | URL | *unset* | OpenTelemetry | OTLP HTTP trace collector endpoint (e.g. `http://otel-collector:4318/v1/traces`). Automatically enables OTel when set. |
+| `VESSEL3_OTEL_SERVICE_NAME` | String | `vessel3` | OpenTelemetry | Logical service name emitted in OpenTelemetry resource attributes. |
 | `VESSEL3_LOG_FORMAT` | `text` \| `json` | `text` | Observability | Console log format: `text` (human-readable) or `json` (Kubernetes structured container log). |
 | `VESSEL3_LOG_LEVEL` | Level | `info` | Observability | Minimum log level (`trace`, `debug`, `info`, `warn`, `error`). |
 | `VESSEL3_ACCESS_LOG` | Boolean | `true` | Observability | Toggle structured HTTP request access logging (`LogAccess`). |

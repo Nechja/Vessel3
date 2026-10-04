@@ -9,6 +9,7 @@ public interface IEventSubscription : IDisposable
 
 public interface IEventStreamHub
 {
+    int SubscriberCount { get; }
     void Publish(VesselEvent @event);
     IEventSubscription Subscribe(string? topicFilter = null, string? resourceFilter = null);
 }

@@ -38,6 +38,8 @@ public sealed class EventStreamHub : IEventStreamHub
 
     private readonly ConcurrentDictionary<Guid, Subscription> subscribers = new();
 
+    public int SubscriberCount => subscribers.Count;
+
     public void Publish(VesselEvent @event)
     {
         foreach (var sub in subscribers.Values)

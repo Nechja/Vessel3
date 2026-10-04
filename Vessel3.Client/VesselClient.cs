@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Vessel3.Primitives;
@@ -381,6 +382,100 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         }
         var yaml = await res.Content.ReadAsStringAsync(ct);
         return yaml;
+    }
+
+    public async IAsyncEnumerable<VesselEventDto> StreamEventsAsync(
+        string? topicFilter = null,
+        string? resourceFilter = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var path = "v1/events/stream";
+        var queryParams = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(topicFilter))
+        {
+            queryParams.Add($"topics={Uri.EscapeDataString(topicFilter)}");
+        }
+        if (!string.IsNullOrWhiteSpace(resourceFilter))
+        {
+            queryParams.Add($"resource={Uri.EscapeDataString(resourceFilter)}");
+        }
+        if (queryParams.Count > 0)
+        {
+            path += "?" + string.Join('&', queryParams);
+        }
+
+        using var req = CreateRequest(HttpMethod.Get, path);
+        using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        res.EnsureSuccessStatusCode();
+
+        await using var stream = await res.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        string? eventType = null;
+        string? eventId = null;
+        string? data = null;
+
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (string.IsNullOrEmpty(line))
+            {
+                if (!string.IsNullOrEmpty(data))
+                {
+                    VesselEventDto? evt = null;
+                    try
+                    {
+                        evt = JsonSerializer.Deserialize(data, VesselJsonContext.Default.VesselEventDto);
+                    }
+                    catch
+                    {
+                        // Ignore malformed event payload
+                    }
+
+                    if (evt is not null)
+                    {
+                        yield return evt;
+                    }
+                }
+
+                eventType = null;
+                eventId = null;
+                data = null;
+                continue;
+            }
+
+            if (line.StartsWith(':'))
+            {
+                continue;
+            }
+
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0)
+            {
+                continue;
+            }
+
+            var field = line[..colonIndex].Trim();
+            var value = line[(colonIndex + 1)..].TrimStart();
+
+            if (field == "event")
+            {
+                eventType = value;
+            }
+            else if (field == "id")
+            {
+                eventId = value;
+            }
+            else if (field == "data")
+            {
+                data = value;
+            }
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
