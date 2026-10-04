@@ -103,5 +103,29 @@ public sealed class VesselHttpAdapter(IVesselClient client) : IVesselPort
             : keyErr;
     }
 
+    public Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooks(CancellationToken ct = default) =>
+        client.ListWebhooksAsync(ct);
+
+    public async Task<Result<WebhookDto>> EnsureWebhook(CreateWebhookDto dto, CancellationToken ct = default)
+    {
+        var listResult = await client.ListWebhooksAsync(ct);
+        if (listResult.TryGetValue(out var hooks, out _))
+        {
+            var existing = hooks.FirstOrDefault(h => string.Equals(h.Name, dto.Name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                return existing;
+            }
+        }
+
+        return await client.CreateWebhookAsync(dto, ct);
+    }
+
+    public Task<Result<WebhookDto>> UpdateWebhook(string id, UpdateWebhookDto dto, CancellationToken ct = default) =>
+        client.UpdateWebhookAsync(id, dto, ct);
+
+    public Task<Result> DeleteWebhook(string id, CancellationToken ct = default) =>
+        client.DeleteWebhookAsync(id, ct);
+
     public void Dispose() => client.Dispose();
 }

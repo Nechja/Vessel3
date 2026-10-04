@@ -8,13 +8,16 @@ public sealed class InMemoryKubernetesPort : IKubernetesPort
     public List<ServerDeclaration> Servers { get; } = [];
     public List<BucketDeclaration> Buckets { get; } = [];
     public List<UserDeclaration> Users { get; } = [];
+    public List<WebhookDeclaration> Webhooks { get; } = [];
 
     public Dictionary<ResourceIdentity, ServerResourceStatus> ServerStatuses { get; } = [];
     public Dictionary<ResourceIdentity, BucketResourceStatus> BucketStatuses { get; } = [];
     public Dictionary<ResourceIdentity, UserResourceStatus> UserStatuses { get; } = [];
+    public Dictionary<ResourceIdentity, WebhookResourceStatus> WebhookStatuses { get; } = [];
 
     public Dictionary<(string Ns, string Name), ServerCredentials> Secrets { get; } = [];
     public Dictionary<(string Ns, string Name), IReadOnlyDictionary<string, string>> UserSecrets { get; } = [];
+    public Dictionary<(string Ns, string Name, string Key), string> GenericSecrets { get; } = [];
 
     public bool ShouldFailSecretCreation { get; set; }
     public bool ShouldFailWorkloadReconciliation { get; set; }
@@ -28,6 +31,9 @@ public sealed class InMemoryKubernetesPort : IKubernetesPort
 
     public Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<UserDeclaration>>(Users);
+
+    public Task<IReadOnlyList<WebhookDeclaration>> ListWebhooks(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<WebhookDeclaration>>(Webhooks);
 
     public Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default)
     {
@@ -45,6 +51,22 @@ public sealed class InMemoryKubernetesPort : IKubernetesPort
     {
         UserStatuses[id] = status;
         return Task.FromResult(Result.Ok);
+    }
+
+    public Task<Result> UpdateWebhookStatus(ResourceIdentity id, WebhookResourceStatus status, CancellationToken ct = default)
+    {
+        WebhookStatuses[id] = status;
+        return Task.FromResult(Result.Ok);
+    }
+
+    public Task<Result<string?>> FetchSecretValue(string @namespace, string secretName, string key, CancellationToken ct = default)
+    {
+        if (GenericSecrets.TryGetValue((@namespace, secretName, key), out var value))
+        {
+            return Task.FromResult<Result<string?>>(value);
+        }
+
+        return Task.FromResult<Result<string?>>(new Error("SecretNotFound", $"Secret {secretName} key {key} not found"));
     }
 
     public Task<Result<ServerCredentials>> EnsureServerSecret(ResourceIdentity id, string secretName, CancellationToken ct = default)

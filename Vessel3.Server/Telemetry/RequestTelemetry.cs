@@ -10,6 +10,7 @@ internal sealed partial class RequestTelemetry(
     ILogger<RequestTelemetry> log,
     IMetricsCollector metrics) : IMiddleware
 {
+    public static readonly ActivitySource ActivitySource = new("Vessel3", "1.0.0");
 
     private readonly long slowTicks = options.SlowThreshold > TimeSpan.Zero
         ? (long)(options.SlowThreshold.TotalSeconds * Stopwatch.Frequency)
@@ -17,11 +18,25 @@ internal sealed partial class RequestTelemetry(
 
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
+        var parentContext = ExtractParentContext(ctx);
+        using var activity = parentContext != default
+            ? ActivitySource.StartActivity("vessel3.request", ActivityKind.Server, parentContext)
+            : ActivitySource.StartActivity("vessel3.request", ActivityKind.Server);
+
         var trace = new RequestTrace
         {
-            TraceId = ResolveTraceId(ctx)
+            TraceId = activity?.TraceId.ToHexString() ?? ResolveTraceId(ctx)
         };
         RequestTrace.Current = trace;
+
+        if (activity is not null)
+        {
+            activity.SetTag("rpc.system", "vessel3");
+            activity.SetTag("http.request.method", ctx.Request.Method);
+            activity.SetTag("server.address", ctx.Request.Host.Host);
+            activity.SetTag("url.path", ctx.Request.Path.Value ?? "/");
+        }
+
         Exception? failure = null;
         try
         {
@@ -59,6 +74,40 @@ internal sealed partial class RequestTelemetry(
                 }
             }
 
+            if (activity is not null)
+            {
+                activity.SetTag("vessel3.protocol", trace.Protocol);
+                activity.SetTag("vessel3.action", trace.Action);
+                if (!string.IsNullOrEmpty(trace.Bucket))
+                {
+                    activity.SetTag("vessel3.bucket", trace.Bucket);
+                }
+                if (!string.IsNullOrEmpty(trace.Key))
+                {
+                    activity.SetTag("vessel3.key", trace.Key);
+                }
+                activity.SetTag("vessel3.actor", trace.Actor);
+                activity.SetTag("http.response.status_code", status);
+
+                if (failure is not null || status >= 500)
+                {
+                    activity.SetStatus(ActivityStatusCode.Error, failure?.Message ?? $"HTTP {status}");
+                    if (failure is not null)
+                    {
+                        activity.AddException(failure);
+                    }
+                }
+                else
+                {
+                    activity.SetStatus(ActivityStatusCode.Ok);
+                }
+
+                if (!ctx.Response.HasStarted)
+                {
+                    ctx.Response.Headers["traceparent"] = $"00-{activity.TraceId.ToHexString()}-{activity.SpanId.ToHexString()}-01";
+                }
+            }
+
             metrics.RecordRequest(trace.Action, status, elapsed, reqBytes, resBytes);
             metrics.RecordStages(trace);
 
@@ -92,6 +141,34 @@ internal sealed partial class RequestTelemetry(
     }
 
     private static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+
+    private static ActivityContext ExtractParentContext(HttpContext ctx)
+    {
+        var headers = ctx.Request.Headers;
+        if (!headers.TryGetValue("traceparent", out var tp) || string.IsNullOrEmpty(tp))
+        {
+            return default;
+        }
+
+        var val = tp.ToString();
+        var parts = val.Split('-');
+        if (parts.Length < 4 || parts[1].Length != 32 || parts[2].Length != 16)
+        {
+            return default;
+        }
+
+        try
+        {
+            var traceId = ActivityTraceId.CreateFromString(parts[1].AsSpan());
+            var spanId = ActivitySpanId.CreateFromString(parts[2].AsSpan());
+            var flags = parts[3] == "01" ? ActivityTraceFlags.Recorded : ActivityTraceFlags.None;
+            return new ActivityContext(traceId, spanId, flags, isRemote: true);
+        }
+        catch
+        {
+            return default;
+        }
+    }
 
     private static string ResolveTraceId(HttpContext ctx)
     {

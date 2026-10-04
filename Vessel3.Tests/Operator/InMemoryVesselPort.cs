@@ -1,3 +1,4 @@
+using Vessel3.Client;
 using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 
@@ -12,10 +13,12 @@ public sealed class InMemoryVesselPort : IVesselPort
     public Dictionary<string, BucketStatsSummary> BucketStats { get; } = [];
     public Dictionary<string, string> Users { get; } = [];
     public List<UserAccessKey> IssuedKeys { get; } = [];
+    public List<WebhookDto> Webhooks { get; } = [];
 
     public bool ShouldFailEnsureBucket { get; set; }
     public bool ShouldFailEnsureUser { get; set; }
     public bool ShouldFailIssueKey { get; set; }
+    public bool ShouldFailEnsureWebhook { get; set; }
     public bool Disposed { get; private set; }
 
     public Task<Result> EnsureBucket(string bucket, CancellationToken ct = default)
@@ -84,6 +87,68 @@ public sealed class InMemoryVesselPort : IVesselPort
         var key = new UserAccessKey("test-key-id", "test-secret-key");
         IssuedKeys.Add(key);
         return Task.FromResult<Result<UserAccessKey>>(key);
+    }
+
+    public Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooks(CancellationToken ct = default) =>
+        Task.FromResult<Result<IReadOnlyList<WebhookDto>>>(Webhooks);
+
+    public Task<Result<WebhookDto>> EnsureWebhook(CreateWebhookDto dto, CancellationToken ct = default)
+    {
+        if (ShouldFailEnsureWebhook)
+        {
+            return Task.FromResult<Result<WebhookDto>>(new Error("WebhookError", "Failed to ensure webhook"));
+        }
+
+        var existing = Webhooks.FirstOrDefault(w => string.Equals(w.Name, dto.Name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            return Task.FromResult<Result<WebhookDto>>(existing);
+        }
+
+        var hook = new WebhookDto(
+            Id: Guid.NewGuid().ToString("N"),
+            Name: dto.Name,
+            Url: dto.Url,
+            Secret: dto.Secret,
+            EventFilters: dto.EventFilters,
+            ResourceFilters: dto.ResourceFilters,
+            Active: dto.Active,
+            CreatedAt: DateTimeOffset.UtcNow,
+            LastTriggeredAt: null,
+            LastStatusCode: null,
+            LastError: null,
+            IsStatic: false);
+
+        Webhooks.Add(hook);
+        return Task.FromResult<Result<WebhookDto>>(hook);
+    }
+
+    public Task<Result<WebhookDto>> UpdateWebhook(string id, UpdateWebhookDto dto, CancellationToken ct = default)
+    {
+        var index = Webhooks.FindIndex(w => w.Id == id);
+        if (index < 0)
+        {
+            return Task.FromResult<Result<WebhookDto>>(new Error("NotFound", "Webhook not found"));
+        }
+
+        var updated = Webhooks[index] with
+        {
+            Name = dto.Name,
+            Url = dto.Url,
+            Secret = dto.Secret,
+            EventFilters = dto.EventFilters,
+            ResourceFilters = dto.ResourceFilters,
+            Active = dto.Active
+        };
+
+        Webhooks[index] = updated;
+        return Task.FromResult<Result<WebhookDto>>(updated);
+    }
+
+    public Task<Result> DeleteWebhook(string id, CancellationToken ct = default)
+    {
+        Webhooks.RemoveAll(w => w.Id == id);
+        return Task.FromResult(Result.Ok);
     }
 
     public void Dispose()

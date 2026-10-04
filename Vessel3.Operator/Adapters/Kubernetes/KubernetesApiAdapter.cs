@@ -23,6 +23,9 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
     public Task<IReadOnlyList<UserDeclaration>> ListUsers(CancellationToken ct = default) =>
         ListCustomObjects(KubernetesConstants.UserPlural, OperatorJsonContext.Default.VesselUserCustomResource, KubernetesModelMapper.ToDeclaration, ct);
 
+    public Task<IReadOnlyList<WebhookDeclaration>> ListWebhooks(CancellationToken ct = default) =>
+        ListCustomObjects(KubernetesConstants.WebhookPlural, OperatorJsonContext.Default.VesselWebhookCustomResource, KubernetesModelMapper.ToDeclaration, ct);
+
     public Task<Result> UpdateServerStatus(ResourceIdentity id, ServerResourceStatus status, CancellationToken ct = default) =>
         PatchCustomObjectStatus(id, KubernetesConstants.ServerPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.ServerStatusPatch, ct);
 
@@ -31,6 +34,31 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
     public Task<Result> UpdateUserStatus(ResourceIdentity id, UserResourceStatus status, CancellationToken ct = default) =>
         PatchCustomObjectStatus(id, KubernetesConstants.UserPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.UserStatusPatch, ct);
+
+    public Task<Result> UpdateWebhookStatus(ResourceIdentity id, WebhookResourceStatus status, CancellationToken ct = default) =>
+        PatchCustomObjectStatus(id, KubernetesConstants.WebhookPlural, KubernetesModelMapper.ToPatch(status), OperatorJsonContext.Default.WebhookStatusPatch, ct);
+
+    public async Task<Result<string?>> FetchSecretValue(string @namespace, string secretName, string key, CancellationToken ct = default)
+    {
+        try
+        {
+            var secret = await client.CoreV1.ReadNamespacedSecretAsync(secretName, @namespace, cancellationToken: ct);
+            if (secret.Data is not null && secret.Data.TryGetValue(key, out var bytes))
+            {
+                return Encoding.UTF8.GetString(bytes);
+            }
+
+            return (string?)null;
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new Error("NotFound", $"Secret {secretName} not found in namespace {@namespace}");
+        }
+        catch (Exception ex)
+        {
+            return new Error("Unexpected", ex.Message);
+        }
+    }
 
     private async Task<IReadOnlyList<TDeclaration>> ListCustomObjects<TResource, TDeclaration>(
         string plural,

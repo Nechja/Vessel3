@@ -27,6 +27,7 @@ builder.Services.AddSingleton<IVesselPortFactory, VesselPortFactory>();
 builder.Services.AddSingleton<ServerReconciler>();
 builder.Services.AddSingleton<BucketReconciler>();
 builder.Services.AddSingleton<UserReconciler>();
+builder.Services.AddSingleton<WebhookReconciler>();
 builder.Services.AddHostedService<OperatorWorker>();
 
 var app = builder.Build();

@@ -24,7 +24,8 @@ internal sealed record VesselConfig(
     string LogFormat = "text",
     LogLevel LogLevel = LogLevel.Information,
     bool AccessLogEnabled = true,
-    string? NodeId = null)
+    string? NodeId = null,
+    OtelConfig? Otel = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -66,6 +67,11 @@ internal sealed record VesselConfig(
         var accessLogEnabled = ReadFeatureFlag("VESSEL3_ACCESS_LOG");
         var nodeId = ReadString("VESSEL3_NODE_ID", Environment.MachineName);
 
+        var otelEndpoint = ReadString("VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT");
+        var otelEnabled = ReadBool("VESSEL3_OTEL_ENABLED") || !string.IsNullOrWhiteSpace(otelEndpoint);
+        var otelServiceName = ReadString("VESSEL3_OTEL_SERVICE_NAME", "vessel3")!;
+        var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -87,7 +93,8 @@ internal sealed record VesselConfig(
             logFormat,
             logLevel,
             accessLogEnabled,
-            nodeId);
+            nodeId,
+            otel);
 
         error = null;
         return true;

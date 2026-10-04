@@ -14,6 +14,8 @@ rules:
       - vesselbuckets/status
       - vesselusers
       - vesselusers/status
+      - vesselwebhooks
+      - vesselwebhooks/status
     verbs:
       - get
       - list

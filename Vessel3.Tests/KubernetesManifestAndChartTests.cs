@@ -14,7 +14,8 @@ public sealed class KubernetesManifestAndChartTests
         [
             "vessel.nechja.io_vesselservers.yaml",
             "vessel.nechja.io_vesselbuckets.yaml",
-            "vessel.nechja.io_vesselusers.yaml"
+            "vessel.nechja.io_vesselusers.yaml",
+            "vessel.nechja.io_vesselwebhooks.yaml"
         ];
 
         foreach (var file in crdFiles)

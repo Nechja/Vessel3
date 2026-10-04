@@ -15,6 +15,7 @@ internal static class VesselServiceExtensions
         services.AddVesselConfiguration(config);
         services.AddVesselStorage(config);
         services.AddVesselTelemetry();
+        services.AddVesselOpenTelemetry(config);
         services.AddVesselHostMiddlewares();
         services.AddVesselProtocols(config);
         return services;
@@ -94,11 +95,13 @@ internal static class VesselServiceExtensions
             return store;
         });
 
+        services.AddSingleton<IEventStreamHub, EventStreamHub>();
         services.AddSingleton<WebhookDeliveryWorker>(sp => new WebhookDeliveryWorker(
             sp.GetRequiredService<IWebhookStore>(),
             new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(15) },
             sp.GetRequiredService<ILogger<WebhookDeliveryWorker>>(),
-            sp.GetService<TimeProvider>()));
+            sp.GetService<TimeProvider>(),
+            sp.GetRequiredService<IEventStreamHub>()));
 
         services.AddSingleton<IWebhookEventPublisher>(sp => sp.GetRequiredService<WebhookDeliveryWorker>());
         services.AddSingleton<IWebhookDeliveryService>(sp => sp.GetRequiredService<WebhookDeliveryWorker>());

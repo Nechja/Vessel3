@@ -10,6 +10,7 @@ public sealed partial class OperatorWorker(
     ServerReconciler serverReconciler,
     BucketReconciler bucketReconciler,
     UserReconciler userReconciler,
+    WebhookReconciler webhookReconciler,
     ILogger<OperatorWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
@@ -60,6 +61,12 @@ public sealed partial class OperatorWorker(
         foreach (var user in users)
         {
             await userReconciler.Reconcile(user, ct);
+        }
+
+        var webhooks = await k8s.ListWebhooks(ct);
+        foreach (var webhook in webhooks)
+        {
+            await webhookReconciler.Reconcile(webhook, ct);
         }
     }
 

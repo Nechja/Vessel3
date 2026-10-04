@@ -86,6 +86,40 @@ internal static class KubernetesModelMapper
             Conditions = ToAdapterConditions(status.Conditions)
         });
 
+    public static WebhookDeclaration ToDeclaration(VesselWebhookCustomResource cr)
+    {
+        var webhookNs = string.IsNullOrWhiteSpace(cr.Metadata.Namespace) ? KubernetesConstants.DefaultNamespace : cr.Metadata.Namespace;
+        var serverNs = string.IsNullOrWhiteSpace(cr.Spec.ServerRef.Namespace) ? webhookNs : cr.Spec.ServerRef.Namespace;
+
+        WebhookSecretRef? secretRef = cr.Spec.SecretRef is { } sec
+            ? new WebhookSecretRef(
+                Namespace: string.IsNullOrWhiteSpace(sec.SecretNamespace) ? webhookNs : sec.SecretNamespace,
+                Name: sec.SecretName,
+                Key: string.IsNullOrWhiteSpace(sec.Key) ? "secret" : sec.Key)
+            : null;
+
+        return new(
+            Identity: ResourceIdentity.Create(cr.Metadata.Name, webhookNs),
+            ServerReference: ResourceIdentity.Create(cr.Spec.ServerRef.Name, serverNs),
+            Name: cr.Spec.Name,
+            Url: cr.Spec.Url,
+            SecretRef: secretRef,
+            EventFilters: cr.Spec.EventFilters,
+            ResourceFilters: cr.Spec.ResourceFilters,
+            Active: cr.Spec.Active);
+    }
+
+    public static WebhookStatusPatch ToPatch(WebhookResourceStatus status) =>
+        new(new VesselWebhookStatus
+        {
+            Phase = status.Phase,
+            WebhookId = status.WebhookId,
+            LastTriggeredAt = status.LastTriggeredAt?.ToString("o"),
+            LastStatusCode = status.LastStatusCode,
+            LastError = status.ErrorMessage,
+            Conditions = ToAdapterConditions(status.Conditions)
+        });
+
     private static List<Models.ResourceCondition>? ToAdapterConditions(IReadOnlyList<Domain.Models.ResourceCondition>? conditions) =>
         conditions is { Count: > 0 } ? [.. conditions.Select(ToAdapterCondition)] : null;
 
