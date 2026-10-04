@@ -21,7 +21,7 @@ internal sealed record VesselConfig(
     bool MetricsAllowAnonymous,
     OidcOptions? Oidc,
     IReadOnlyList<string>? AdminUsers = null,
-    bool ContainerReposEnabled = true,
+    bool OciEnabled = true,
     bool WebDavEnabled = true,
     string? WebhooksFile = null,
     string LogFormat = "text",
@@ -70,9 +70,8 @@ internal sealed record VesselConfig(
         var metricsAllowAnon = ReadBool("VESSEL3_METRICS_ALLOW_ANONYMOUS");
         var adminUsers = ReadList("VESSEL3_ADMIN_USERS");
 
-        var ociDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_CONTAINER_REPOS_ENABLED"), "false", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(Environment.GetEnvironmentVariable("VESSEL3_OCI_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
-        var containerReposEnabled = !ociDisabled;
+        var ociDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_OCI_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
+        var ociEnabled = !ociDisabled;
 
         var webDavDisabled = string.Equals(Environment.GetEnvironmentVariable("VESSEL3_WEBDAV_ENABLED"), "false", StringComparison.OrdinalIgnoreCase);
         var webDavEnabled = !webDavDisabled;
@@ -98,7 +97,7 @@ internal sealed record VesselConfig(
             metricsAllowAnon,
             oidc,
             adminUsers,
-            containerReposEnabled,
+            ociEnabled,
             webDavEnabled,
             webhooksFile,
             logFormat,

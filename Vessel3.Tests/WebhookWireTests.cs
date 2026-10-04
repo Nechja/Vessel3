@@ -100,7 +100,7 @@ public sealed class WebhookWireTests : IAsyncDisposable
             MetricsToken: null,
             MetricsAllowAnonymous: true,
             Oidc: null,
-            ContainerReposEnabled: true,
+            OciEnabled: true,
             WebhooksFile: webhooksFile);
 
         var builder = WebApplication.CreateBuilder();

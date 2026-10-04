@@ -130,7 +130,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IVesselProtocol>(native);
         native.ConfigureServices(services, config);
 
-        if (config.ContainerReposEnabled)
+        if (config.OciEnabled)
         {
             var oci = new OciProtocol();
             services.AddSingleton<IVesselProtocol>(oci);

@@ -59,8 +59,9 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             var putReq = new ObjectPutRequest(
                 bucket, key, body, declaredLength, req.ContentType,
                 declaredSha, declaredMd5OrNull, metadata, initialTags,
-                declaredChecksums, ct, initialRetention, initialHold, systemHeaders,
-                Protocol: "s3", Actor: caller, Host: req.Host.Value);
+                declaredChecksums, initialRetention, initialHold, systemHeaders,
+                Protocol: "s3", Actor: caller, Host: req.Host.Value,
+                Ct: ct);
             result = await objects.Put(putReq);
         }
         catch (InvalidDataException ex)

@@ -72,7 +72,7 @@ public sealed class WebDavMultiUserAuthorizationTests : IDisposable
             MetricsAllowAnonymous: true,
             Oidc: null,
             AdminUsers: null,
-            ContainerReposEnabled: false,
+            OciEnabled: false,
             WebDavEnabled: true);
 
         var builder = WebApplication.CreateBuilder();

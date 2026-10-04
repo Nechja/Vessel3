@@ -10,7 +10,7 @@ internal sealed record CurrentPage(IReadOnlyList<VersionListEntry> Entries, bool
 
 internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
 {
-    string IBlobReferenceSource.ProtocolName => "S3";
+    string IBlobReferenceSource.ProtocolName => "Objects";
 
     bool IsValidName(string bucket);
 
@@ -189,10 +189,11 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         return Result.Ok;
     }
 
-    public Result<bool> Exists(string bucket) =>
-        IsValidName(bucket)
-            ? Directory.Exists(Path.Combine(bucketsRoot, bucket))
-            : new InvalidBucketNameError(bucket);
+    public Result<bool> Exists(string bucket)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        return Directory.Exists(Path.Combine(bucketsRoot, bucket));
+    }
 
     public IEnumerable<BucketInfo> List(string? ownerId = null)
     {
@@ -216,26 +217,36 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
     public Result<string?> GetOwner(string bucket, CallerIdentity caller) =>
         OnBucket(bucket, b =>
-            BucketPolicy.Authorize(caller, b, BucketCapability.Read) is Result.Failure f
-                ? f.Error
-                : (Result<string?>)b.GetOwner());
+        {
+            if (BucketPolicy.Authorize(caller, b, BucketCapability.Read) is Result.Failure f)
+                return f.Error;
+            return (Result<string?>)b.GetOwner();
+        });
 
-    public Result SetOwner(string bucket, string newOwnerId) =>
-        string.IsNullOrWhiteSpace(newOwnerId)
-            ? new InvalidArgumentError("OwnerId cannot be empty.")
-            : OnBucket(bucket, b =>
-            {
-                b.SetOwner(newOwnerId);
-                return Result.Ok;
-            });
+    public Result SetOwner(string bucket, string newOwnerId)
+    {
+        if (string.IsNullOrWhiteSpace(newOwnerId))
+            return new InvalidArgumentError("OwnerId cannot be empty.");
 
-    public Result SetOwner(string bucket, string newOwnerId, CallerIdentity caller) =>
-        string.IsNullOrWhiteSpace(newOwnerId)
-            ? new InvalidArgumentError("OwnerId cannot be empty.")
-            : OnBucket(bucket, b =>
-                BucketPolicy.Authorize(caller, b, BucketCapability.Admin) is Result.Failure f
-                    ? f.Error
-                    : SetOwner(bucket, newOwnerId));
+        return OnBucket(bucket, b =>
+        {
+            b.SetOwner(newOwnerId);
+            return Result.Ok;
+        });
+    }
+
+    public Result SetOwner(string bucket, string newOwnerId, CallerIdentity caller)
+    {
+        if (string.IsNullOrWhiteSpace(newOwnerId))
+            return new InvalidArgumentError("OwnerId cannot be empty.");
+
+        return OnBucket(bucket, b =>
+        {
+            if (BucketPolicy.Authorize(caller, b, BucketCapability.Admin) is Result.Failure f)
+                return f.Error;
+            return SetOwner(bucket, newOwnerId);
+        });
+    }
 
     public Result AuthorizeAccess(string bucket, CallerIdentity? caller, BucketCapability capability) =>
         OnBucket(bucket, b => BucketPolicy.Authorize(caller, b, capability));
@@ -355,32 +366,42 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return new CurrentPage(entries, truncated);
         });
 
-    private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? body(b)
-        : (Result<T>)new NoSuchBucketError(bucket);
+    private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return body(b);
+    }
 
-    private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? body(b)
-        : new NoSuchBucketError(bucket);
+    private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return body(b);
+    }
 
-    private Result OnBucket(string bucket, Func<Bucket, Result> body) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? body(b)
-        : new NoSuchBucketError(bucket);
+    private Result OnBucket(string bucket, Func<Bucket, Result> body)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return body(b);
+    }
 
-    private Result<T> OnKey<T>(string bucket, string key, Func<Bucket, Result<T>> body) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
-        : Open(bucket) is { } b ? body(b)
-        : new NoSuchBucketError(bucket);
+    private Result<T> OnKey<T>(string bucket, string key, Func<Bucket, Result<T>> body)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (string.IsNullOrEmpty(key)) return new InvalidPathError($"{bucket}/{key}");
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return body(b);
+    }
 
-    private Result OnKey(string bucket, string key, Func<Bucket, Result> body) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
-        : Open(bucket) is { } b ? body(b)
-        : new NoSuchBucketError(bucket);
+    private Result OnKey(string bucket, string key, Func<Bucket, Result> body)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (string.IsNullOrEmpty(key)) return new InvalidPathError($"{bucket}/{key}");
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return body(b);
+    }
 
     public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit)
     {
@@ -390,10 +411,12 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         return new VersionsPage(entries, truncated);
     }
 
-    public Result<VersioningStatus> GetVersioning(string bucket) =>
-        !IsValidName(bucket) ? new InvalidBucketNameError(bucket)
-        : Open(bucket) is { } b ? b.Versioning
-        : (Result<VersioningStatus>)new NoSuchBucketError(bucket);
+    public Result<VersioningStatus> GetVersioning(string bucket)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
+        return b.Versioning;
+    }
 
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
         OnKey<PutTaggingOutcome>(bucket, key, b =>
@@ -413,15 +436,17 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return b.AppendPutTagging(key, resolved, tags);
         });
 
-    public VersionKind? GetCurrentKind(string bucket, string key) =>
-        !IsValidName(bucket) || string.IsNullOrEmpty(key)
-            ? null
-            : Open(bucket) is { } b ? b.Index.GetCurrentKind(key) : null;
+    public VersionKind? GetCurrentKind(string bucket, string key)
+    {
+        if (!IsValidName(bucket) || string.IsNullOrEmpty(key)) return null;
+        return Open(bucket)?.Index.GetCurrentKind(key);
+    }
 
-    public VersionKind? GetVersionKind(string bucket, string key, string versionId) =>
-        !IsValidName(bucket) || string.IsNullOrEmpty(key)
-            ? null
-            : Open(bucket) is { } b ? b.Index.GetVersionKind(key, versionId) : null;
+    public VersionKind? GetVersionKind(string bucket, string key, string versionId)
+    {
+        if (!IsValidName(bucket) || string.IsNullOrEmpty(key)) return null;
+        return Open(bucket)?.Index.GetVersionKind(key, versionId);
+    }
 
     public Result SetVersioning(string bucket, VersioningStatus status) =>
         OnBucket(bucket, b => b.SetVersioning(status));

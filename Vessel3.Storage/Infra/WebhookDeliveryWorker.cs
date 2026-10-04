@@ -180,6 +180,14 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
         req.Headers.TryAddWithoutValidation("ce-type", evt.Type);
         req.Headers.TryAddWithoutValidation("ce-subject", evt.Subject);
         req.Headers.TryAddWithoutValidation("ce-time", evt.Time.ToString("O"));
+        if (!string.IsNullOrEmpty(evt.Actor))
+        {
+            req.Headers.TryAddWithoutValidation("ce-actor", evt.Actor);
+        }
+        if (!string.IsNullOrEmpty(evt.Host))
+        {
+            req.Headers.TryAddWithoutValidation("ce-host", evt.Host);
+        }
         if (!string.IsNullOrEmpty(signature))
         {
             req.Headers.TryAddWithoutValidation("X-Vessel-Signature", signature);

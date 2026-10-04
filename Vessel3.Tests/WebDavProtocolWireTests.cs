@@ -73,7 +73,7 @@ public sealed class WebDavProtocolWireTests : IDisposable
             MetricsAllowAnonymous: true,
             Oidc: null,
             AdminUsers: null,
-            ContainerReposEnabled: false,
+            OciEnabled: false,
             WebDavEnabled: true);
 
         var builder = WebApplication.CreateBuilder();

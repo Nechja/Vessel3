@@ -51,8 +51,8 @@ public class GcGateRaceTests : IDisposable
         var collector = NewCollector(registry);
 
         var payload = Encoding.UTF8.GetBytes("bytes that must survive the sweep");
-        var putTask = objects.Put("landing", "k", new MemoryStream(payload), payload.Length, "text/plain",
-            null, null, new Dictionary<string, string>(), new Dictionary<string, string>(), ChecksumSet.Empty, ct);
+        var putTask = objects.Put(new ObjectPutRequest(
+            "landing", "k", new MemoryStream(payload), payload.Length, "text/plain", Ct: ct));
 
         await published.Task;
         var publishedSha = paused.PublishedSha!;
@@ -84,10 +84,8 @@ public class GcGateRaceTests : IDisposable
 
         var objects = new ObjectStore(registry, blobs, new PreconditionEvaluator(), gate);
         var payload = Encoding.UTF8.GetBytes("the only copy of this object");
-        var seeded = Assert.IsType<Result<PutOutcome>.Success>(await objects.Put(
-            "zulu-src", "k", new MemoryStream(payload), payload.Length, "text/plain",
-            null, null, new Dictionary<string, string>(), new Dictionary<string, string>(),
-            ChecksumSet.Empty, ct)).Value;
+        var seeded = Assert.IsType<Result<PutOutcome>.Success>(await objects.Put(new ObjectPutRequest(
+            "zulu-src", "k", new MemoryStream(payload), payload.Length, "text/plain", Ct: ct))).Value;
 
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -1,9 +1,12 @@
 using System.Diagnostics;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Vessel3.Primitives;
 using Vessel3.Server;
 using Vessel3.Server.Telemetry;
+using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -22,10 +25,10 @@ public class RequestTelemetryTests
             Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
-    private (RequestTelemetry Middleware, CapturingLogger Log) Build(int slowMs)
+    private (RequestTelemetry Middleware, CapturingLogger Log) Build(int slowMs, bool accessLog = false)
     {
         var log = new CapturingLogger();
-        return (new RequestTelemetry(new RequestTelemetryOptions(TimeSpan.FromMilliseconds(slowMs)), log, metrics), log);
+        return (new RequestTelemetry(new RequestTelemetryOptions(TimeSpan.FromMilliseconds(slowMs), accessLog), log, metrics), log);
     }
 
     private static DefaultHttpContext Context()
@@ -206,5 +209,80 @@ public class RequestTelemetryTests
         });
 
         Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public async Task LogAccess_Enabled_EmitsInformationAccessLogWithFullContext()
+    {
+        var (mw, log) = Build(slowMs: 1000, accessLog: true);
+        var ctx = Context();
+        ctx.Request.Method = "PUT";
+        ctx.Request.Path = "/photos/vacation.jpg";
+        ctx.Request.Headers["x-request-id"] = "req-custom-12345";
+        ctx.Items["CallerIdentity"] = new CallerIdentity("usr_1", "alice", UserRole.Admin, "AK1");
+
+        await mw.InvokeAsync(ctx, innerCtx =>
+        {
+            RequestTrace.SetContext(protocol: "s3");
+            RequestTrace.Current!.Action = "PutObject";
+            RequestTrace.Current.Bucket = "photos";
+            RequestTrace.Current.Key = "vacation.jpg";
+            innerCtx.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        });
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("HTTP PUT /photos/vacation.jpg -> 200", entry.Message);
+        Assert.Contains("action=PutObject", entry.Message);
+        Assert.Contains("proto=s3", entry.Message);
+        Assert.Contains("bucket=photos", entry.Message);
+        Assert.Contains("key=vacation.jpg", entry.Message);
+        Assert.Contains("actor=alice", entry.Message);
+        Assert.Contains("id=req-custom-12345", entry.Message);
+        Assert.Contains("in=42", entry.Message);
+    }
+
+    [Fact]
+    public async Task LogAccess_W3CTraceparent_ExtractsTraceId()
+    {
+        var (mw, log) = Build(slowMs: 1000, accessLog: true);
+        var ctx = Context();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/buckets";
+        ctx.Request.Headers["traceparent"] = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        await mw.InvokeAsync(ctx, innerCtx =>
+        {
+            RequestTrace.Current!.Action = "ListBuckets";
+            innerCtx.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        });
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Contains("id=4bf92f3577b34da6a3ce929d0e0e4736", entry.Message);
+    }
+
+    [Fact]
+    public async Task LogAccess_ClaimsIdentityUser_ResolvesActor()
+    {
+        var (mw, log) = Build(slowMs: 1000, accessLog: true);
+        var ctx = Context();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/v1/buckets";
+        ctx.User = new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.Name, "bob")], "test"));
+
+        await mw.InvokeAsync(ctx, innerCtx =>
+        {
+            RequestTrace.SetContext(protocol: "native");
+            RequestTrace.Current!.Action = "ListBuckets";
+            innerCtx.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        });
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Contains("actor=bob", entry.Message);
+        Assert.Contains("proto=native", entry.Message);
     }
 }

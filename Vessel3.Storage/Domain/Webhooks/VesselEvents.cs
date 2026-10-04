@@ -1,4 +1,5 @@
 using System.Globalization;
+using Vessel3.Primitives;
 
 namespace Vessel3.Storage;
 
@@ -24,7 +25,7 @@ internal static class VesselEvents
         string versionId,
         string blobSha,
         string contentType,
-        string protocol = "s3",
+        string? protocol = null,
         string? actor = null,
         string? host = null) =>
         CreateEvent(
@@ -39,9 +40,9 @@ internal static class VesselEvents
                 ["versionId"] = versionId,
                 ["blobSha"] = blobSha,
                 ["contentType"] = contentType,
-                ["protocol"] = protocol
+                ["protocol"] = protocol ?? RequestTrace.Current?.Protocol ?? "http"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent ObjectDeleted(
@@ -49,7 +50,7 @@ internal static class VesselEvents
         string key,
         string? versionId,
         bool isDeleteMarker,
-        string protocol = "s3",
+        string? protocol = null,
         string? actor = null,
         string? host = null) =>
         CreateEvent(
@@ -61,15 +62,15 @@ internal static class VesselEvents
                 ["key"] = key,
                 ["versionId"] = versionId ?? "null",
                 ["deleteMarker"] = isDeleteMarker ? "true" : "false",
-                ["protocol"] = protocol
+                ["protocol"] = protocol ?? RequestTrace.Current?.Protocol ?? "http"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent BucketCreated(
         string bucket,
         string? owner = null,
-        string protocol = "s3",
+        string? protocol = null,
         string? actor = null,
         string? host = null) =>
         CreateEvent(
@@ -79,14 +80,14 @@ internal static class VesselEvents
             {
                 ["bucket"] = bucket,
                 ["owner"] = owner ?? "anonymous",
-                ["protocol"] = protocol
+                ["protocol"] = protocol ?? RequestTrace.Current?.Protocol ?? "http"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent BucketDeleted(
         string bucket,
-        string protocol = "s3",
+        string? protocol = null,
         string? actor = null,
         string? host = null) =>
         CreateEvent(
@@ -95,9 +96,9 @@ internal static class VesselEvents
             new Dictionary<string, string>(2)
             {
                 ["bucket"] = bucket,
-                ["protocol"] = protocol
+                ["protocol"] = protocol ?? RequestTrace.Current?.Protocol ?? "http"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent ContainerImagePushed(
@@ -111,15 +112,16 @@ internal static class VesselEvents
         CreateEvent(
             VesselEventTypes.ContainerImagePushed,
             $"{repository}:{reference}",
-            new Dictionary<string, string>(5)
+            new Dictionary<string, string>(6)
             {
                 ["repository"] = repository,
                 ["reference"] = reference,
                 ["digest"] = digest,
                 ["mediaType"] = mediaType,
-                ["size"] = size.ToString(CultureInfo.InvariantCulture)
+                ["size"] = size.ToString(CultureInfo.InvariantCulture),
+                ["protocol"] = "oci"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent ContainerImageDeleted(
@@ -130,12 +132,13 @@ internal static class VesselEvents
         CreateEvent(
             VesselEventTypes.ContainerImageDeleted,
             $"{repository}:{reference}",
-            new Dictionary<string, string>(2)
+            new Dictionary<string, string>(3)
             {
                 ["repository"] = repository,
-                ["reference"] = reference
+                ["reference"] = reference,
+                ["protocol"] = "oci"
             },
-            actor,
+            actor ?? RequestTrace.Current?.Actor,
             host);
 
     public static VesselEvent UserCreated(
@@ -151,7 +154,7 @@ internal static class VesselEvents
                 ["userId"] = userId,
                 ["role"] = role
             },
-            actor ?? "admin",
+            actor ?? RequestTrace.Current?.Actor ?? "admin",
             host);
 
     public static VesselEvent UserDeleted(
@@ -165,7 +168,7 @@ internal static class VesselEvents
             {
                 ["userId"] = userId
             },
-            actor ?? "admin",
+            actor ?? RequestTrace.Current?.Actor ?? "admin",
             host);
 
     private static VesselEvent CreateEvent(
@@ -181,6 +184,6 @@ internal static class VesselEvents
             subject,
             DateTimeOffset.UtcNow,
             data,
-            Actor: actor ?? "anonymous",
+            Actor: actor ?? RequestTrace.Current?.Actor ?? "anonymous",
             Host: host);
 }

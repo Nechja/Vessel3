@@ -23,7 +23,7 @@ Container Repos are enabled by default and listen on the standard server port at
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `VESSEL3_CONTAINER_REPOS_ENABLED` | Boolean | `true` | Enables or disables the OCI container repo endpoints. Also accepts `VESSEL3_OCI_ENABLED`. |
+| `VESSEL3_OCI_ENABLED` | Boolean | `true` | Enables or disables the OCI container repo endpoints (`/v2/...`). |
 | `VESSEL3_DATA` | Path | `data` | The SQLite catalog database is stored under `<data>/oci/catalog.db`. |
 
 ---

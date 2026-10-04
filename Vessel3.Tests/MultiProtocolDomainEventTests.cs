@@ -107,14 +107,17 @@ public sealed class MultiProtocolDomainEventTests : IDisposable
         Assert.Equal("azure", azureEvent.Data!["protocol"]);
         Assert.Equal("bob", azureEvent.Actor);
 
+        RequestTrace.Current = new RequestTrace { Protocol = "webdav", Actor = "charlie" };
         var delRes = store.Delete("my-bucket", "docs/hello.txt");
+        RequestTrace.Current = null;
         Assert.True(delRes.TryGetValue(out _, out _));
 
         var delEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.ObjectDeleted);
         Assert.NotNull(delEvent);
         Assert.Equal("1.0", delEvent.SpecVersion);
         Assert.Equal("my-bucket/docs/hello.txt", delEvent.Subject);
-        Assert.Equal("s3", delEvent.Data!["protocol"]);
+        Assert.Equal("webdav", delEvent.Data!["protocol"]);
+        Assert.Equal("charlie", delEvent.Actor);
     }
 
     [Fact]
@@ -126,21 +129,34 @@ public sealed class MultiProtocolDomainEventTests : IDisposable
         var regOpts = new BucketRegistryOptions(testDir);
         using var registry = new BucketRegistry(regOpts, fileSync, durable, publisher);
 
-        var createRes = Assert.IsType<Result<bool>.Success>(registry.Create("cloud-bucket", "owner-123"));
-        Assert.True(createRes.Value);
+        RequestTrace.Current = new RequestTrace();
+        try
+        {
+            RequestTrace.SetContext(protocol: "native", actor: "admin-bob");
+            var createRes = Assert.IsType<Result<bool>.Success>(registry.Create("cloud-bucket", "owner-123"));
+            Assert.True(createRes.Value);
 
-        var createEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.BucketCreated);
-        Assert.NotNull(createEvent);
-        Assert.Equal("1.0", createEvent.SpecVersion);
-        Assert.Equal("cloud-bucket", createEvent.Subject);
-        Assert.Equal("owner-123", createEvent.Data!["owner"]);
+            var createEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.BucketCreated);
+            Assert.NotNull(createEvent);
+            Assert.Equal("1.0", createEvent.SpecVersion);
+            Assert.Equal("cloud-bucket", createEvent.Subject);
+            Assert.Equal("owner-123", createEvent.Data!["owner"]);
+            Assert.Equal("native", createEvent.Data["protocol"]);
+            Assert.Equal("admin-bob", createEvent.Actor);
 
-        var delRes = registry.Delete("cloud-bucket");
-        Assert.IsType<Result.OkResult>(delRes);
+            var delRes = registry.Delete("cloud-bucket");
+            Assert.IsType<Result.OkResult>(delRes);
 
-        var delEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.BucketDeleted);
-        Assert.NotNull(delEvent);
-        Assert.Equal("cloud-bucket", delEvent.Subject);
+            var delEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.BucketDeleted);
+            Assert.NotNull(delEvent);
+            Assert.Equal("cloud-bucket", delEvent.Subject);
+            Assert.Equal("native", delEvent.Data!["protocol"]);
+            Assert.Equal("admin-bob", delEvent.Actor);
+        }
+        finally
+        {
+            RequestTrace.Current = null;
+        }
     }
 
     [Fact]

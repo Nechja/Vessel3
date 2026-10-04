@@ -138,10 +138,9 @@ public sealed class RequestTraceTests : IDisposable
         var objects = new ObjectStore(registry, blobs, new PreconditionEvaluator(), gate);
         var payload = Encoding.UTF8.GetBytes("stage timing payload");
 
-        Assert.IsType<Result<PutOutcome>.Success>(await objects.Put(
+        Assert.IsType<Result<PutOutcome>.Success>(await objects.Put(new ObjectPutRequest(
             "bucket", "k", new MemoryStream(payload), payload.Length, "text/plain",
-            null, null, new Dictionary<string, string>(), new Dictionary<string, string>(),
-            ChecksumSet.Empty, TestContext.Current.CancellationToken));
+            Ct: TestContext.Current.CancellationToken)));
 
         Assert.True(trace.Ticks(Stage.Body) > 0);
         Assert.True(trace.Ticks(Stage.BlobSync) > 0);

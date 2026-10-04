@@ -5,7 +5,7 @@ namespace Vessel3.Protocols.Oci;
 
 internal interface IContainerRepoCatalog : IDisposable, IBlobReferenceSource
 {
-    string IBlobReferenceSource.ProtocolName => "ContainerRepos";
+    string IBlobReferenceSource.ProtocolName => "Oci";
 
     Result<ContainerRepo> GetOrCreateRepo(string repoName, string? ownerId = null);
     Result<ContainerRepo?> GetRepo(string repoName);

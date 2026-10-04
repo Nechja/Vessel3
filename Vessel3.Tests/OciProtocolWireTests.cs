@@ -80,7 +80,7 @@ public class OciProtocolWireTests : IAsyncDisposable
             MetricsToken: null,
             MetricsAllowAnonymous: true,
             Oidc: oidc,
-            ContainerReposEnabled: true);
+            OciEnabled: true);
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");

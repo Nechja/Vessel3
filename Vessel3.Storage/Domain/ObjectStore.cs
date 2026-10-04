@@ -6,7 +6,6 @@ namespace Vessel3.Storage;
 internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(ObjectPutRequest request);
-    Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null);
     Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null);
     Result<StoredObject> Get(string bucket, string key, string? versionId = null);
     Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
@@ -21,13 +20,10 @@ internal interface IObjectStore
 
 internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate, IWebhookEventPublisher? publisher = null, ILogger<ObjectStore>? logger = null) : IObjectStore
 {
-    public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null) =>
-        Put(new ObjectPutRequest(bucket, key, body, declaredSize, contentType, declaredSha256, declaredMd5Base64, metadata, tags, declaredChecksums, ct, retention, legalHoldOn, systemHeaders));
-
     public async Task<Result<PutOutcome>> Put(ObjectPutRequest req)
     {
         using var lease = await gate.Writing();
-        var written = await blobs.Write(req.Body, req.DeclaredSize, req.DeclaredChecksums.ToIntent(), req.Ct);
+        var written = await blobs.Write(req.Body, req.DeclaredSize, req.Checksums.ToIntent(), req.Ct);
         if (!written.TryGetValue(out var blob, out var blobErr))
             return blobErr;
 
@@ -40,31 +36,43 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
             return digestErr;
         }
 
-        return !ChecksumValidator.Validate(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
+        return !ChecksumValidator.Validate(blob, req.Checksums, req.Body, out var toStore, out var checksumErr)
             ? checksumErr
             : RecordPut(req, blob, toStore);
     }
 
-    private static Error? ValidateDigests(StoredBlob blob, string? declaredSha256, string? declaredMd5Base64) =>
-        declaredSha256 is not null && !string.Equals(blob.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase)
-            ? new BadDigestError($"sha256 declared {declaredSha256}, actual {blob.Sha}")
-            : declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal)
-                ? new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}")
-                : null;
+    private static Error? ValidateDigests(StoredBlob blob, string? declaredSha256, string? declaredMd5Base64)
+    {
+        if (declaredSha256 is not null && !string.Equals(blob.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase))
+            return new BadDigestError($"sha256 declared {declaredSha256}, actual {blob.Sha}");
 
-    public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId) =>
-        IsDeleteMarkerTarget(bucket, key, versionId)
-            ? new MethodNotAllowedError($"{bucket}/{key} target is a delete marker")
-            : !Lookup(bucket, key, versionId).TryGetValue(out var put, out var err)
-                ? err
-                : put is null
-                    ? new NoSuchKeyError(key)
-                    : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>());
+        if (declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal))
+            return new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}");
 
-    public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
-        IsDeleteMarkerTarget(bucket, key, versionId)
-            ? new MethodNotAllowedError($"{bucket}/{key} target is a delete marker")
-            : registry.PutTagging(bucket, key, versionId, tags);
+        return null;
+    }
+
+    public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId)
+    {
+        if (IsDeleteMarkerTarget(bucket, key, versionId))
+            return new MethodNotAllowedError($"{bucket}/{key} target is a delete marker");
+
+        if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
+            return err;
+
+        if (put is null)
+            return new NoSuchKeyError(key);
+
+        return new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>());
+    }
+
+    public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags)
+    {
+        if (IsDeleteMarkerTarget(bucket, key, versionId))
+            return new MethodNotAllowedError($"{bucket}/{key} target is a delete marker");
+
+        return registry.PutTagging(bucket, key, versionId, tags);
+    }
 
     private bool IsDeleteMarkerTarget(string bucket, string key, string? versionId) =>
         versionId is null
@@ -74,27 +82,39 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
     public Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId) =>
         PutTagging(bucket, key, versionId, new Dictionary<string, string>());
 
-    public Result<StoredObject> Get(string bucket, string key, string? versionId = null) =>
-        !Lookup(bucket, key, versionId).TryGetValue(out var put, out var err)
-            ? err
-            : put is null
-                ? new NoSuchKeyError(key)
-                : OpenBlob(put);
+    public Result<StoredObject> Get(string bucket, string key, string? versionId = null)
+    {
+        if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
+            return err;
 
-    public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null) =>
-        !Lookup(bucket, key, versionId).TryGetValue(out var put, out var err)
-            ? err
-            : put is null
-                ? new NoSuchKeyError(key)
-                : new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
+        if (put is null)
+            return new NoSuchKeyError(key);
 
-    public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null) =>
-        !Lookup(bucket, key, versionId).TryGetValue(out var put, out var err)
-            ? err
-            : put is null
-                ? new NoSuchKeyError(key)
-                : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
-                    new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders);
+        return OpenBlob(put);
+    }
+
+    public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null)
+    {
+        if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
+            return err;
+
+        if (put is null)
+            return new NoSuchKeyError(key);
+
+        return new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
+    }
+
+    public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null)
+    {
+        if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
+            return err;
+
+        if (put is null)
+            return new NoSuchKeyError(key);
+
+        return new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
+            new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders);
+    }
 
     private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>
         versionId is null
@@ -176,7 +196,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
             Md5: blob.Md5,
             Size: blob.Size,
             ContentType: resolved,
-            Metadata: req.Metadata,
+            Metadata: req.Metadata ?? new Dictionary<string, string>(),
             Tags: req.Tags,
             Crc32: toStore.Crc32,
             Crc32C: toStore.Crc32C,
@@ -190,7 +210,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
 
         publisher?.Publish(VesselEvents.ObjectCreated(
             req.Bucket, req.Key, blob.Size, entry.WireEtag, entry.VersionId, blob.Sha, resolved,
-            protocol: req.Protocol ?? "s3", actor: req.Actor, host: req.Host));
+            protocol: req.Protocol, actor: req.Actor, host: req.Host));
 
         return new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size, toStore);
     }

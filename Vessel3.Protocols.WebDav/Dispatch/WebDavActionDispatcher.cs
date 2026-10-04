@@ -35,7 +35,17 @@ internal sealed class WebDavActionDispatcher(
             }
         }
 
-        return await action.Execute(target, ctx);
+        var trace = RequestTrace.Current;
+        if (trace is not null)
+        {
+            trace.Action = target.Operation.ToString();
+            trace.Bucket = target.Bucket;
+            trace.Key = target.Path;
+        }
+
+        var result = await action.Execute(target, ctx);
+        trace?.MarkHandled();
+        return result;
     }
 
     private static BucketCapability ResolveCapability(WebDavOperationKind op) => op switch

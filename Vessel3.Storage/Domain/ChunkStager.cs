@@ -16,12 +16,20 @@ internal sealed class ChunkStager(
     IDurableWrite durableWrite,
     IGcGate gate) : IChunkStager
 {
-    public Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata) =>
-        registry.Exists(bucket).Match<Result<StagedSession>>(
-            exists => !exists ? new NoSuchBucketError(bucket)
-                : string.IsNullOrEmpty(key) ? new InvalidPathError($"{bucket}/{key}")
-                : CreateSessionInternal(bucket, key, contentType, metadata),
-            err => err);
+    public Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
+    {
+        var existsResult = registry.Exists(bucket);
+        if (!existsResult.TryGetValue(out var exists, out var err))
+            return err;
+
+        if (!exists)
+            return new NoSuchBucketError(bucket);
+
+        if (string.IsNullOrEmpty(key))
+            return new InvalidPathError($"{bucket}/{key}");
+
+        return CreateSessionInternal(bucket, key, contentType, metadata);
+    }
 
     public async Task<Result<StagedChunk>> StageChunk(
         string sessionId,
