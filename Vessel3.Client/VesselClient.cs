@@ -459,7 +459,6 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
                     }
                     catch
                     {
-                        // Ignore malformed event payload
                     }
 
                     if (evt is not null)

@@ -123,7 +123,6 @@ public sealed partial class OtlpTraceExporter : BackgroundService
             }
         }
 
-        // Flush remaining
         while (channel.Reader.TryRead(out var span))
         {
             batch.Add(span);
