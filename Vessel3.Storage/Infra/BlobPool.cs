@@ -1,7 +1,4 @@
 #pragma warning disable CA5350
-using System.Buffers;
-using System.Collections.Concurrent;
-using System.Security.Cryptography;
 
 namespace Vessel3.Storage;
 
@@ -26,236 +23,142 @@ internal interface IBlobPool
     int ReapAbandonedTempFiles(DateTime cutoffUtc);
 }
 
-internal sealed class BlobPool(BlobPoolOptions options, IFileSync fileSync) : IBlobPool
+internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog) : IBlobPool
 {
-    private readonly string tmpDir = Path.Combine(options.Root, "tmp");
-    private readonly ConcurrentDictionary<string, bool> ensuredDirs = new();
-    private bool tmpDirEnsured;
+    public BlobPool(BlobPoolOptions options, IFileSync fileSync)
+        : this(new VolumeRegistry([new StorageVolume("default", options.Root, "default", VolumeCapabilities.Ingest)], fileSync), new MemoryBlobLocationCatalog())
+    {
+    }
 
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
-        if (!tmpDirEnsured)
-        {
-            Directory.CreateDirectory(tmpDir);
-            tmpDirEnsured = true;
-        }
-        var tempPath = Path.Combine(tmpDir, Guid.NewGuid().ToString("N"));
-        var moved = false;
+        var targetVolume = registry.DefaultIngestVolume;
+        var storage = registry.GetStorage(targetVolume.Id);
+        var writeResult = await storage.WriteStagedBlobAsync(source, declaredSize, intent, ct);
 
-        try
-        {
-            long total;
-            string sha;
-            string md5;
-            string? crc32hex = null;
-            string? crc32chex = null;
-            string? sha1hex = null;
+        if (!writeResult.TryGetValue(out var stored, out var err))
+            return err;
 
-            await using (var temp = new FileStream(tempPath, new FileStreamOptions
-            {
-                Mode = FileMode.CreateNew,
-                Access = FileAccess.Write,
-                Share = FileShare.None,
-                BufferSize = 81920,
-                Options = FileOptions.Asynchronous,
-                PreallocationSize = declaredSize ?? 0,
-            }))
-            {
-                using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                using var md5Hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-                using var sha1 = intent.Sha1 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA1) : null;
-                var crc32 = intent.Crc32 ? new System.IO.Hashing.Crc32() : null;
-                var crc32c = intent.Crc32C ? new Crc32C() : default;
-                var buf = ArrayPool<byte>.Shared.Rent(81920);
-                total = 0;
-                try
-                {
-                    int n;
-                    using (RequestTrace.Time(Stage.Body))
-                    {
-                        while ((n = await source.ReadAsync(buf.AsMemory(0, 81920), ct)) > 0)
-                        {
-                            var span = buf.AsSpan(0, n);
-                            sha256.AppendData(span);
-                            md5Hash.AppendData(span);
-                            sha1?.AppendData(span);
-                            crc32?.Append(span);
-                            if (intent.Crc32C) crc32c.Append(span);
-                            await temp.WriteAsync(buf.AsMemory(0, n), ct);
-                            total += n;
-                        }
-                    }
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(buf);
-                }
-
-                Span<byte> sha256Bytes = stackalloc byte[32];
-                sha256.GetHashAndReset(sha256Bytes);
-                sha = Convert.ToHexStringLower(sha256Bytes);
-
-                Span<byte> md5Bytes = stackalloc byte[16];
-                md5Hash.GetHashAndReset(md5Bytes);
-                md5 = Convert.ToHexStringLower(md5Bytes);
-
-                if (sha1 is not null)
-                {
-                    Span<byte> sha1Bytes = stackalloc byte[20];
-                    sha1.GetHashAndReset(sha1Bytes);
-                    sha1hex = Convert.ToHexStringLower(sha1Bytes);
-                }
-
-                if (crc32 is not null) crc32hex = ChecksumAlgorithms.CrcUInt32ToHex(crc32.GetCurrentHashAsUInt32());
-                if (intent.Crc32C) crc32chex = ChecksumAlgorithms.CrcUInt32ToHex(crc32c.GetCurrentHashAndReset());
-                using (RequestTrace.Time(Stage.BlobSync))
-                {
-                    if (fileSync.SyncData(temp) is Result.Failure df) return df.Error;
-                }
-            }
-
-            if (declaredSize is { } expected && total != expected)
-                return new IncompleteBodyError(expected, total);
-
-            var finalPath = PathFor(sha);
-            var finalDir = Path.GetDirectoryName(finalPath)!;
-            using var publish = RequestTrace.Time(Stage.BlobSync);
-            if (!ensuredDirs.ContainsKey(finalDir))
-            {
-                if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;
-                ensuredDirs.TryAdd(finalDir, true);
-            }
-
-            try
-            {
-                File.Move(tempPath, finalPath, overwrite: false);
-                moved = true;
-            }
-            catch (IOException) when (File.Exists(finalPath))
-            {
-                moved = true;
-                TryDelete(tempPath);
-            }
-
-            return fileSync.SyncDirectory(finalDir) is Result.Failure ef
-                ? ef.Error
-                : new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
-        }
-        catch (IOException ex) when (IsOutOfSpace(ex))
-        {
-            return new InsufficientStorageError(ex.Message);
-        }
-        finally
-        {
-            if (!moved) TryDelete(tempPath);
-        }
-    }
-
-    private static bool IsOutOfSpace(IOException ex) =>
-        ex.HResult is unchecked((int)0x80070027) or unchecked((int)0x80070070)
-            || ex.Message.Contains("No space left", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("disk is full", StringComparison.OrdinalIgnoreCase);
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
-
-    public int ReapAbandonedTempFiles(DateTime cutoffUtc)
-    {
-        var tmpDir = Path.Combine(options.Root, "tmp");
-        if (!Directory.Exists(tmpDir)) return 0;
-        var reaped = 0;
-        foreach (var file in Directory.EnumerateFiles(tmpDir))
-        {
-            try
-            {
-                if (File.GetLastWriteTimeUtc(file) < cutoffUtc)
-                {
-                    File.Delete(file);
-                    reaped++;
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-        return reaped;
+        catalog.RecordLocation(stored.Sha, targetVolume.Id);
+        return stored;
     }
 
     public Result<Stream> Open(string sha)
     {
-        var path = PathFor(sha);
-        try
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null)
         {
-            return new FileStream(path, new FileStreamOptions
-            {
-                Mode = FileMode.Open,
-                Access = FileAccess.Read,
-                Share = FileShare.Read,
-                BufferSize = 81920,
-                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
-            });
+            var storage = registry.GetStorage(locatedVolumeId);
+            var openResult = storage.OpenBlobAsync(sha).GetAwaiter().GetResult();
+            if (openResult.TryGetValue(out var s, out _)) return s;
+            catalog.RemoveLocation(sha);
         }
-        catch (FileNotFoundException)
+
+        foreach (var vol in registry.ReadPriorityVolumes)
         {
-            return new NotFoundError($"blob {sha}");
+            var storage = registry.GetStorage(vol.Id);
+            var openResult = storage.OpenBlobAsync(sha).GetAwaiter().GetResult();
+            if (!openResult.TryGetValue(out var s, out _)) continue;
+
+            catalog.RecordLocation(sha, vol.Id);
+            return s;
         }
-        catch (DirectoryNotFoundException)
-        {
-            return new NotFoundError($"blob {sha}");
-        }
+
+        return new NotFoundError($"blob {sha}");
     }
 
-    public bool Exists(string sha) => File.Exists(PathFor(sha));
-
-    public DateTime? GetLastWriteUtc(string sha)
+    public bool Exists(string sha)
     {
-        var path = PathFor(sha);
-        return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null)
+        {
+            var storage = registry.GetStorage(locatedVolumeId);
+            if (storage.BlobExistsAsync(sha).GetAwaiter().GetResult())
+                return true;
+            catalog.RemoveLocation(sha);
+        }
+
+        foreach (var vol in registry.ReadPriorityVolumes)
+        {
+            var storage = registry.GetStorage(vol.Id);
+            if (!storage.BlobExistsAsync(sha).GetAwaiter().GetResult()) continue;
+
+            catalog.RecordLocation(sha, vol.Id);
+            return true;
+        }
+
+        return false;
     }
 
     public Result<bool> Delete(string sha)
     {
-        var path = PathFor(sha);
-        if (!File.Exists(path)) return false;
-        File.Delete(path);
-        return true;
+        var deletedAny = false;
+        foreach (var vol in registry.Volumes)
+        {
+            var storage = registry.GetStorage(vol.Id);
+            if (storage.DeleteBlobAsync(sha).GetAwaiter().GetResult() is Result<bool>.Success { Value: true })
+                deletedAny = true;
+        }
+
+        catalog.RemoveLocation(sha);
+        return deletedAny;
     }
 
     public IEnumerable<string> EnumerateShards()
     {
-        var rootFull = Path.GetFullPath(options.Root);
-        if (!Directory.Exists(rootFull)) yield break;
-        foreach (var dir in Directory.EnumerateDirectories(rootFull))
+        HashSet<string> shards = new(StringComparer.Ordinal);
+        foreach (var vol in registry.Volumes)
         {
-            var name = Path.GetFileName(dir);
-            if (name.Length == 2 && name.All(IsHexLower)) yield return name;
+            var storage = registry.GetStorage(vol.Id);
+            foreach (var shard in storage.EnumerateShards())
+                shards.Add(shard);
         }
+        return shards;
     }
 
     public IEnumerable<string> Enumerate(string shard)
     {
-        var dir = Path.Combine(Path.GetFullPath(options.Root), shard);
-        if (!Directory.Exists(dir)) yield break;
-        foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        HashSet<string> shas = new(StringComparer.Ordinal);
+        foreach (var vol in registry.Volumes)
         {
-            var name = Path.GetFileName(path);
-            if (IsLikelySha(name)) yield return name;
+            var storage = registry.GetStorage(vol.Id);
+            foreach (var sha in storage.Enumerate(shard))
+            {
+                catalog.RecordLocation(sha, vol.Id);
+                shas.Add(sha);
+            }
         }
+        return shas;
     }
 
-    private string PathFor(string sha) =>
-        Path.Combine(options.Root, sha[..2], sha[2..4], sha);
+    public DateTime? GetLastWriteUtc(string sha)
+    {
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null)
+        {
+            var storage = registry.GetStorage(locatedVolumeId);
+            var mtime = storage.GetLastWriteUtc(sha);
+            if (mtime is not null) return mtime;
+        }
 
-    private bool IsLikelySha(string name) =>
-        name.Length == 64 && name.All(IsHexLower);
+        foreach (var vol in registry.ReadPriorityVolumes)
+        {
+            var storage = registry.GetStorage(vol.Id);
+            var mtime = storage.GetLastWriteUtc(sha);
+            if (mtime is not null) return mtime;
+        }
 
-    private static bool IsHexLower(char c) => c is (>= '0' and <= '9') or (>= 'a' and <= 'f');
+        return null;
+    }
+
+    public int ReapAbandonedTempFiles(DateTime cutoffUtc)
+    {
+        var reaped = 0;
+        foreach (var vol in registry.Volumes)
+        {
+            var storage = registry.GetStorage(vol.Id);
+            reaped += storage.ReapAbandonedTempFiles(cutoffUtc);
+        }
+        return reaped;
+    }
 }

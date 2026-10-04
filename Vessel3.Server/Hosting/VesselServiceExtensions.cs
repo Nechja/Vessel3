@@ -41,7 +41,11 @@ internal static class VesselServiceExtensions
     {
         services.AddSingleton<IFileSync>(OperatingSystem.IsLinux() ? new PosixFileSync() : new PortableFileSync());
         services.AddSingleton<IDurableWrite, DurableWrite>();
-        services.AddSingleton<IBlobPool, BlobPool>();
+        services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
+        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(config.Volumes ?? [new StorageVolume("default", Path.Combine(config.DataRoot, "blobs"), "default", VolumeCapabilities.Ingest)], sp.GetRequiredService<IFileSync>()));
+        services.AddSingleton<IBlobPool>(sp => new BlobPool(
+            sp.GetRequiredService<IVolumeRegistry>(),
+            sp.GetRequiredService<IBlobLocationCatalog>()));
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
         services.AddSingleton<IIdentityRegistry>(sp =>

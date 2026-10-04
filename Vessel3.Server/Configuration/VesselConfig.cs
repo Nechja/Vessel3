@@ -25,7 +25,8 @@ internal sealed record VesselConfig(
     LogLevel LogLevel = LogLevel.Information,
     bool AccessLogEnabled = true,
     string? NodeId = null,
-    OtelConfig? Otel = null)
+    OtelConfig? Otel = null,
+    IReadOnlyList<StorageVolume>? Volumes = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -77,6 +78,8 @@ internal sealed record VesselConfig(
         var otelServiceName = ReadString("VESSEL3_OTEL_SERVICE_NAME", "vessel3")!;
         var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
 
+        var volumes = ReadVolumes("VESSEL3_VOLUMES", dataRoot);
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -99,7 +102,8 @@ internal sealed record VesselConfig(
             logLevel,
             accessLogEnabled,
             nodeId,
-            otel);
+            otel,
+            volumes);
 
         error = null;
         return true;
@@ -173,5 +177,44 @@ internal sealed record VesselConfig(
             ? []
             : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct()];
+    }
+
+    private static IReadOnlyList<StorageVolume> ReadVolumes(string name, string dataRoot)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(raw))
+            return [new StorageVolume("default", Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest)];
+
+        List<StorageVolume> list = [];
+        var parts = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var part in parts)
+        {
+            var tokens = part.Split(':', StringSplitOptions.TrimEntries);
+            if (tokens.Length < 2) continue;
+
+            var id = tokens[0];
+            var path = tokens[1];
+            var pool = tokens.Length > 2 && !string.IsNullOrWhiteSpace(tokens[2]) ? tokens[2] : "default";
+            var flags = VolumeCapabilities.None;
+
+            if (tokens.Length > 3)
+            {
+                var flagTokens = tokens[3].Split('+', StringSplitOptions.TrimEntries);
+                foreach (var ft in flagTokens)
+                {
+                    if (Enum.TryParse<VolumeCapabilities>(ft, ignoreCase: true, out var parsedFlag))
+                        flags |= parsedFlag;
+                }
+            }
+
+            if (flags == VolumeCapabilities.None)
+                flags = VolumeCapabilities.Ingest;
+
+            list.Add(new StorageVolume(id, path, pool, flags));
+        }
+
+        return list.Count > 0
+            ? list
+            : [new StorageVolume("default", Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest)];
     }
 }
