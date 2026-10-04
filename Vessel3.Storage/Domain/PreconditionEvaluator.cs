@@ -35,10 +35,9 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
         if (IsMatchFailed(rules.IfMatch, etag) || IsUnmodifiedFailed(rules.IfUnmodifiedSince, lastModSec))
             return Precondition.Failed;
 
-        if (IsNoneMatchHit(rules.IfNoneMatch, etag) || IsModifiedSinceHit(rules.IfNoneMatch, rules.IfModifiedSince, lastModSec))
-            return Precondition.NotModified;
-
-        return Precondition.Pass;
+        return IsNoneMatchHit(rules.IfNoneMatch, etag) || IsModifiedSinceHit(rules.IfNoneMatch, rules.IfModifiedSince, lastModSec)
+            ? Precondition.NotModified
+            : Precondition.Pass;
     }
 
     public Precondition EvaluateForWrite(WritePreconditions rules, string? currentEtag) =>

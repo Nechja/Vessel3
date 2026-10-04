@@ -1,4 +1,3 @@
-using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -150,21 +149,21 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
             string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
         {
-            return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret))
-                ? CallerIdentity.System
-                : new OciUnauthorizedError("Invalid access key or secret");
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret)))
+                return new OciUnauthorizedError("Invalid access key or secret");
+
+            return CallerIdentity.System;
         }
 
-        if (identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null)
-        {
-            var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-            return !CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes)
-                ? new OciUnauthorizedError("Invalid access key or secret")
-                : identity.AuthenticateAccessKey(key);
-        }
+        if (!identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) || keyEntry is null)
+            return new OciUnauthorizedError("Invalid credentials");
 
-        return new OciUnauthorizedError("Invalid credentials");
+        var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
+        var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
+        if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
+            return new OciUnauthorizedError("Invalid access key or secret");
+
+        return identity.AuthenticateAccessKey(key);
     }
 
     private static bool TryDecodeBasic(string basicStr, out string key, out string secret)

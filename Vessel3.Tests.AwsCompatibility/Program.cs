@@ -1968,7 +1968,9 @@ static string Crc32CB64(byte[] data)
     var bytes = new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
     return Convert.ToBase64String(bytes);
 }
+#pragma warning disable CA5350 // AWS S3 checksum test requires SHA1
 static string Sha1B64(byte[] data) => Convert.ToBase64String(SHA1.HashData(data));
+#pragma warning restore CA5350
 static string Sha256B64(byte[] data) => Convert.ToBase64String(SHA256.HashData(data));
 
 await Run("ChecksumCrc32", async () =>

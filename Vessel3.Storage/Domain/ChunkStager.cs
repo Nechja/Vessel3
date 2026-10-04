@@ -25,10 +25,9 @@ internal sealed class ChunkStager(
         if (!exists)
             return new NoSuchBucketError(bucket);
 
-        if (string.IsNullOrEmpty(key))
-            return new InvalidPathError($"{bucket}/{key}");
-
-        return CreateSessionInternal(bucket, key, contentType, metadata);
+        return string.IsNullOrEmpty(key)
+            ? new InvalidPathError($"{bucket}/{key}")
+            : CreateSessionInternal(bucket, key, contentType, metadata);
     }
 
     public async Task<Result<StagedChunk>> StageChunk(

@@ -1,6 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-using Microsoft.Extensions.Logging;
-
 namespace Vessel3.Storage;
 
 internal interface IObjectStore
@@ -46,10 +43,10 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (declaredSha256 is not null && !string.Equals(blob.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"sha256 declared {declaredSha256}, actual {blob.Sha}");
 
-        if (declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, Convert.ToBase64String(Convert.FromHexString(blob.Md5)), StringComparison.Ordinal))
-            return new BadDigestError($"md5 declared {declaredMd5Base64}, actual {Convert.ToBase64String(Convert.FromHexString(blob.Md5))}");
-
-        return null;
+        var actualMd5 = Convert.ToBase64String(Convert.FromHexString(blob.Md5));
+        return declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, actualMd5, StringComparison.Ordinal)
+            ? new BadDigestError($"md5 declared {declaredMd5Base64}, actual {actualMd5}")
+            : null;
     }
 
     public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId)
@@ -60,19 +57,15 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        if (put is null)
-            return new NoSuchKeyError(key);
-
-        return new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>());
+        return put is null
+            ? new NoSuchKeyError(key)
+            : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>());
     }
 
-    public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags)
-    {
-        if (IsDeleteMarkerTarget(bucket, key, versionId))
-            return new MethodNotAllowedError($"{bucket}/{key} target is a delete marker");
-
-        return registry.PutTagging(bucket, key, versionId, tags);
-    }
+    public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
+        IsDeleteMarkerTarget(bucket, key, versionId)
+            ? new MethodNotAllowedError($"{bucket}/{key} target is a delete marker")
+            : registry.PutTagging(bucket, key, versionId, tags);
 
     private bool IsDeleteMarkerTarget(string bucket, string key, string? versionId) =>
         versionId is null
@@ -87,10 +80,9 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        if (put is null)
-            return new NoSuchKeyError(key);
-
-        return OpenBlob(put);
+        return put is null
+            ? new NoSuchKeyError(key)
+            : OpenBlob(put);
     }
 
     public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null)
@@ -98,10 +90,9 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        if (put is null)
-            return new NoSuchKeyError(key);
-
-        return new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
+        return put is null
+            ? new NoSuchKeyError(key)
+            : new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
     }
 
     public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null)
@@ -109,11 +100,10 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        if (put is null)
-            return new NoSuchKeyError(key);
-
-        return new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
-            new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders);
+        return put is null
+            ? new NoSuchKeyError(key)
+            : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
+                new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders);
     }
 
     private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>

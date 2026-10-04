@@ -13,7 +13,7 @@
     <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
 
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA5350</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup>
