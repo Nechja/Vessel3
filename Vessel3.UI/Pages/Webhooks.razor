@@ -199,9 +199,13 @@
             <div class="field">
                 <label>Supported Event Topics</label>
                 <ul class="mono muted" style="font-size: var(--text-xs); line-height: 1.8; margin: 0; padding-left: var(--space-4);">
+                    <li><strong style="color: var(--color-text);">object.created</strong> &mdash; Object uploaded via S3, Azure, WebDAV, or Native API</li>
+                    <li><strong style="color: var(--color-text);">object.deleted</strong> &mdash; Object or version deleted</li>
+                    <li><strong style="color: var(--color-text);">bucket.created</strong> &mdash; Bucket provisioned</li>
+                    <li><strong style="color: var(--color-text);">bucket.deleted</strong> &mdash; Bucket removed</li>
                     <li><strong style="color: var(--color-text);">container.image.pushed</strong> &mdash; Fired when a docker/podman push completes</li>
                     <li><strong style="color: var(--color-text);">container.image.deleted</strong> &mdash; Fired when a manifest tag is removed</li>
-                    <li><strong style="color: var(--color-text);">storage.object.created</strong> &mdash; Object uploaded via S3 or Native API</li>
+                    <li><strong style="color: var(--color-text);">user.created</strong> &mdash; IAM user created</li>
                     <li><strong style="color: var(--color-text);">*</strong> &mdash; Match all domain event types</li>
                 </ul>
             </div>
@@ -235,10 +239,13 @@
             </div>
             <div class="field">
                 <label>Event Filters (comma separated)</label>
-                <input class="input mono" @bind="newEventsText" placeholder="container.image.pushed, container.image.deleted" />
-                <div class="row" style="gap: var(--space-2); margin-top: var(--space-1);">
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.image.pushed")">+ pushed</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.image.pushed, container.image.deleted")">+ all container</button>
+                <input class="input mono" @bind="newEventsText" placeholder="object.*, container.*" />
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-1); flex-wrap: wrap;">
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.*")">+ all objects</button>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.created")">+ object created</button>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "bucket.*")">+ buckets</button>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.image.pushed")">+ image pushed</button>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.*")">+ all container</button>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "*")">+ all events (*)</button>
                 </div>
             </div>

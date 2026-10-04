@@ -12,13 +12,15 @@ internal sealed class IdentityRegistry : IIdentityRegistry
     private readonly TimeProvider clock;
     private readonly Lock gate = new();
     private SqliteConnection? conn;
+    private readonly IWebhookEventPublisher? publisher;
     private bool disposed;
 
     public IdentityRegistry(IdentityOptions options) : this(options, TimeProvider.System) { }
 
-    public IdentityRegistry(IdentityOptions options, TimeProvider clock)
+    public IdentityRegistry(IdentityOptions options, TimeProvider clock, IWebhookEventPublisher? publisher = null)
     {
         this.clock = clock;
+        this.publisher = publisher;
         dbPath = Path.Combine(options.Root, "iam.db");
         InitializeDatabase();
     }
@@ -39,6 +41,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         if (string.IsNullOrWhiteSpace(username))
             return new InvalidArgumentError("Username cannot be empty");
 
+        User user;
         lock (gate)
         {
             EnsureOpen();
@@ -60,8 +63,11 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             cmd.Parameters.AddWithValue("@created_at", now.ToString("O"));
             cmd.ExecuteNonQuery();
 
-            return new User(id, username, role, UserStatus.Active, now);
+            user = new User(id, username, role, UserStatus.Active, now);
         }
+
+        publisher?.Publish(VesselEvents.UserCreated(user.Id, role.ToString()));
+        return user;
     }
 
     public Result<User?> GetUser(string userId)
@@ -145,10 +151,12 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = "DELETE FROM users WHERE id = @id;";
             cmd.Parameters.AddWithValue("@id", userId);
-            return cmd.ExecuteNonQuery() == 0
-                ? new NotFoundError($"User {userId}")
-                : Result.Ok;
+            if (cmd.ExecuteNonQuery() == 0)
+                return new NotFoundError($"User {userId}");
         }
+
+        publisher?.Publish(VesselEvents.UserDeleted(userId));
+        return Result.Ok;
     }
 
     public Result<AccessKey> CreateAccessKey(string userId, string? description = null, TimeSpan? ttl = null)

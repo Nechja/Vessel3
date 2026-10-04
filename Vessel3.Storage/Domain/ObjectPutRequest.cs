@@ -14,4 +14,7 @@ internal sealed record ObjectPutRequest(
     CancellationToken Ct,
     Retention? Retention = null,
     bool LegalHoldOn = false,
-    IReadOnlyDictionary<string, string>? SystemHeaders = null);
+    IReadOnlyDictionary<string, string>? SystemHeaders = null,
+    string? Protocol = null,
+    string? Actor = null,
+    string? Host = null);

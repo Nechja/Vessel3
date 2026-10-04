@@ -55,10 +55,12 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         try
         {
             var systemHeaders = S3HeaderCodec.ExtractSystemHeaders(req.Headers);
+            var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
             var putReq = new ObjectPutRequest(
                 bucket, key, body, declaredLength, req.ContentType,
                 declaredSha, declaredMd5OrNull, metadata, initialTags,
-                declaredChecksums, ct, initialRetention, initialHold, systemHeaders);
+                declaredChecksums, ct, initialRetention, initialHold, systemHeaders,
+                Protocol: "s3", Actor: caller, Host: req.Host.Value);
             result = await objects.Put(putReq);
         }
         catch (InvalidDataException ex)

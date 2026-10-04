@@ -117,18 +117,21 @@ internal static class ObjectEndpoints
 
             var metadata = NativeHeaderCodec.ExtractMetadata(ctx.Request.Headers);
 
-            var result = await objects.Put(
+            var result = await objects.Put(new ObjectPutRequest(
                 bucket,
                 key,
                 ctx.Request.Body,
                 ctx.Request.ContentLength,
                 ctx.Request.ContentType,
-                declaredSha256: null,
-                declaredMd5Base64: null,
-                metadata,
-                tags: new Dictionary<string, string>(),
-                declaredChecksums: ChecksumSet.Empty,
-                ctx.RequestAborted);
+                DeclaredSha256: null,
+                DeclaredMd5Base64: null,
+                Metadata: metadata,
+                Tags: new Dictionary<string, string>(),
+                DeclaredChecksums: ChecksumSet.Empty,
+                Ct: ctx.RequestAborted,
+                Protocol: "native",
+                Actor: caller?.Username,
+                Host: ctx.Request.Host.Value));
 
             return result.Match(
                 res => Results.Json(new PutObjectResultDto(res.Etag, res.VersionId, res.Size, res.Sha256), NativeJsonContext.Default.PutObjectResultDto),

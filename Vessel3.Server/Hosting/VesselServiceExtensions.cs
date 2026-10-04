@@ -51,7 +51,7 @@ internal static class VesselServiceExtensions
         {
             var options = sp.GetRequiredService<IdentityOptions>();
             var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
-            var reg = new IdentityRegistry(options, clock);
+            var reg = new IdentityRegistry(options, clock, sp.GetService<IWebhookEventPublisher>());
             if (config.AccessKey is not null && config.SecretKey is not null)
                 reg.EnsureBootstrapAdmin(config.AccessKey, config.SecretKey);
             if (config.AdminUsers is { Count: > 0 } admins)

@@ -59,8 +59,12 @@
   </ItemGroup>
 
   <Target Name="PublishUI" Condition="'$(EmbedUi)' == 'true'" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames" Inputs="@(UISource)" Outputs="$(UIPublishDir)wwwroot/index.html">
+    <PropertyGroup>
+      <EffectiveDotnetHome Condition="'$(DOTNET_CLI_HOME)' != ''">$(DOTNET_CLI_HOME)</EffectiveDotnetHome>
+      <EffectiveDotnetHome Condition="'$(DOTNET_CLI_HOME)' == ''">$(MSBuildThisFileDirectory)..\.dotnet-home</EffectiveDotnetHome>
+    </PropertyGroup>
     <Message Importance="high" Text="Publishing Vessel3.UI -> $(UIPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) --artifacts-path &quot;$(UIArtifactsDir)&quot; -o &quot;$(UIPublishDir)&quot; --nologo -v q" />
+    <Exec EnvironmentVariables="DOTNET_CLI_HOME=$(EffectiveDotnetHome)" Command="dotnet publish &quot;$(UIProject)&quot; -c $(Configuration) -o &quot;$(UIPublishDir)&quot; --no-restore --no-build --nologo -v q" />
   </Target>
 
   <Target Name="EmbedUIAssets" Condition="'$(EmbedUi)' == 'true'" DependsOnTargets="PublishUI" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;PrepareResourceNames">

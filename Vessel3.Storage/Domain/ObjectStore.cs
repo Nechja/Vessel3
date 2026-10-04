@@ -18,7 +18,7 @@ internal interface IObjectStore
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
 }
 
-internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate) : IObjectStore
+internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate, IWebhookEventPublisher? publisher = null) : IObjectStore
 {
     public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null) =>
         Put(new ObjectPutRequest(bucket, key, body, declaredSize, contentType, declaredSha256, declaredMd5Base64, metadata, tags, declaredChecksums, ct, retention, legalHoldOn, systemHeaders));
@@ -33,7 +33,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                 ? digestErr
                 : !ChecksumValidator.Validate(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
                     ? checksumErr
-                    : RecordPut(req.Bucket, req.Key, blob, req.ContentType, req.Metadata, req.Tags, toStore, req.Retention, req.LegalHoldOn, req.SystemHeaders);
+                    : RecordPut(req, blob, toStore);
     }
 
     private static Error? ValidateDigests(StoredBlob blob, string? declaredSha256, string? declaredMd5Base64) =>
@@ -92,14 +92,36 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             ? registry.GetCurrentPut(bucket, key)
             : registry.GetVersion(bucket, key, versionId);
 
-    public Result<DeleteOutcome> Delete(string bucket, string key, bool bypassGovernance = false) =>
-        registry.AppendDelete(bucket, key, bypassGovernance);
+    public Result<DeleteOutcome> Delete(string bucket, string key, bool bypassGovernance = false)
+    {
+        var result = registry.AppendDelete(bucket, key, bypassGovernance);
+        if (result.TryGetValue(out var outcome, out _))
+            publisher?.Publish(VesselEvents.ObjectDeleted(bucket, key, outcome.VersionId, outcome.IsDeleteMarker));
+        return result;
+    }
 
-    public Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId, bool bypassGovernance = false) =>
-        registry.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
+    public Result<DeleteOutcome> DeleteVersion(string bucket, string key, string versionId, bool bypassGovernance = false)
+    {
+        var result = registry.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
+        if (result.TryGetValue(out var outcome, out _))
+            publisher?.Publish(VesselEvents.ObjectDeleted(bucket, key, outcome.VersionId, outcome.IsDeleteMarker));
+        return result;
+    }
 
-    public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) =>
-        registry.DeleteBatch(bucket, items);
+    public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items)
+    {
+        var result = registry.DeleteBatch(bucket, items);
+        if (!result.TryGetValue(out var outcomes, out _))
+            return result;
+
+        for (var i = 0; i < items.Count && i < outcomes.Count; i++)
+        {
+            if (outcomes[i].TryGetValue(out var outcome, out _))
+                publisher?.Publish(VesselEvents.ObjectDeleted(bucket, items[i].Key, outcome.VersionId, outcome.IsDeleteMarker));
+        }
+
+        return result;
+    }
 
     public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null)
     {
@@ -128,31 +150,40 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
             Tags: tagsOverride ?? srcEntry.Tags,
             SystemHeaders: srcEntry.SystemHeaders);
 
-        return !registry.AppendPut(destBucket, destKey, putReq).TryGetValue(out var written, out var putErr)
-            ? putErr
-            : new CopyOutcome(written.WireEtag, written.At, written.VersionId);
+        if (!registry.AppendPut(destBucket, destKey, putReq).TryGetValue(out var written, out var putErr))
+            return putErr;
+
+        publisher?.Publish(VesselEvents.ObjectCreated(
+            destBucket, destKey, srcEntry.Size, written.WireEtag, written.VersionId, srcEntry.BlobSha, srcEntry.ContentType));
+
+        return new CopyOutcome(written.WireEtag, written.At, written.VersionId);
     }
 
-    private Result<PutOutcome> RecordPut(string bucket, string key, StoredBlob blob, string? contentType, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet toStore, Retention? retention, bool legalHoldOn, IReadOnlyDictionary<string, string>? systemHeaders)
+    private Result<PutOutcome> RecordPut(ObjectPutRequest req, StoredBlob blob, ChecksumSet toStore)
     {
-        var resolved = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType;
+        var resolved = string.IsNullOrEmpty(req.ContentType) ? "application/octet-stream" : req.ContentType;
         var putReq = new PutRequest(
             BlobSha: blob.Sha,
             Md5: blob.Md5,
             Size: blob.Size,
             ContentType: resolved,
-            Metadata: metadata,
-            Tags: tags,
+            Metadata: req.Metadata,
+            Tags: req.Tags,
             Crc32: toStore.Crc32,
             Crc32C: toStore.Crc32C,
             Sha1: toStore.Sha1,
-            Retention: retention,
-            LegalHoldOn: legalHoldOn,
-            SystemHeaders: systemHeaders);
+            Retention: req.Retention,
+            LegalHoldOn: req.LegalHoldOn,
+            SystemHeaders: req.SystemHeaders);
 
-        return !registry.AppendPut(bucket, key, putReq).TryGetValue(out var entry, out var err)
-            ? err
-            : new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size, toStore);
+        if (!registry.AppendPut(req.Bucket, req.Key, putReq).TryGetValue(out var entry, out var err))
+            return err;
+
+        publisher?.Publish(VesselEvents.ObjectCreated(
+            req.Bucket, req.Key, blob.Size, entry.WireEtag, entry.VersionId, blob.Sha, resolved,
+            protocol: req.Protocol ?? "s3", actor: req.Actor, host: req.Host));
+
+        return new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size, toStore);
     }
 
     private Result<StoredObject> OpenBlob(PutEntry put)

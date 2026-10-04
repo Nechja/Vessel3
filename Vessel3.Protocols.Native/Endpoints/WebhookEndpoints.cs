@@ -110,7 +110,7 @@ internal static class WebhookEndpoints
             if (caller is null)
                 return new AccessDeniedError("Unauthorized").ToHttpResult();
 
-            var result = await delivery.TestWebhookAsync(id, ctx.RequestAborted);
+            var result = await delivery.TestWebhook(id, ctx.RequestAborted);
             return result.Match(
                 testRes => Results.Json(
                     new WebhookTestResultDto(

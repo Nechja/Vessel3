@@ -100,7 +100,7 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
     Result<bool> GetLegalHold(string bucket, string key, string versionId);
 }
 
-internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync, IDurableWrite durableWrite) : IBucketRegistry
+internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync, IDurableWrite durableWrite, IWebhookEventPublisher? publisher = null) : IBucketRegistry
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
@@ -130,6 +130,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             if (ownerId is not null && b is not null)
                 b.SetOwner(ownerId);
         }
+        publisher?.Publish(VesselEvents.BucketCreated(bucket, ownerId));
         return true;
     }
 
@@ -159,6 +160,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
             Directory.Delete(path, recursive: true);
         }
+        publisher?.Publish(VesselEvents.BucketDeleted(bucket));
         return Result.Ok;
     }
 

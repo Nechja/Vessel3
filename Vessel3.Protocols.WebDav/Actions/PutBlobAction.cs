@@ -29,6 +29,7 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
         var req = ctx.Request;
         var contentType = req.ContentType ?? WebDavMediaTypes.OctetStream;
 
+        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
         var putReq = new ObjectPutRequest(
             Bucket: target.Bucket,
             Key: cleanPath,
@@ -40,7 +41,10 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
             Metadata: FrozenDictionary<string, string>.Empty,
             Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
-            Ct: ctx.RequestAborted);
+            Ct: ctx.RequestAborted,
+            Protocol: "webdav",
+            Actor: actor,
+            Host: req.Host.Value);
 
         var putRes = await objects.Put(putReq);
         if (!putRes.TryGetValue(out var put, out var err))
