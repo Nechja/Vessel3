@@ -33,7 +33,7 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "vessel3.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: s3
@@ -44,19 +44,48 @@ spec:
               value: /data
             - name: ASPNETCORE_URLS
               value: http://+:9000
-            {{- $secretName := default (printf "%s-admin-creds" (include "vessel3.fullname" .)) .Values.auth.secretName }}
-            - name: VESSEL3_ADMIN_ACCESS_KEY
+            {{- with include "vessel3.authSecretName" . }}
+            - name: VESSEL3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ $secretName }}
-                  key: access-key
-                  optional: true
-            - name: VESSEL3_ADMIN_SECRET_KEY
+                  name: {{ . }}
+                  key: {{ $.Values.auth.accessKeyKey }}
+            - name: VESSEL3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ $secretName }}
-                  key: secret-key
-                  optional: true
+                  name: {{ . }}
+                  key: {{ $.Values.auth.secretKeyKey }}
+            {{- end }}
+            {{- with .Values.config.region }}
+            - name: VESSEL3_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.config.oidc.issuer }}
+            - name: VESSEL3_OIDC_ISSUER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.config.oidc.clientId }}
+            - name: VESSEL3_OIDC_CLIENT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.config.oidc.audience }}
+            - name: VESSEL3_OIDC_AUDIENCE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.metrics.token.secretName }}
+            - name: VESSEL3_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.metrics.token.key }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.liveness.path }}
@@ -78,6 +107,20 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      {{- if or .Values.storage.existingClaim .Values.extraVolumes }}
+      volumes:
+        {{- with .Values.storage.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ . }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -90,6 +133,7 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- if not .Values.storage.existingClaim }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -104,3 +148,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.size }}
+  {{- end }}

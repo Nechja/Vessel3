@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -27,18 +26,7 @@ internal sealed class DeleteManifestAction(
         if (deleted)
         {
             var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
-            publisher?.Publish(new VesselEvent(
-                "evt_" + Ulid.NewUlid().ToString(),
-                "container.image.deleted",
-                $"{repo}:{reference}",
-                DateTimeOffset.UtcNow,
-                actor,
-                new Dictionary<string, string>
-                {
-                    ["repository"] = repo,
-                    ["reference"] = reference
-                },
-                ctx.Request.Host.Value));
+            publisher?.Publish(VesselEvents.ContainerImageDeleted(repo, reference, actor, ctx.Request.Host.Value));
         }
 
         ctx.Response.StatusCode = deleted ? StatusCodes.Status202Accepted : StatusCodes.Status404NotFound;

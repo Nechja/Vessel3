@@ -1,7 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Server;
-using Vessel3.Server.S3;
 using Vessel3.Server.S3.Bucket;
 using Xunit;
 

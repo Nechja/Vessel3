@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security.Cryptography;
-using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -12,9 +11,6 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
         stager.CreateSession(bucket, key, contentType, metadata).Match<Result<CreateUploadOutcome>>(
             session => new CreateUploadOutcome(session.SessionId),
             err => err);
-
-    public Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct) =>
-        UploadPart(uploadId, partNumber, body, declaredSize, DeclaredChecksums.FromSet(declaredChecksums), ct);
 
     public async Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct)
     {

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -46,21 +45,8 @@ internal sealed class PutManifestAction(
         ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, outcome.Digest);
 
         var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
-        publisher?.Publish(new VesselEvent(
-            "evt_" + Ulid.NewUlid().ToString(),
-            "container.image.pushed",
-            $"{repo}:{reference}",
-            DateTimeOffset.UtcNow,
-            actor,
-            new Dictionary<string, string>
-            {
-                ["repository"] = repo,
-                ["reference"] = reference,
-                ["digest"] = outcome.Digest,
-                ["mediaType"] = mediaType,
-                ["size"] = payload.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
-            },
-            ctx.Request.Host.Value));
+        publisher?.Publish(VesselEvents.ContainerImagePushed(
+            repo, reference, outcome.Digest, mediaType, payload.Length, actor, ctx.Request.Host.Value));
     }
 
     private static IReadOnlyList<string> ExtractReferencedDigests(byte[] payload)

@@ -13,7 +13,6 @@
     <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
 
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

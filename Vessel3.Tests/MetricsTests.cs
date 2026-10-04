@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text;
-using Vessel3.Server;
 using Vessel3.Server.Telemetry;
 using Xunit;
 

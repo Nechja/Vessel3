@@ -49,4 +49,4 @@ jobs:
         run: helm template test-operator charts/vessel3-operator --dry-run
 
       - name: Run C# Manifest & Chart Tests
-        run: dotnet test --filter-class Vessel3.Tests.KubernetesManifestAndChartTests
+        run: dotnet test --project Vessel3.Tests -- --filter-class Vessel3.Tests.KubernetesManifestAndChartTests

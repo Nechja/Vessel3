@@ -1,4 +1,3 @@
-using System.IO.Hashing;
 #pragma warning disable CA5350
 using System.Security.Cryptography;
 

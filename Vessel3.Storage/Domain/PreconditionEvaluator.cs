@@ -32,11 +32,12 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
     {
         var lastModSec = TruncateToSecond(lastModified);
 
-        return IsMatchFailed(rules.IfMatch, etag) || IsUnmodifiedFailed(rules.IfUnmodifiedSince, lastModSec)
-            ? Precondition.Failed
-            : IsNoneMatchHit(rules.IfNoneMatch, etag) || IsModifiedSinceHit(rules.IfNoneMatch, rules.IfModifiedSince, lastModSec)
-                ? Precondition.NotModified
-                : Precondition.Pass;
+        if (IsMatchFailed(rules.IfMatch, etag) || IsUnmodifiedFailed(rules.IfUnmodifiedSince, lastModSec))
+            return Precondition.Failed;
+
+        return IsNoneMatchHit(rules.IfNoneMatch, etag) || IsModifiedSinceHit(rules.IfNoneMatch, rules.IfModifiedSince, lastModSec)
+            ? Precondition.NotModified
+            : Precondition.Pass;
     }
 
     public Precondition EvaluateForWrite(WritePreconditions rules, string? currentEtag) =>

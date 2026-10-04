@@ -1,6 +1,3 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-
 namespace Vessel3.Storage.Lifecycle;
 
 internal sealed record LifecycleServiceOptions(TimeSpan Interval);

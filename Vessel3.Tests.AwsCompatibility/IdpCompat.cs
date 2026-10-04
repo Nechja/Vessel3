@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Formats.Tar;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,7 +31,7 @@ internal static class IdpCompat
             return 2;
         }
 
-        var port = int.Parse(Environment.GetEnvironmentVariable("VESSEL3_IDP_PORT") ?? "9400");
+        var port = int.Parse(Environment.GetEnvironmentVariable("VESSEL3_IDP_PORT") ?? "9400", CultureInfo.InvariantCulture);
         var endpoint = $"http://127.0.0.1:{port}";
         var work = Path.Combine(Path.GetTempPath(), $"vessel3-idp-{name}-{Environment.ProcessId}");
         var container = $"vessel3-idp-{name}-{Environment.ProcessId}";

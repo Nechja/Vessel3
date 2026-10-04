@@ -38,7 +38,17 @@ internal sealed class AzureActionDispatcher(
             }
         }
 
-        return await action.Execute(target, ctx);
+        var trace = RequestTrace.Current;
+        if (trace is not null)
+        {
+            trace.Action = target.Operation.ToString();
+            trace.Bucket = target.Container;
+            trace.Key = target.Blob;
+        }
+
+        var result = await action.Execute(target, ctx);
+        trace?.MarkHandled();
+        return result;
     }
 
     private static BucketCapability ResolveCapability(AzureOperationKind op) => op switch

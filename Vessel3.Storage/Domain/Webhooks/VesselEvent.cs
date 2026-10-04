@@ -3,8 +3,11 @@ namespace Vessel3.Storage;
 public sealed record VesselEvent(
     string Id,
     string Type,
-    string Resource,
-    DateTimeOffset Timestamp,
+    string Source,
+    string Subject,
+    DateTimeOffset Time,
+    IReadOnlyDictionary<string, string>? Data = null,
+    string? DataContentType = "application/json",
+    string SpecVersion = "1.0",
     string? Actor = null,
-    IReadOnlyDictionary<string, string>? Properties = null,
     string? Host = null);

@@ -1,11 +1,8 @@
 using System.Text;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Vessel3.Server;
 using Vessel3.Server.Admin;
-using Vessel3.Server.S3;
 using Vessel3.Server.S3.Bucket;
-using Vessel3.Server.S3.Key;
 using Xunit;
 
 namespace Vessel3.Tests;

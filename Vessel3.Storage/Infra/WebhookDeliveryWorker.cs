@@ -4,9 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Vessel3.Primitives;
 
 namespace Vessel3.Storage;
 
@@ -42,165 +39,182 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (await channel.Reader.WaitToReadAsync(stoppingToken))
+        await foreach (var domainEvent in channel.Reader.ReadAllAsync(stoppingToken))
         {
-            while (channel.Reader.TryRead(out var evt))
+            try
             {
-                try
-                {
-                    await ProcessEventAsync(evt, stoppingToken);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    LogDeliveryError(logger, ex, evt.Type, evt.Resource);
-                }
+                await ProcessEvent(domainEvent, stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogDeliveryError(logger, exception, domainEvent.Type, domainEvent.Subject);
             }
         }
     }
 
-    private async Task ProcessEventAsync(VesselEvent evt, CancellationToken ct)
+    private async Task ProcessEvent(VesselEvent domainEvent, CancellationToken cancellationToken)
     {
-        var webhooksResult = store.ListWebhooks();
-        if (!webhooksResult.TryGetValue(out var webhooks, out _))
+        LogDomainEvent(logger, domainEvent.Type, domainEvent.Id, domainEvent.Subject, domainEvent.Actor ?? "anonymous");
+
+        if (!store.ListWebhooks().TryGetValue(out var webhooks, out _))
             return;
 
         foreach (var webhook in webhooks)
         {
             if (!webhook.Active) continue;
-            if (!MatchesFilter(webhook.EventFilters, evt.Type)) continue;
-            if (!MatchesResource(webhook.ResourceFilters, evt.Resource)) continue;
+            if (!MatchesFilter(webhook.EventFilters, domainEvent.Type)) continue;
+            if (!MatchesResource(webhook.ResourceFilters, domainEvent.Subject)) continue;
 
-            _ = DeliverToWebhookAsync(webhook, evt, ct);
+            _ = DeliverToWebhook(webhook, domainEvent, cancellationToken);
         }
     }
 
-    private async Task DeliverToWebhookAsync(Webhook webhook, VesselEvent evt, CancellationToken ct)
+    private async Task DeliverToWebhook(Webhook webhook, VesselEvent domainEvent, CancellationToken cancellationToken)
     {
-        var (payloadBytes, signature) = BuildPayload(webhook, evt);
-        var sw = Stopwatch.StartNew();
+        var (payloadBytes, signature) = BuildPayload(webhook, domainEvent);
         int? statusCode = null;
         string? error = null;
 
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, webhook.Url)
-            {
-                Content = new ByteArrayContent(payloadBytes)
-            };
-            req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
-            if (!string.IsNullOrEmpty(signature))
-            {
-                req.Headers.TryAddWithoutValidation("X-Vessel-Signature", signature);
-            }
-            req.Headers.TryAddWithoutValidation("User-Agent", "Vessel3-Webhook-Delivery/1.0");
-
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
-
-            using var res = await http.SendAsync(req, timeoutCts.Token);
-            statusCode = (int)res.StatusCode;
-            if (!res.IsSuccessStatusCode)
-            {
-                error = $"HTTP {(int)res.StatusCode} {res.ReasonPhrase}";
-            }
+            var result = await SendWebhookHttpRequestAsync(webhook.Url, payloadBytes, signature, domainEvent, cancellationToken);
+            statusCode = result.StatusCode;
+            error = result.Error;
+            result.Response?.Dispose();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            error = ex.Message;
+            error = exception.Message;
         }
         finally
         {
-            sw.Stop();
             store.RecordDeliveryResult(webhook.Id, clock.GetUtcNow(), statusCode, error);
         }
     }
 
-    public async Task<Result<WebhookDeliveryResult>> TestWebhookAsync(string webhookId, CancellationToken ct = default)
+    public async Task<Result<WebhookDeliveryResult>> TestWebhook(string webhookId, CancellationToken cancellationToken = default)
     {
-        var whResult = store.GetWebhook(webhookId);
-        if (!whResult.TryGetValue(out var webhook, out var err))
-            return err;
+        var webhookResult = store.GetWebhook(webhookId);
+        if (!webhookResult.TryGetValue(out var webhook, out var error))
+            return error;
         if (webhook is null)
             return new NoSuchWebhookError(webhookId);
 
         var testEvent = new VesselEvent(
             "evt_test_" + Ulid.NewUlid().ToString(),
             "webhook.ping",
+            "/vessel3",
             "test-ping",
             clock.GetUtcNow(),
-            "system",
             new Dictionary<string, string>
             {
                 ["message"] = "Vessel3 Webhook Test Ping",
                 ["webhookId"] = webhook.Id,
                 ["webhookName"] = webhook.Name
-            });
+            },
+            Actor: "system");
 
         var (payloadBytes, signature) = BuildPayload(webhook, testEvent);
-        var sw = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         int? statusCode = null;
-        string? error = null;
+        string? deliveryError = null;
         string? responseSnippet = null;
 
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, webhook.Url)
-            {
-                Content = new ByteArrayContent(payloadBytes)
-            };
-            req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
-            if (!string.IsNullOrEmpty(signature))
-            {
-                req.Headers.TryAddWithoutValidation("X-Vessel-Signature", signature);
-            }
-            req.Headers.TryAddWithoutValidation("User-Agent", "Vessel3-Webhook-Delivery/1.0");
+            var result = await SendWebhookHttpRequestAsync(webhook.Url, payloadBytes, signature, testEvent, cancellationToken);
+            stopwatch.Stop();
+            statusCode = result.StatusCode;
+            deliveryError = result.Error;
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
-
-            using var res = await http.SendAsync(req, timeoutCts.Token);
-            sw.Stop();
-            statusCode = (int)res.StatusCode;
-
-            try
+            if (result.Response is not null)
             {
-                var body = await res.Content.ReadAsStringAsync(ct);
-                responseSnippet = body.Length > 500 ? body[..500] + "..." : body;
-            }
-            catch
-            {
+                using var response = result.Response;
+                try
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    responseSnippet = body.Length > 500 ? body[..500] + "..." : body;
+                }
+                catch
+                {
+                }
             }
 
-            if (!res.IsSuccessStatusCode)
-            {
-                error = $"HTTP {(int)res.StatusCode} {res.ReasonPhrase}";
-            }
-
-            store.RecordDeliveryResult(webhook.Id, clock.GetUtcNow(), statusCode, error);
-            return new WebhookDeliveryResult(webhook.Id, res.IsSuccessStatusCode, statusCode, sw.Elapsed, error, responseSnippet);
+            var isSuccess = result.Response?.IsSuccessStatusCode ?? false;
+            store.RecordDeliveryResult(webhook.Id, clock.GetUtcNow(), statusCode, deliveryError);
+            return new WebhookDeliveryResult(webhook.Id, isSuccess, statusCode, stopwatch.Elapsed, deliveryError, responseSnippet);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            sw.Stop();
-            error = ex.Message;
-            store.RecordDeliveryResult(webhook.Id, clock.GetUtcNow(), statusCode, error);
-            return new WebhookDeliveryResult(webhook.Id, false, statusCode, sw.Elapsed, error, null);
+            stopwatch.Stop();
+            deliveryError = exception.Message;
+            store.RecordDeliveryResult(webhook.Id, clock.GetUtcNow(), statusCode, deliveryError);
+            return new WebhookDeliveryResult(webhook.Id, false, statusCode, stopwatch.Elapsed, deliveryError, null);
         }
     }
 
-    private static (byte[] Payload, string? Signature) BuildPayload(Webhook webhook, VesselEvent evt)
+    private async Task<(int? StatusCode, string? Error, HttpResponseMessage? Response)> SendWebhookHttpRequestAsync(
+        string url,
+        byte[] payloadBytes,
+        string? signature,
+        VesselEvent domainEvent,
+        CancellationToken cancellationToken)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(evt, WebhookJsonContext.Default.VesselEvent);
+        using var request = CreateWebhookRequest(url, payloadBytes, signature, domainEvent);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
 
-        string? sig = null;
+        var response = await http.SendAsync(request, timeoutCts.Token);
+        var statusCode = (int)response.StatusCode;
+        var error = !response.IsSuccessStatusCode
+            ? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}"
+            : null;
+
+        return (statusCode, error, response);
+    }
+
+    private static HttpRequestMessage CreateWebhookRequest(string url, byte[] payloadBytes, string? signature, VesselEvent domainEvent)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new ByteArrayContent(payloadBytes)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/cloudevents+json") { CharSet = "utf-8" };
+        request.Headers.TryAddWithoutValidation("ce-specversion", domainEvent.SpecVersion);
+        request.Headers.TryAddWithoutValidation("ce-id", domainEvent.Id);
+        request.Headers.TryAddWithoutValidation("ce-source", domainEvent.Source);
+        request.Headers.TryAddWithoutValidation("ce-type", domainEvent.Type);
+        request.Headers.TryAddWithoutValidation("ce-subject", domainEvent.Subject);
+        request.Headers.TryAddWithoutValidation("ce-time", domainEvent.Time.ToString("O"));
+        if (!string.IsNullOrEmpty(domainEvent.Actor))
+        {
+            request.Headers.TryAddWithoutValidation("ce-actor", domainEvent.Actor);
+        }
+        if (!string.IsNullOrEmpty(domainEvent.Host))
+        {
+            request.Headers.TryAddWithoutValidation("ce-host", domainEvent.Host);
+        }
+        if (!string.IsNullOrEmpty(signature))
+        {
+            request.Headers.TryAddWithoutValidation("X-Vessel-Signature", signature);
+        }
+        request.Headers.TryAddWithoutValidation("User-Agent", "Vessel3-Webhook-Delivery/1.0");
+        return request;
+    }
+
+    private static (byte[] Payload, string? Signature) BuildPayload(Webhook webhook, VesselEvent domainEvent)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(domainEvent, WebhookJsonContext.Default.VesselEvent);
+
+        string? signature = null;
         if (!string.IsNullOrEmpty(webhook.Secret))
         {
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhook.Secret));
             var hash = hmac.ComputeHash(bytes);
-            sig = "sha256=" + Convert.ToHexStringLower(hash);
+            signature = "sha256=" + Convert.ToHexStringLower(hash);
         }
 
-        return (bytes, sig);
+        return (bytes, signature);
     }
 
     public static bool MatchesFilter(IReadOnlyList<string>? filters, string eventType)
@@ -209,9 +223,6 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
         foreach (var filter in filters)
         {
             if (filter == "*" || string.Equals(filter, eventType, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (filter.EndsWith(".*", StringComparison.Ordinal) && eventType.StartsWith(filter[..^1], StringComparison.OrdinalIgnoreCase))
                 return true;
 
             if (filter.EndsWith('*') && eventType.StartsWith(filter[..^1], StringComparison.OrdinalIgnoreCase))
@@ -228,12 +239,6 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
             if (filter == "*" || string.Equals(filter, resource, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (filter.EndsWith("/*", StringComparison.Ordinal) && resource.StartsWith(filter[..^1], StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (filter.EndsWith(":*", StringComparison.Ordinal) && resource.StartsWith(filter[..^1], StringComparison.OrdinalIgnoreCase))
-                return true;
-
             if (filter.EndsWith('*') && resource.StartsWith(filter[..^1], StringComparison.OrdinalIgnoreCase))
                 return true;
         }
@@ -242,4 +247,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Unexpected error delivering webhooks for event {EventType}:{ResourceId}")]
     private static partial void LogDeliveryError(ILogger logger, Exception ex, string eventType, string resourceId);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "EVENT [{EventType}] id={EventId} {Subject} actor={Actor}")]
+    private static partial void LogDomainEvent(ILogger logger, string eventType, string eventId, string subject, string actor);
 }

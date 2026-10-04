@@ -1,13 +1,33 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
+using Vessel3.Server.Configuration;
 
 namespace Vessel3.Server.Hosting;
 
 internal static class VesselHostExtensions
 {
-    public static void ConfigureVesselHost(this WebApplicationBuilder builder)
+    public static void ConfigureVesselHost(this WebApplicationBuilder builder, VesselConfig? config = null)
     {
+        builder.Logging.ClearProviders();
+        if (string.Equals(config?.LogFormat, "json", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Logging.AddJsonConsole(options =>
+            {
+                options.IncludeScopes = true;
+                options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ ";
+            });
+        }
+        else
+        {
+            builder.Logging.AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+                options.TimestampFormat = "HH:mm:ss.fff ";
+            });
+        }
+
+        builder.Logging.SetMinimumLevel(config?.LogLevel ?? LogLevel.Information);
         builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(options =>
         {

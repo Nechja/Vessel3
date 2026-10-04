@@ -4,8 +4,6 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Vessel3.Server.Admin;
 using Vessel3.Server.Configuration;
-using Vessel3.Server.Oidc;
-using Vessel3.Server.S3;
 
 namespace Vessel3.Server.Ui;
 
@@ -21,88 +19,112 @@ internal sealed class UiServingMiddleware(
     private readonly string etag = $"\"{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId:N}\"";
     private readonly bool basicGate = config.Oidc is null && config.AccessKey is not null && config.SecretKey is not null;
 
-    public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
-        if (!ctx.Request.Path.StartsWithSegments("/_ui", out var remaining))
+        if (!context.Request.Path.StartsWithSegments("/_ui", out var remaining))
         {
-            await next(ctx);
+            await next(context);
             return;
         }
 
-        if (basicGate && !UiEndpoints.BasicAuthOk(ctx.Request.Headers.Authorization.ToString(), config.AccessKey!, config.SecretKey!))
+        if (basicGate && !UiEndpoints.BasicAuthOk(context.Request.Headers.Authorization.ToString(), config.AccessKey!, config.SecretKey!))
         {
-            ctx.Response.StatusCode = 401;
-            ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
+            context.Response.StatusCode = 401;
+            context.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
             return;
         }
 
-        var rel = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
+        var relativePath = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
 
-        if (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
+        if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
         {
-            if (rel == "config.json")
+            if (relativePath == "config.json")
             {
-                var uiConfig = config.Oidc is null
-                    ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null)
-                    : await OidcConfig(ctx, config.Oidc, config.Region);
-                ctx.Response.ContentType = "application/json";
-                ctx.Response.Headers.CacheControl = "no-store";
-                await System.Text.Json.JsonSerializer.SerializeAsync(ctx.Response.Body, uiConfig, UiJsonContext.Default.UiConfig, ctx.RequestAborted);
+                await ServeConfigAsync(context);
                 return;
             }
 
-            if (string.IsNullOrEmpty(rel)) rel = "index.html";
-            var info = assets.GetFileInfo(rel);
-            if (!info.Exists || info.IsDirectory)
-            {
-                if (UiEndpoints.IsAssetPath(rel))
-                {
-                    ctx.Response.StatusCode = 404;
-                    return;
-                }
-                info = assets.GetFileInfo("index.html");
-            }
-
-            ctx.Response.Headers.ETag = etag;
-            ctx.Response.Headers.CacheControl = "no-cache";
-            if (ctx.Request.Headers.IfNoneMatch.ToString() == etag)
-            {
-                ctx.Response.StatusCode = 304;
-                return;
-            }
-
-            ctx.Response.ContentType = contentTypes.TryGetContentType(info.Name, out var ct) ? ct : "application/octet-stream";
-            ctx.Response.ContentLength = info.Length;
-            if (HttpMethods.IsHead(ctx.Request.Method)) return;
-            await using var stream = info.CreateReadStream();
-            await stream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
+            await ServeStaticAssetAsync(context, relativePath);
             return;
         }
 
-        if (config.Oidc is not null && !verifier.Verify(ctx.Request).TryGetValue(out _, out var err))
+        if (config.Oidc is not null && !verifier.Verify(context.Request).TryGetValue(out _, out var error))
         {
-            await results.Map(err).ExecuteAsync(ctx);
+            await results.Map(error).ExecuteAsync(context);
             return;
         }
 
-        if (rel == "admin/gc" && HttpMethods.IsPost(ctx.Request.Method))
+        if (await DispatchAdminActionAsync(context, relativePath))
         {
-            await adminService.RunGc(ctx);
             return;
         }
 
-        if (rel == "admin/lifecycle" && HttpMethods.IsPost(ctx.Request.Method))
-        {
-            await adminService.RunLifecycle(ctx);
-            return;
-        }
-
-        ctx.Response.StatusCode = 405;
+        context.Response.StatusCode = 405;
     }
 
-    private async Task<UiConfig> OidcConfig(HttpContext ctx, OidcOptions oidc, string region)
+    private async Task ServeConfigAsync(HttpContext context)
     {
-        var discovered = oidcDiscovery is not null ? await oidcDiscovery.Get(ctx.RequestAborted) : null;
+        var uiConfig = config.Oidc is null
+            ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null)
+            : await OidcConfig(context, config.Oidc, config.Region);
+        context.Response.ContentType = "application/json";
+        context.Response.Headers.CacheControl = "no-store";
+        await System.Text.Json.JsonSerializer.SerializeAsync(context.Response.Body, uiConfig, UiJsonContext.Default.UiConfig, context.RequestAborted);
+    }
+
+    private async Task ServeStaticAssetAsync(HttpContext context, string relativePath)
+    {
+        var path = string.IsNullOrEmpty(relativePath) ? "index.html" : relativePath;
+        var fileInfo = assets.GetFileInfo(path);
+        if (!fileInfo.Exists || fileInfo.IsDirectory)
+        {
+            if (UiEndpoints.IsAssetPath(path))
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
+            fileInfo = assets.GetFileInfo("index.html");
+        }
+
+        context.Response.Headers.ETag = etag;
+        context.Response.Headers.CacheControl = "no-cache";
+        if (context.Request.Headers.IfNoneMatch.ToString() == etag)
+        {
+            context.Response.StatusCode = 304;
+            return;
+        }
+
+        context.Response.ContentType = contentTypes.TryGetContentType(fileInfo.Name, out var contentType) ? contentType : "application/octet-stream";
+        context.Response.ContentLength = fileInfo.Length;
+        if (HttpMethods.IsHead(context.Request.Method))
+        {
+            return;
+        }
+
+        await using var stream = fileInfo.CreateReadStream();
+        await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
+    }
+
+    private async Task<bool> DispatchAdminActionAsync(HttpContext context, string relativePath)
+    {
+        if (relativePath == "admin/gc" && HttpMethods.IsPost(context.Request.Method))
+        {
+            await adminService.RunGc(context);
+            return true;
+        }
+
+        if (relativePath == "admin/lifecycle" && HttpMethods.IsPost(context.Request.Method))
+        {
+            await adminService.RunLifecycle(context);
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<UiConfig> OidcConfig(HttpContext context, OidcOptions oidc, string region)
+    {
+        var discovered = oidcDiscovery is not null ? await oidcDiscovery.Get(context.RequestAborted) : null;
         return new UiConfig("", "", region,
             new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint));
     }

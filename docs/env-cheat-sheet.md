@@ -26,8 +26,13 @@ All configuration in Vessel3 is supplied via environment variables. No configura
 | `VESSEL3_OIDC_AUDIENCE` | String | *unset* | OIDC | Optional secondary audience allowed in JWTs. |
 | `VESSEL3_OIDC_REQUIRE_CLAIM` | `key=val` | *unset* | OIDC | Restricts login to tokens containing `key=val` (as a string or array element). |
 | `VESSEL3_OIDC_ADMIN_CLAIM` | `key=val` | *unset* | OIDC | Tokens containing `key=val` automatically receive the `Admin` role. |
-| `VESSEL3_CONTAINER_REPOS_ENABLED` | Boolean | `true` | Container Repos | Enables OCI / Docker Registry v2 container repository protocol (`/v2/...`). Also accepts `VESSEL3_OCI_ENABLED`. |
+| `VESSEL3_OCI_ENABLED` | Boolean | `true` | Protocols | Enables OCI / Docker Registry v2 container repository protocol (`/v2/...`). |
+| `VESSEL3_WEBDAV_ENABLED` | Boolean | `true` | Protocols | Enables WebDAV HTTP extensions (PROPFIND, MKCOL, MOVE, COPY, etc.). |
 | `VESSEL3_WEBHOOKS_FILE` | Path | `<VESSEL3_DATA>/webhooks.yaml` | Webhooks | Optional explicit path to declarative static `webhooks.yaml` file. |
+| `VESSEL3_LOG_FORMAT` | `text` \| `json` | `text` | Observability | Console log format: `text` (human-readable) or `json` (Kubernetes structured container log). |
+| `VESSEL3_LOG_LEVEL` | Level | `info` | Observability | Minimum log level (`trace`, `debug`, `info`, `warn`, `error`). |
+| `VESSEL3_ACCESS_LOG` | Boolean | `true` | Observability | Toggle structured HTTP request access logging (`LogAccess`). |
+| `VESSEL3_NODE_ID` | String | hostname | Observability | Node or container identifier in cluster deployments. |
 | `ASPNETCORE_URLS` | URLs | `http://127.0.0.1:9000` | Server | Kestrel listen addresses (e.g. `http://0.0.0.0:9000`). Alternately set via CLI `--urls`. |
 
 ---

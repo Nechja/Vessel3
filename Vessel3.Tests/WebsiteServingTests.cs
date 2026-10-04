@@ -1,7 +1,5 @@
 using System.Text;
 using Microsoft.AspNetCore.Http;
-using Vessel3.Server;
-using Vessel3.Server.S3;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -47,12 +45,10 @@ public class WebsiteServingTests : IDisposable
     private async Task SeedObject(string bucket, string key, string content, string contentType)
     {
         var bytes = Encoding.UTF8.GetBytes(content);
-        var putRes = await objects.Put(
+        var putRes = await objects.Put(new ObjectPutRequest(
             bucket, key, new MemoryStream(bytes),
-            declaredSize: bytes.Length, contentType: contentType,
-            declaredSha256: null, declaredMd5Base64: null,
-            metadata: new Dictionary<string, string>(), tags: new Dictionary<string, string>(),
-            declaredChecksums: ChecksumSet.Empty, ct: TestContext.Current.CancellationToken);
+            DeclaredSize: bytes.Length, ContentType: contentType,
+            Ct: TestContext.Current.CancellationToken));
 
         Assert.True(putRes.TryGetValue(out _, out var err), err?.Message);
     }
@@ -184,12 +180,10 @@ public class WebsiteServingTests : IDisposable
         Assert.True(registry.Create(bucket).Match(v => v, _ => false));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
         var wasmBytes = new byte[] { 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
-        var putRes = await objects.Put(
+        var putRes = await objects.Put(new ObjectPutRequest(
             bucket, "_framework/app.wasm", new MemoryStream(wasmBytes),
-            declaredSize: wasmBytes.Length, contentType: "application/octet-stream",
-            declaredSha256: null, declaredMd5Base64: null,
-            metadata: new Dictionary<string, string>(), tags: new Dictionary<string, string>(),
-            declaredChecksums: ChecksumSet.Empty, ct: TestContext.Current.CancellationToken);
+            DeclaredSize: wasmBytes.Length, ContentType: "application/octet-stream",
+            Ct: TestContext.Current.CancellationToken));
         Assert.True(putRes.TryGetValue(out _, out _));
 
         var ctx = new DefaultHttpContext();

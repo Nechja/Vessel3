@@ -10,7 +10,7 @@ if (!VesselConfig.TryCreate(out var config, out var error))
 }
 
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.ConfigureVesselHost();
+builder.ConfigureVesselHost(config);
 builder.Services.AddVessel(config);
 
 var app = builder.Build();

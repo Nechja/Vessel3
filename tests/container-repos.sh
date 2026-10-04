@@ -16,7 +16,7 @@ BUILD_DIR="$DATA_DIR/build"
 export VESSEL3_DATA=$DATA_DIR
 export VESSEL3_ACCESS_KEY=admin
 export VESSEL3_SECRET_KEY=adminpassword123
-export VESSEL3_CONTAINER_REPOS_ENABLED=true
+export VESSEL3_OCI_ENABLED=true
 export NO_PROXY="*"
 export no_proxy="*"
 unset HTTP_PROXY http_proxy HTTPS_PROXY https_proxy

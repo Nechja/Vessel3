@@ -1,6 +1,5 @@
 using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
 using Vessel3.Protocols.Azure.Serialization;
@@ -33,6 +32,7 @@ internal sealed class PutBlobAction(
             declaredMd5 = req.Headers["x-ms-blob-content-md5"].ToString();
         }
 
+        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
         var putReq = new ObjectPutRequest(
             target.Container,
             target.Blob,
@@ -44,7 +44,10 @@ internal sealed class PutBlobAction(
             Metadata: metadata,
             Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
-            Ct: ct);
+            Ct: ct,
+            Protocol: "azure",
+            Actor: actor,
+            Host: req.Host.Value);
 
         var result = await objects.Put(putReq);
         if (!result.TryGetValue(out var put, out var err))

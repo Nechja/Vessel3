@@ -1,6 +1,3 @@
-
-using Vessel3.Primitives;
-
 namespace Vessel3.Server.S3;
 
 internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper http) : IMiddleware
@@ -12,6 +9,8 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
             await next(ctx);
             return;
         }
+
+        RequestTrace.SetContext(protocol: "s3");
 
         if (ctx.Items.ContainsKey("AnonymousAllowed"))
         {
@@ -34,6 +33,7 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
         if (sigCtx.Caller is not null)
         {
             ctx.Items["CallerIdentity"] = sigCtx.Caller;
+            RequestTrace.SetContext(actor: sigCtx.Caller.Username);
         }
         await next(ctx);
     }

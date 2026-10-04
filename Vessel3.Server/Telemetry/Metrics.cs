@@ -14,7 +14,7 @@ internal interface IMetricsCollector
 internal interface IMetricsRenderer
 {
     string ContentType { get; }
-    void Render(StringBuilder sb, IEnumerable<BucketStats> buckets);
+    void Render(StringBuilder builder, IEnumerable<BucketStats> buckets);
 }
 
 internal interface IMetricsService : IMetricsCollector, IMetricsRenderer
@@ -97,116 +97,140 @@ internal sealed class MetricsService : IMetricsService
         }
     }
 
-    public void Render(StringBuilder sb, IEnumerable<BucketStats> buckets)
+    public void Render(StringBuilder builder, IEnumerable<BucketStats> buckets)
     {
-        var inv = CultureInfo.InvariantCulture;
+        var culture = CultureInfo.InvariantCulture;
 
-        using var proc = Process.GetCurrentProcess();
-
-        sb.Append("# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.\n");
-        sb.Append("# TYPE process_start_time_seconds gauge\n");
-        sb.Append("process_start_time_seconds ").Append(startTimeUnixSeconds.ToString(inv)).Append('\n');
-
-        sb.Append("# HELP process_resident_memory_bytes Resident memory size in bytes.\n");
-        sb.Append("# TYPE process_resident_memory_bytes gauge\n");
-        sb.Append("process_resident_memory_bytes ").Append(proc.WorkingSet64.ToString(inv)).Append('\n');
-
-        sb.Append("# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.\n");
-        sb.Append("# TYPE process_cpu_seconds_total counter\n");
-        sb.Append("process_cpu_seconds_total ")
-            .Append(proc.TotalProcessorTime.TotalSeconds.ToString("0.######", inv)).Append('\n');
-
-        sb.Append("# HELP dotnet_gc_collections_total Total number of garbage collections by generation.\n");
-        sb.Append("# TYPE dotnet_gc_collections_total counter\n");
-        for (var gen = 0; gen <= GC.MaxGeneration; gen++)
-        {
-            sb.Append("dotnet_gc_collections_total{generation=\"").Append(gen.ToString(inv)).Append("\"} ")
-                .Append(GC.CollectionCount(gen).ToString(inv)).Append('\n');
-        }
-
-        sb.Append("# HELP dotnet_gc_heap_bytes Bytes currently allocated on the managed heap.\n");
-        sb.Append("# TYPE dotnet_gc_heap_bytes gauge\n");
-        sb.Append("dotnet_gc_heap_bytes ").Append(GC.GetTotalMemory(forceFullCollection: false).ToString(inv)).Append('\n');
+        RenderProcessAndGcMetrics(builder, culture);
 
         var sortedActions = actions.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+        RenderActionMetrics(builder, sortedActions, culture);
+        RenderStageMetrics(builder, culture);
 
-        sb.Append("# HELP vessel3_requests_total Count of requests handled, by S3 action and status class.\n");
-        sb.Append("# TYPE vessel3_requests_total counter\n");
-        foreach (var (action, c) in sortedActions)
+        var stats = buckets.ToList();
+        RenderBucketMetrics(builder, stats, culture);
+    }
+
+    private void RenderProcessAndGcMetrics(StringBuilder builder, CultureInfo culture)
+    {
+        using var process = Process.GetCurrentProcess();
+
+        builder.Append("# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.\n");
+        builder.Append("# TYPE process_start_time_seconds gauge\n");
+        builder.Append("process_start_time_seconds ").Append(startTimeUnixSeconds.ToString(culture)).Append('\n');
+
+        builder.Append("# HELP process_resident_memory_bytes Resident memory size in bytes.\n");
+        builder.Append("# TYPE process_resident_memory_bytes gauge\n");
+        builder.Append("process_resident_memory_bytes ").Append(process.WorkingSet64.ToString(culture)).Append('\n');
+
+        builder.Append("# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.\n");
+        builder.Append("# TYPE process_cpu_seconds_total counter\n");
+        builder.Append("process_cpu_seconds_total ")
+            .Append(process.TotalProcessorTime.TotalSeconds.ToString("0.######", culture)).Append('\n');
+
+        builder.Append("# HELP dotnet_gc_collections_total Total number of garbage collections by generation.\n");
+        builder.Append("# TYPE dotnet_gc_collections_total counter\n");
+        for (var generation = 0; generation <= GC.MaxGeneration; generation++)
         {
-            for (var s = 0; s < StatusCount; s++)
+            builder.Append("dotnet_gc_collections_total{generation=\"").Append(generation.ToString(culture)).Append("\"} ")
+                .Append(GC.CollectionCount(generation).ToString(culture)).Append('\n');
+        }
+
+        builder.Append("# HELP dotnet_gc_heap_bytes Bytes currently allocated on the managed heap.\n");
+        builder.Append("# TYPE dotnet_gc_heap_bytes gauge\n");
+        builder.Append("dotnet_gc_heap_bytes ").Append(GC.GetTotalMemory(forceFullCollection: false).ToString(culture)).Append('\n');
+    }
+
+    private static void RenderActionMetrics(StringBuilder builder, List<KeyValuePair<string, ActionCounters>> sortedActions, CultureInfo culture)
+    {
+        builder.Append("# HELP vessel3_requests_total Count of requests handled, by S3 action and status class.\n");
+        builder.Append("# TYPE vessel3_requests_total counter\n");
+        foreach (var (action, counters) in sortedActions)
+        {
+            for (var statusIndex = 0; statusIndex < StatusCount; statusIndex++)
             {
-                var v = Interlocked.Read(ref c.Requests[s]);
-                if (v == 0) continue;
-                sb.Append("vessel3_requests_total{action=\"").Append(action)
-                    .Append("\",status=\"").Append(StatusNames[s]).Append("\"} ")
-                    .Append(v.ToString(inv)).Append('\n');
+                var count = Interlocked.Read(ref counters.Requests[statusIndex]);
+                if (count == 0) continue;
+                builder.Append("vessel3_requests_total{action=\"").Append(action)
+                    .Append("\",status=\"").Append(StatusNames[statusIndex]).Append("\"} ")
+                    .Append(count.ToString(culture)).Append('\n');
             }
         }
 
-        sb.Append("# HELP vessel3_request_bytes_total Total request body bytes received, by S3 action.\n");
-        sb.Append("# TYPE vessel3_request_bytes_total counter\n");
-        foreach (var (action, c) in sortedActions)
+        builder.Append("# HELP vessel3_request_bytes_total Total request body bytes received, by S3 action.\n");
+        builder.Append("# TYPE vessel3_request_bytes_total counter\n");
+        foreach (var (action, counters) in sortedActions)
         {
-            var v = Interlocked.Read(ref c.RequestBytes);
-            if (v == 0) continue;
-            sb.Append("vessel3_request_bytes_total{action=\"").Append(action).Append("\"} ").Append(v.ToString(inv)).Append('\n');
+            var count = Interlocked.Read(ref counters.RequestBytes);
+            if (count == 0) continue;
+            builder.Append("vessel3_request_bytes_total{action=\"").Append(action).Append("\"} ").Append(count.ToString(culture)).Append('\n');
         }
 
-        sb.Append("# HELP vessel3_response_bytes_total Total response body bytes sent, by S3 action.\n");
-        sb.Append("# TYPE vessel3_response_bytes_total counter\n");
-        foreach (var (action, c) in sortedActions)
+        builder.Append("# HELP vessel3_response_bytes_total Total response body bytes sent, by S3 action.\n");
+        builder.Append("# TYPE vessel3_response_bytes_total counter\n");
+        foreach (var (action, counters) in sortedActions)
         {
-            var v = Interlocked.Read(ref c.ResponseBytes);
-            if (v == 0) continue;
-            sb.Append("vessel3_response_bytes_total{action=\"").Append(action).Append("\"} ").Append(v.ToString(inv)).Append('\n');
+            var count = Interlocked.Read(ref counters.ResponseBytes);
+            if (count == 0) continue;
+            builder.Append("vessel3_response_bytes_total{action=\"").Append(action).Append("\"} ").Append(count.ToString(culture)).Append('\n');
         }
 
-        sb.Append("# HELP vessel3_request_duration_seconds Request latency histogram in seconds, by S3 action.\n");
-        sb.Append("# TYPE vessel3_request_duration_seconds histogram\n");
-        foreach (var (action, c) in sortedActions)
-            RenderHistogram(sb, "vessel3_request_duration_seconds", "action", action, c.Latency, inv);
-
-        sb.Append("# HELP vessel3_stage_duration_seconds Time spent per request in each storage stage, in seconds.\n");
-        sb.Append("# TYPE vessel3_stage_duration_seconds histogram\n");
-        for (var i = 0; i < StageCount; i++)
-            RenderHistogram(sb, "vessel3_stage_duration_seconds", "stage", StageNames[i], stages[i], inv);
-
-        var stats = buckets.ToList();
-        RenderGauge(sb, "vessel3_bucket_versions", "Rows in the bucket index (one per stored version).", stats, b => b.Versions, inv);
-        RenderGauge(sb, "vessel3_bucket_index_bytes", "Size of the bucket's SQLite index file.", stats, b => b.IndexBytes, inv);
-        RenderGauge(sb, "vessel3_bucket_wal_bytes", "Size of the bucket index's write-ahead log.", stats, b => b.WalBytes, inv);
-        RenderGauge(sb, "vessel3_bucket_log_bytes", "Size of the bucket's event log.", stats, b => b.LogBytes, inv);
+        builder.Append("# HELP vessel3_request_duration_seconds Request latency histogram in seconds, by S3 action.\n");
+        builder.Append("# TYPE vessel3_request_duration_seconds histogram\n");
+        foreach (var (action, counters) in sortedActions)
+        {
+            RenderHistogram(builder, "vessel3_request_duration_seconds", "action", action, counters.Latency, culture);
+        }
     }
 
-    private static void RenderHistogram(StringBuilder sb, string name, string label, string value, Histogram h, CultureInfo inv)
+    private void RenderStageMetrics(StringBuilder builder, CultureInfo culture)
     {
-        var count = Interlocked.Read(ref h.Count);
+        builder.Append("# HELP vessel3_stage_duration_seconds Time spent per request in each storage stage, in seconds.\n");
+        builder.Append("# TYPE vessel3_stage_duration_seconds histogram\n");
+        for (var i = 0; i < StageCount; i++)
+        {
+            RenderHistogram(builder, "vessel3_stage_duration_seconds", "stage", StageNames[i], stages[i], culture);
+        }
+    }
+
+    private static void RenderBucketMetrics(StringBuilder builder, List<BucketStats> stats, CultureInfo culture)
+    {
+        RenderGauge(builder, "vessel3_bucket_versions", "Rows in the bucket index (one per stored version).", stats, bucket => bucket.Versions, culture);
+        RenderGauge(builder, "vessel3_bucket_index_bytes", "Size of the bucket's SQLite index file.", stats, bucket => bucket.IndexBytes, culture);
+        RenderGauge(builder, "vessel3_bucket_wal_bytes", "Size of the bucket index's write-ahead log.", stats, bucket => bucket.WalBytes, culture);
+        RenderGauge(builder, "vessel3_bucket_log_bytes", "Size of the bucket's event log.", stats, bucket => bucket.LogBytes, culture);
+    }
+
+    private static void RenderHistogram(StringBuilder builder, string name, string label, string value, Histogram histogram, CultureInfo culture)
+    {
+        var count = Interlocked.Read(ref histogram.Count);
         if (count == 0) return;
         long cumulative = 0;
-        for (var b = 0; b < h.Bounds.Length; b++)
+        for (var i = 0; i < histogram.Bounds.Length; i++)
         {
-            cumulative += Interlocked.Read(ref h.Counts[b]);
-            sb.Append(name).Append("_bucket{").Append(label).Append("=\"").Append(value)
-                .Append("\",le=\"").Append(h.Bounds[b].ToString("0.#####", inv)).Append("\"} ")
-                .Append(cumulative.ToString(inv)).Append('\n');
+            cumulative += Interlocked.Read(ref histogram.Counts[i]);
+            builder.Append(name).Append("_bucket{").Append(label).Append("=\"").Append(value)
+                .Append("\",le=\"").Append(histogram.Bounds[i].ToString("0.#####", culture)).Append("\"} ")
+                .Append(cumulative.ToString(culture)).Append('\n');
         }
-        cumulative += Interlocked.Read(ref h.Counts[h.Bounds.Length]);
-        sb.Append(name).Append("_bucket{").Append(label).Append("=\"").Append(value).Append("\",le=\"+Inf\"} ")
-            .Append(cumulative.ToString(inv)).Append('\n');
-        var sumSec = (double)Interlocked.Read(ref h.SumTicks) / Stopwatch.Frequency;
-        sb.Append(name).Append("_sum{").Append(label).Append("=\"").Append(value).Append("\"} ")
-            .Append(sumSec.ToString("0.######", inv)).Append('\n');
-        sb.Append(name).Append("_count{").Append(label).Append("=\"").Append(value).Append("\"} ")
-            .Append(count.ToString(inv)).Append('\n');
+        cumulative += Interlocked.Read(ref histogram.Counts[histogram.Bounds.Length]);
+        builder.Append(name).Append("_bucket{").Append(label).Append("=\"").Append(value).Append("\",le=\"+Inf\"} ")
+            .Append(cumulative.ToString(culture)).Append('\n');
+        var sumSeconds = (double)Interlocked.Read(ref histogram.SumTicks) / Stopwatch.Frequency;
+        builder.Append(name).Append("_sum{").Append(label).Append("=\"").Append(value).Append("\"} ")
+            .Append(sumSeconds.ToString("0.######", culture)).Append('\n');
+        builder.Append(name).Append("_count{").Append(label).Append("=\"").Append(value).Append("\"} ")
+            .Append(count.ToString(culture)).Append('\n');
     }
 
-    private static void RenderGauge(StringBuilder sb, string name, string help, List<BucketStats> stats, Func<BucketStats, long> pick, CultureInfo inv)
+    private static void RenderGauge(StringBuilder builder, string name, string help, List<BucketStats> stats, Func<BucketStats, long> pick, CultureInfo culture)
     {
-        sb.Append("# HELP ").Append(name).Append(' ').Append(help).Append('\n');
-        sb.Append("# TYPE ").Append(name).Append(" gauge\n");
-        foreach (var b in stats)
-            sb.Append(name).Append("{bucket=\"").Append(b.Name).Append("\"} ").Append(pick(b).ToString(inv)).Append('\n');
+        builder.Append("# HELP ").Append(name).Append(' ').Append(help).Append('\n');
+        builder.Append("# TYPE ").Append(name).Append(" gauge\n");
+        foreach (var bucket in stats)
+        {
+            builder.Append(name).Append("{bucket=\"").Append(bucket.Name).Append("\"} ").Append(pick(bucket).ToString(culture)).Append('\n');
+        }
     }
 
     internal void ResetForTests()

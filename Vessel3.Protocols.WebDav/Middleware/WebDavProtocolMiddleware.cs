@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.WebDav.Auth;
 using Vessel3.Protocols.WebDav.Dispatch;
 using Vessel3.Protocols.WebDav.Serialization;
@@ -28,6 +29,7 @@ internal sealed class WebDavProtocolMiddleware(
             return;
         }
 
+        RequestTrace.SetContext(protocol: "webdav");
         var target = WebDavRequestParser.Parse(ctx.Request);
 
         if (AllowsUnauthenticated(target.Operation))
@@ -46,6 +48,7 @@ internal sealed class WebDavProtocolMiddleware(
         }
 
         ctx.SetCaller(caller);
+        RequestTrace.SetContext(actor: caller.Username);
 
         var result = await dispatcher.Dispatch(target, ctx);
         await result.ExecuteAsync(ctx);

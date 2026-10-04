@@ -3,7 +3,8 @@ replicaCount: 1
 image:
   repository: ghcr.io/nechja/vessel3
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: ""
+  ui: true
 
 imagePullSecrets: []
 nameOverride: ""
@@ -17,13 +18,15 @@ serviceAccount:
 podAnnotations: {}
 podLabels: {}
 
+# 1654 is the user baked into the image (the .NET chiseled "app" user).
 podSecurityContext:
-  fsGroup: 10001
+  fsGroup: 1654
+  fsGroupChangePolicy: OnRootMismatch
 
 securityContext:
   runAsNonRoot: true
-  runAsUser: 10001
-  runAsGroup: 10001
+  runAsUser: 1654
+  runAsGroup: 1654
   readOnlyRootFilesystem: false
   allowPrivilegeEscalation: false
   capabilities:
@@ -54,15 +57,37 @@ resources:
     memory: 256Mi
 
 storage:
+  # Mount an existing PVC instead of the StatefulSet's volumeClaimTemplate.
+  # Use this to adopt data from a previous install.
+  existingClaim: ""
   size: 20Gi
   storageClassName: ""
   accessModes:
     - ReadWriteOnce
 
+# Root credentials. With neither secretName nor accessKey/secretKey set the
+# server runs with auth DISABLED (every request is anonymous admin).
 auth:
+  # Existing Secret holding the root keys.
   secretName: ""
+  accessKeyKey: access-key
+  secretKeyKey: secret-key
+  # Or have the chart create <fullname>-admin-creds from these. Both required.
   accessKey: ""
   secretKey: ""
+
+config:
+  # SigV4 signing region; clients must sign for the same one.
+  region: ""
+  oidc:
+    issuer: ""
+    clientId: ""
+    audience: ""
+
+extraEnv: []
+envFrom: []
+extraVolumes: []
+extraVolumeMounts: []
 
 probes:
   liveness:
@@ -80,11 +105,18 @@ probes:
 
 metrics:
   enabled: true
+  # Bearer token required on /metrics (VESSEL3_METRICS_TOKEN), from a Secret.
+  # The ServiceMonitor scrapes with the same Secret. Without a token (or
+  # VESSEL3_METRICS_ALLOW_ANONYMOUS=true in extraEnv) /metrics returns 404.
+  token:
+    secretName: ""
+    key: token
   serviceMonitor:
     enabled: false
     interval: 15s
     scrapeTimeout: 10s
     labels: {}
+    relabelings: []
 
 nodeSelector: {}
 tolerations: []

@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using Vessel3.Server.Oidc;
 using Xunit;
 
 namespace Vessel3.Tests;

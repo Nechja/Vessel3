@@ -40,3 +40,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "vessel3.authSecretName" -}}
+{{- if .Values.auth.secretName -}}
+{{- .Values.auth.secretName -}}
+{{- else if or .Values.auth.accessKey .Values.auth.secretKey -}}
+{{- if not (and .Values.auth.accessKey .Values.auth.secretKey) -}}
+{{- fail "auth.accessKey and auth.secretKey must be set together" -}}
+{{- end -}}
+{{- printf "%s-admin-creds" (include "vessel3.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "vessel3.image" -}}
+{{- $tag := .Values.image.tag | default (printf "%s%s" .Chart.AppVersion (ternary "-ui" "" .Values.image.ui)) -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end }}

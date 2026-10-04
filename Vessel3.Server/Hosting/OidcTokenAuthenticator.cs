@@ -1,7 +1,3 @@
-using Vessel3.Primitives;
-using Vessel3.Server.Oidc;
-using Vessel3.Storage;
-
 namespace Vessel3.Server.Hosting;
 
 internal sealed class OidcTokenAuthenticator(ITokenVerifier verifier, IIdentityRegistry registry) : ITokenAuthenticator

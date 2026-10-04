@@ -1,14 +1,10 @@
 using Vessel3.Server.Admin;
 using Vessel3.Server.Configuration;
-using Vessel3.Server.Oidc;
 using Vessel3.Server.Pipeline;
-using Vessel3.Server.S3;
 using Vessel3.Server.Telemetry;
 #if VESSEL3_UI
 using Vessel3.Server.Ui;
 #endif
-using Vessel3.Storage;
-using Vessel3.Storage.Lifecycle;
 
 namespace Vessel3.Server.Hosting;
 
@@ -35,7 +31,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
-        services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold));
+        services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold, config.AccessLogEnabled));
         services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
         services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
     }
@@ -51,7 +47,7 @@ internal static class VesselServiceExtensions
         {
             var options = sp.GetRequiredService<IdentityOptions>();
             var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
-            var reg = new IdentityRegistry(options, clock);
+            var reg = new IdentityRegistry(options, clock, sp.GetService<IWebhookEventPublisher>());
             if (config.AccessKey is not null && config.SecretKey is not null)
                 reg.EnsureBootstrapAdmin(config.AccessKey, config.SecretKey);
             if (config.AdminUsers is { Count: > 0 } admins)
@@ -130,7 +126,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IVesselProtocol>(native);
         native.ConfigureServices(services, config);
 
-        if (config.ContainerReposEnabled)
+        if (config.OciEnabled)
         {
             var oci = new OciProtocol();
             services.AddSingleton<IVesselProtocol>(oci);

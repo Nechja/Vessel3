@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 
 namespace Vessel3.Protocols.Oci.Dispatch;
 
@@ -23,6 +24,15 @@ internal sealed class OciDispatcher(IEnumerable<IOciAction> actions) : IOciDispa
             return;
         }
 
+        var trace = RequestTrace.Current;
+        if (trace is not null)
+        {
+            trace.Action = target.Operation.ToString();
+            trace.Bucket = target.Repo;
+            trace.Key = target.Reference ?? target.UploadId;
+        }
+
         await action.Execute(target, ctx);
+        trace?.MarkHandled();
     }
 }
