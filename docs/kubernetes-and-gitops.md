@@ -141,6 +141,24 @@ helm install vessel3 ./charts/vessel3 \
   --set storage.size=50Gi
 ```
 
+#### Adopting an existing install
+
+To move a Vessel3 that you made before we had a helm chart:
+
+```yaml
+storage:
+  existingClaim: vessel3-data   # mounted as-is; no volumeClaimTemplate
+auth:
+  secretName: vessel3-creds     # keys access-key / secret-key
+config:
+  region: my-region-1           # must match what clients sign for
+metrics:
+  token:
+    secretName: vessel3-metrics
+```
+
+Stop the old workload before the StatefulSet starts. 
+
 ### Operator Chart (`charts/vessel3-operator`)
 
 ```bash
