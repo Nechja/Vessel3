@@ -160,7 +160,7 @@ internal static class CorsAndAccessScenarios
             await s3.PutBucketAclAsync(new PutBucketAclRequest
             {
                 BucketName = Bucket,
-                CannedACL = S3CannedACL.PublicRead,
+                ACL = S3CannedACL.PublicRead,
             });
 #endif
         });
@@ -189,7 +189,7 @@ internal static class CorsAndAccessScenarios
             await s3.PutBucketAclAsync(new PutBucketAclRequest
             {
                 BucketName = Bucket,
-                CannedACL = S3CannedACL.Private,
+                ACL = S3CannedACL.Private,
             });
 #endif
         });
