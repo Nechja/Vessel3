@@ -1,0 +1,633 @@
+@page "/logs"
+@using System.Globalization
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IVesselClient Client
+@inject UiAuth Auth
+@inject UiNotifications Toast
+@inject IJSRuntime JS
+
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">Logs &amp; Events</span>
+            <div class="row align-center" style="gap: var(--space-2); margin-left: var(--space-3);">
+                <button type="button" class="btn @(activeTab == Tab.Events ? "btn-primary" : "btn-ghost")" @onclick="() => SetTab(Tab.Events)">
+                    <Icon Name="bolt" /> Live Events
+                    <span class="counter">@liveEvents.Count</span>
+                </button>
+                <button type="button" class="btn @(activeTab == Tab.Logs ? "btn-primary" : "btn-ghost")" @onclick="() => SetTab(Tab.Logs)">
+                    <Icon Name="activity" /> Access &amp; Server Logs
+                    <span class="counter">@serverLogs.Count</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="toolbar-actions">
+            @if (activeTab == Tab.Events)
+            {
+                <div class="row align-center" style="gap: var(--space-2);">
+                    @if (isStreaming)
+                    {
+                        <span class="badge badge-mint mono" style="gap: 6px;">
+                            <span class="indicator-dot indicator-dot--online"></span> connected
+                        </span>
+                        <button type="button" class="btn btn-ghost" @onclick="TogglePause">
+                            <Icon Name="refresh" /> @(isPaused ? "resume" : "pause")
+                        </button>
+                        <button type="button" class="btn btn-ghost" @onclick="StopStream">
+                            disconnect
+                        </button>
+                    }
+                    else
+                    {
+                        <span class="badge badge-neutral mono faint">disconnected</span>
+                        <button type="button" class="btn btn-primary" @onclick="StartStream">
+                            <Icon Name="bolt" /> connect
+                        </button>
+                    }
+                    <button type="button" class="btn btn-ghost" @onclick="ClearEvents" disabled="@(liveEvents.Count == 0)">
+                        <Icon Name="trash" /> clear
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="row align-center" style="gap: var(--space-2);">
+                    <button type="button" class="btn @(autoRefreshLogs ? "btn-primary" : "btn-ghost")" @onclick="ToggleAutoRefresh">
+                        <Icon Name="refresh" /> auto-refresh @(autoRefreshLogs ? "on" : "off")
+                    </button>
+                    <button type="button" class="btn btn-ghost" @onclick="RefreshLogs" disabled="@loadingLogs">
+                        <Icon Name="refresh" /> refresh
+                    </button>
+                    <button type="button" class="btn btn-ghost" @onclick="ClearLogs" disabled="@(serverLogs.Count == 0)">
+                        <Icon Name="trash" /> clear
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (activeTab == Tab.Events)
+    {
+        <div class="panel stack" style="gap: var(--space-3); padding: var(--space-3);">
+            <div class="row align-center" style="gap: var(--space-3); flex-wrap: wrap;">
+                <div class="row align-center" style="gap: var(--space-2); flex: 1; min-width: 220px;">
+                    <span class="muted" style="font-size: var(--text-xs);">Topic:</span>
+                    <input class="input mono" type="text" placeholder="e.g. s3.*, container.*, *"
+                           @bind="topicFilter" @bind:event="oninput" style="font-size: var(--text-xs);" />
+                </div>
+                <div class="row align-center" style="gap: var(--space-2); flex: 1; min-width: 220px;">
+                    <span class="muted" style="font-size: var(--text-xs);">Resource:</span>
+                    <input class="input mono" type="text" placeholder="e.g. my-bucket/*, drummer:*"
+                           @bind="resourceFilter" @bind:event="oninput" style="font-size: var(--text-xs);" />
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="RestartStreamWithFilters">
+                    apply filters
+                </button>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 140px;">time</th>
+                        <th style="width: 180px;">topic</th>
+                        <th>subject / resource</th>
+                        <th style="width: 120px;">actor</th>
+                        <th style="width: 200px;">details</th>
+                        <th style="text-align: right; width: 100px;">action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (liveEvents.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="empty-state">
+                                @(isStreaming ? "listening for events... (upload a file or push a container to see live events)" : "event stream disconnected. click connect above to start listening.")
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var evt in liveEvents)
+                        {
+                            <tr>
+                                <td class="mono muted" style="font-size: 11px;">
+                                    @evt.Time.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                                </td>
+                                <td>
+                                    <span class="badge @GetTopicBadgeClass(evt.Type) mono" style="font-size: 11px;">
+                                        @evt.Type
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="mono" style="font-weight: var(--weight-medium); word-break: break-all;">
+                                        @evt.Subject
+                                    </span>
+                                </td>
+                                <td class="mono muted" style="font-size: 11px;">
+                                    @(evt.Actor ?? "anonymous")
+                                </td>
+                                <td class="mono muted" style="font-size: 11px;">
+                                    @SummarizeEventData(evt.Data)
+                                </td>
+                                <td style="text-align: right;">
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => InspectEvent(evt)">
+                                        inspect
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="panel stack" style="gap: var(--space-3); padding: var(--space-3);">
+            <div class="row align-center" style="gap: var(--space-3); flex-wrap: wrap;">
+                <div class="row align-center" style="gap: var(--space-2);">
+                    <span class="muted" style="font-size: var(--text-xs);">Level:</span>
+                    <select class="input mono" @bind="selectedLevel" @bind:after="RefreshLogs" style="font-size: var(--text-xs); width: 130px;">
+                        <option value="">All Levels</option>
+                        <option value="Information">Information</option>
+                        <option value="Warning">Warning</option>
+                        <option value="Error">Error</option>
+                    </select>
+                </div>
+
+                <div class="row align-center" style="gap: var(--space-2);">
+                    <span class="muted" style="font-size: var(--text-xs);">Protocol:</span>
+                    <select class="input mono" @bind="selectedProtocol" @bind:after="RefreshLogs" style="font-size: var(--text-xs); width: 130px;">
+                        <option value="">All Protocols</option>
+                        <option value="s3">S3</option>
+                        <option value="azure">Azure</option>
+                        <option value="oci">OCI</option>
+                        <option value="native">Native REST</option>
+                        <option value="webdav">WebDAV</option>
+                    </select>
+                </div>
+
+                <div class="row align-center" style="gap: var(--space-2);">
+                    <span class="muted" style="font-size: var(--text-xs);">Limit:</span>
+                    <select class="input mono" @bind="logLimit" @bind:after="RefreshLogs" style="font-size: var(--text-xs); width: 90px;">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="250">250</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 140px;">time</th>
+                        <th style="width: 100px;">level</th>
+                        <th style="width: 90px;">protocol</th>
+                        <th>request / action</th>
+                        <th>subject</th>
+                        <th style="width: 90px;">status</th>
+                        <th style="width: 90px; text-align: right;">latency</th>
+                        <th style="text-align: right; width: 100px;">details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (loadingLogs)
+                    {
+                        <tr>
+                            <td colspan="8" class="empty-state">loading server logs...</td>
+                        </tr>
+                    }
+                    else if (serverLogs.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="8" class="empty-state">
+                                no server log entries matching criteria.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var log in serverLogs)
+                        {
+                            <tr>
+                                <td class="mono muted" style="font-size: 11px;">
+                                    @log.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                                </td>
+                                <td>
+                                    <span class="badge @GetLevelBadgeClass(log.Level) mono" style="font-size: 11px;">
+                                        @log.Level
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(log.Protocol))
+                                    {
+                                        <span class="badge badge-neutral mono" style="font-size: 11px;">
+                                            @log.Protocol
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="stack" style="gap: 2px;">
+                                        <span class="mono" style="font-weight: var(--weight-medium);">
+                                            @(log.Action ?? log.Message)
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(log.Action) && !string.IsNullOrEmpty(log.Message) && log.Message != log.Action)
+                                        {
+                                            <span class="mono muted" style="font-size: 10px;">@log.Message</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="mono muted" style="font-size: 11px; word-break: break-all;">
+                                        @(log.Subject ?? "-")
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (log.StatusCode.HasValue)
+                                    {
+                                        <span class="badge @GetStatusBadgeClass(log.StatusCode.Value) mono" style="font-size: 11px;">
+                                            @log.StatusCode.Value
+                                        </span>
+                                    }
+                                </td>
+                                <td class="mono muted" style="font-size: 11px; text-align: right;">
+                                    @(log.DurationMs.HasValue ? $"{log.DurationMs.Value:F1}ms" : "-")
+                                </td>
+                                <td style="text-align: right;">
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => InspectLog(log)">
+                                        details
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (inspectedEvent is not null)
+{
+    <Modal IsOpen="true" Title="@($"CloudEvent: {inspectedEvent.Type}")" OnClose="CloseEventModal">
+        <ChildContent>
+            <div class="stack" style="gap: var(--space-3);">
+                <div class="grid grid-2" style="font-size: var(--text-xs);">
+                    <div><span class="muted">ID:</span> <span class="mono">@inspectedEvent.Id</span></div>
+                    <div><span class="muted">Time:</span> <span class="mono">@inspectedEvent.Time.ToString("u")</span></div>
+                    <div><span class="muted">Topic:</span> <span class="mono">@inspectedEvent.Type</span></div>
+                    <div><span class="muted">Subject:</span> <span class="mono">@inspectedEvent.Subject</span></div>
+                    <div><span class="muted">Actor:</span> <span class="mono">@(inspectedEvent.Actor ?? "anonymous")</span></div>
+                    <div><span class="muted">Source:</span> <span class="mono">@inspectedEvent.Source</span></div>
+                </div>
+
+                <div>
+                    <div class="row justify-between align-center" style="margin-bottom: var(--space-1);">
+                        <span class="muted" style="font-size: var(--text-xs);">Payload JSON:</span>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="CopyEventJson">
+                            <Icon Name="copy" /> copy
+                        </button>
+                    </div>
+                    <pre class="panel mono" style="padding: var(--space-3); font-size: 11px; overflow-x: auto; max-height: 360px;">@FormatJson(inspectedEvent)</pre>
+                </div>
+            </div>
+        </ChildContent>
+        <FooterContent>
+            <button type="button" class="btn btn-primary" @onclick="CloseEventModal">Done</button>
+        </FooterContent>
+    </Modal>
+}
+
+@if (inspectedLog is not null)
+{
+    <Modal IsOpen="true" Title="@($"Log Entry: {inspectedLog.Message}")" OnClose="CloseLogModal">
+        <ChildContent>
+            <div class="stack" style="gap: var(--space-3);">
+                <div class="grid grid-2" style="font-size: var(--text-xs);">
+                    <div><span class="muted">Timestamp:</span> <span class="mono">@inspectedLog.Timestamp.ToString("u")</span></div>
+                    <div><span class="muted">Level:</span> <span class="mono">@inspectedLog.Level</span></div>
+                    <div><span class="muted">Protocol:</span> <span class="mono">@(inspectedLog.Protocol ?? "-")</span></div>
+                    <div><span class="muted">Action:</span> <span class="mono">@(inspectedLog.Action ?? "-")</span></div>
+                    <div><span class="muted">Subject:</span> <span class="mono">@(inspectedLog.Subject ?? "-")</span></div>
+                    <div><span class="muted">Actor:</span> <span class="mono">@(inspectedLog.Actor ?? "anonymous")</span></div>
+                    <div><span class="muted">Status:</span> <span class="mono">@(inspectedLog.StatusCode?.ToString() ?? "-")</span></div>
+                    <div><span class="muted">Duration:</span> <span class="mono">@(inspectedLog.DurationMs.HasValue ? $"{inspectedLog.DurationMs.Value:F2}ms" : "-")</span></div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(inspectedLog.TraceId))
+                {
+                    <div class="row align-center justify-between" style="font-size: var(--text-xs);">
+                        <div><span class="muted">Trace ID:</span> <span class="mono">@inspectedLog.TraceId</span></div>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="() => CopyText(inspectedLog.TraceId)">
+                            <Icon Name="copy" /> copy trace
+                        </button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(inspectedLog.ErrorDetails))
+                {
+                    <div>
+                        <span class="muted" style="font-size: var(--text-xs); color: var(--color-danger);">Error / Stack Trace:</span>
+                        <pre class="panel mono" style="padding: var(--space-3); font-size: 11px; overflow-x: auto; max-height: 300px; color: var(--color-danger);">@inspectedLog.ErrorDetails</pre>
+                    </div>
+                }
+            </div>
+        </ChildContent>
+        <FooterContent>
+            <button type="button" class="btn btn-primary" @onclick="CloseLogModal">Done</button>
+        </FooterContent>
+    </Modal>
+}
+
+@code {
+    private enum Tab { Events, Logs }
+    private Tab activeTab = Tab.Events;
+
+    // Live events state
+    private readonly List<VesselEventDto> liveEvents = [];
+    private CancellationTokenSource? streamCts;
+    private Task? streamTask;
+    private bool isStreaming;
+    private bool isPaused;
+    private string topicFilter = "";
+    private string resourceFilter = "";
+    private VesselEventDto? inspectedEvent;
+    private const int MaxEventBufferSize = 300;
+
+    // Server logs state
+    private List<ServerLogEntryDto> serverLogs = [];
+    private bool loadingLogs;
+    private bool autoRefreshLogs;
+    private string selectedLevel = "";
+    private string selectedProtocol = "";
+    private int logLimit = 100;
+    private ServerLogEntryDto? inspectedLog;
+    private CancellationTokenSource? refreshCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await StartStream();
+        await RefreshLogs();
+    }
+
+    private void SetTab(Tab tab)
+    {
+        activeTab = tab;
+        if (activeTab == Tab.Logs && serverLogs.Count == 0)
+        {
+            _ = RefreshLogs();
+        }
+    }
+
+    private async Task StartStream()
+    {
+        if (isStreaming)
+        {
+            return;
+        }
+
+        streamCts?.Cancel();
+        streamCts?.Dispose();
+        streamCts = new CancellationTokenSource();
+        isStreaming = true;
+
+        var token = streamCts.Token;
+        streamTask = Task.Run(async () =>
+        {
+            try
+            {
+                var tf = string.IsNullOrWhiteSpace(topicFilter) ? null : topicFilter;
+                var rf = string.IsNullOrWhiteSpace(resourceFilter) ? null : resourceFilter;
+
+                await foreach (var evt in Client.StreamEventsAsync(tf, rf, token))
+                {
+                    if (isPaused)
+                    {
+                        continue;
+                    }
+
+                    await InvokeAsync(() =>
+                    {
+                        liveEvents.Insert(0, evt);
+                        if (liveEvents.Count > MaxEventBufferSize)
+                        {
+                            liveEvents.RemoveAt(liveEvents.Count - 1);
+                        }
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown
+            }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    isStreaming = false;
+                    Toast.Warning($"Event stream disconnected: {ex.Message}");
+                    StateHasChanged();
+                });
+            }
+            finally
+            {
+                await InvokeAsync(() =>
+                {
+                    isStreaming = false;
+                    StateHasChanged();
+                });
+            }
+        }, token);
+    }
+
+    private void StopStream()
+    {
+        streamCts?.Cancel();
+        isStreaming = false;
+    }
+
+    private void TogglePause()
+    {
+        isPaused = !isPaused;
+    }
+
+    private async Task RestartStreamWithFilters()
+    {
+        StopStream();
+        await StartStream();
+        Toast.Info("Applied live event filters");
+    }
+
+    private void ClearEvents()
+    {
+        liveEvents.Clear();
+    }
+
+    private void InspectEvent(VesselEventDto evt)
+    {
+        inspectedEvent = evt;
+    }
+
+    private void CloseEventModal()
+    {
+        inspectedEvent = null;
+    }
+
+    private async Task CopyEventJson()
+    {
+        if (inspectedEvent is null) return;
+        var json = FormatJson(inspectedEvent);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", json);
+        Toast.Success("Copied CloudEvent JSON");
+    }
+
+    private static string FormatJson(VesselEventDto evt) =>
+        JsonSerializer.Serialize(evt, new JsonSerializerOptions { WriteIndented = true });
+
+    private static string SummarizeEventData(IReadOnlyDictionary<string, string>? data)
+    {
+        if (data is null || data.Count == 0) return "-";
+        var parts = new List<string>(data.Count);
+        foreach (var (k, v) in data)
+        {
+            parts.Add($"{k}={v}");
+        }
+        return string.Join(", ", parts);
+    }
+
+    private static string GetTopicBadgeClass(string type)
+    {
+        if (type.StartsWith("container", StringComparison.OrdinalIgnoreCase)) return "badge-neutral";
+        if (type.EndsWith("deleted", StringComparison.OrdinalIgnoreCase)) return "badge-danger";
+        if (type.StartsWith("s3", StringComparison.OrdinalIgnoreCase)) return "badge-mint";
+        return "badge-neutral";
+    }
+
+    // --- Server Logs Logic ---
+
+    private async Task RefreshLogs()
+    {
+        loadingLogs = true;
+        try
+        {
+            var res = await Client.GetServerLogsAsync(logLimit, selectedLevel, selectedProtocol);
+            if (res.TryGetValue(out var logs, out var err))
+            {
+                serverLogs = new List<ServerLogEntryDto>(logs);
+            }
+            else
+            {
+                Toast.Danger(err.Message);
+            }
+        }
+        finally
+        {
+            loadingLogs = false;
+        }
+    }
+
+    private async Task ClearLogs()
+    {
+        var res = await Client.ClearServerLogsAsync();
+        if (res.IsSuccess)
+        {
+            serverLogs.Clear();
+            Toast.Success("Server logs cleared");
+        }
+        else
+        {
+            Toast.Danger("Failed to clear server logs");
+        }
+    }
+
+    private void ToggleAutoRefresh()
+    {
+        autoRefreshLogs = !autoRefreshLogs;
+        if (autoRefreshLogs)
+        {
+            StartAutoRefresh();
+        }
+        else
+        {
+            refreshCts?.Cancel();
+        }
+    }
+
+    private void StartAutoRefresh()
+    {
+        refreshCts?.Cancel();
+        refreshCts?.Dispose();
+        refreshCts = new CancellationTokenSource();
+        var token = refreshCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
+            {
+                if (activeTab != Tab.Logs) continue;
+                await InvokeAsync(RefreshLogs);
+            }
+        }, token);
+    }
+
+    private void InspectLog(ServerLogEntryDto log)
+    {
+        inspectedLog = log;
+    }
+
+    private void CloseLogModal()
+    {
+        inspectedLog = null;
+    }
+
+    private async Task CopyText(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        Toast.Success("Copied to clipboard");
+    }
+
+    private static string GetLevelBadgeClass(string level) => level switch
+    {
+        "Error" => "badge-danger",
+        "Warning" => "badge-danger",
+        _ => "badge-mint"
+    };
+
+    private static string GetStatusBadgeClass(int status) => status switch
+    {
+        >= 500 => "badge-danger",
+        >= 400 => "badge-danger",
+        >= 300 => "badge-neutral",
+        >= 200 => "badge-mint",
+        _ => "badge-neutral"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        streamCts?.Cancel();
+        streamCts?.Dispose();
+        refreshCts?.Cancel();
+        refreshCts?.Dispose();
+
+        if (streamTask is not null)
+        {
+            try
+            {
+                await streamTask;
+            }
+            catch
+            {
+                // Ignore task cancellation on dispose
+            }
+        }
+    }
+}

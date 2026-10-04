@@ -1,0 +1,20 @@
+Vessel3 is listening at http://{{ include "vessel3.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  External: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/
+{{- end }}
+{{- end }}
+{{- if not (include "vessel3.authSecretName" .) }}
+
+WARNING: auth is NOT configured. Every request is served as anonymous admin.
+Set auth.secretName (an existing Secret with access-key/secret-key) or
+auth.accessKey and auth.secretKey.
+{{- end }}
+{{- with .Values.storage.existingClaim }}
+
+Data: mounted from the existing claim "{{ . }}". If its PersistentVolume has
+reclaimPolicy Delete (the default for most dynamic provisioners), deleting
+that claim deletes the data. Set the PV to Retain before migrating anything.
+{{- end }}
+
+Check the install with:  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

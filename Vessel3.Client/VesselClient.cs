@@ -299,6 +299,31 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return await ReadJson(res, VesselJsonContext.Default.SweepReportDto, ct);
     }
 
+    public async Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogsAsync(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default)
+    {
+        var query = $"?limit={limit}";
+        if (!string.IsNullOrEmpty(level))
+        {
+            query += $"&level={Uri.EscapeDataString(level)}";
+        }
+
+        if (!string.IsNullOrEmpty(protocol))
+        {
+            query += $"&protocol={Uri.EscapeDataString(protocol)}";
+        }
+
+        using var req = CreateRequest(HttpMethod.Get, $"v1/admin/logs{query}");
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.IReadOnlyListServerLogEntryDto, ct);
+    }
+
+    public async Task<Result> ClearServerLogsAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, "v1/admin/logs");
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
     public async Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default)
     {
         var query = $"?n={limit}" + (last is not null ? $"&last={Uri.EscapeDataString(last)}" : "");

@@ -96,6 +96,7 @@ internal static class VesselServiceExtensions
         });
 
         services.AddSingleton<IEventStreamHub, EventStreamHub>();
+        services.AddSingleton<IServerLogBuffer, ServerLogBuffer>();
         services.AddSingleton<WebhookDeliveryWorker>(sp => new WebhookDeliveryWorker(
             sp.GetRequiredService<IWebhookStore>(),
             new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(15) },

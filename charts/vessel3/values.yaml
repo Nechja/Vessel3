@@ -22,6 +22,9 @@ podLabels: {}
 podSecurityContext:
   fsGroup: 1654
   fsGroupChangePolicy: OnRootMismatch
+  # Required by the "restricted" Pod Security Standard.
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   runAsNonRoot: true

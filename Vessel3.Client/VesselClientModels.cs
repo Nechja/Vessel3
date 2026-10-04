@@ -94,6 +94,21 @@ public sealed record VesselEventDto(
     string? Actor = null,
     string? Host = null);
 
+public sealed record ServerLogEntryDto(
+    string Id,
+    DateTimeOffset Timestamp,
+    string Level,
+    string Source,
+    string Message,
+    string? Protocol = null,
+    string? Action = null,
+    string? Subject = null,
+    string? Actor = null,
+    int? StatusCode = null,
+    double? DurationMs = null,
+    string? TraceId = null,
+    string? ErrorDetails = null);
+
 public sealed record VesselObjectDownload(
     Stream Content,
     string ContentType,
@@ -143,4 +158,7 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(WebhookTestResultDto))]
 [JsonSerializable(typeof(VesselEventDto))]
 [JsonSerializable(typeof(IReadOnlyList<VesselEventDto>))]
+[JsonSerializable(typeof(ServerLogEntryDto))]
+[JsonSerializable(typeof(IReadOnlyList<ServerLogEntryDto>))]
+[JsonSerializable(typeof(List<ServerLogEntryDto>))]
 internal partial class VesselJsonContext : JsonSerializerContext;

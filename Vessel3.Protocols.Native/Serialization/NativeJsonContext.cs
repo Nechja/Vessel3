@@ -75,6 +75,21 @@ public readonly record struct WebhookTestResultDto(
     string? ErrorMessage,
     string? ResponseBody);
 
+public readonly record struct ServerLogEntryDto(
+    string Id,
+    DateTimeOffset Timestamp,
+    string Level,
+    string Source,
+    string Message,
+    string? Protocol,
+    string? Action,
+    string? Subject,
+    string? Actor,
+    int? StatusCode,
+    double? DurationMs,
+    string? TraceId,
+    string? ErrorDetails);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(BucketDto))]
 [JsonSerializable(typeof(IReadOnlyList<BucketDto>))]
@@ -107,4 +122,7 @@ public readonly record struct WebhookTestResultDto(
 [JsonSerializable(typeof(WebhookTestResultDto))]
 [JsonSerializable(typeof(VesselEvent))]
 [JsonSerializable(typeof(IReadOnlyList<VesselEvent>))]
+[JsonSerializable(typeof(ServerLogEntryDto))]
+[JsonSerializable(typeof(IReadOnlyList<ServerLogEntryDto>))]
+[JsonSerializable(typeof(List<ServerLogEntryDto>))]
 internal partial class NativeJsonContext : JsonSerializerContext;

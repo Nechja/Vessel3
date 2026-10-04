@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Vessel3.Server.Telemetry;
+using Vessel3.Storage;
 
 namespace Vessel3.Server;
 
@@ -8,7 +9,8 @@ internal sealed record RequestTelemetryOptions(TimeSpan SlowThreshold, bool Acce
 internal sealed partial class RequestTelemetry(
     RequestTelemetryOptions options,
     ILogger<RequestTelemetry> log,
-    IMetricsCollector metrics) : IMiddleware
+    IMetricsCollector metrics,
+    IServerLogBuffer? logBuffer = null) : IMiddleware
 {
     public static readonly ActivitySource ActivitySource = new("Vessel3", "1.0.0");
 
@@ -110,6 +112,35 @@ internal sealed partial class RequestTelemetry(
 
             metrics.RecordRequest(trace.Action, status, elapsed, reqBytes, resBytes);
             metrics.RecordStages(trace);
+
+            if (logBuffer is not null)
+            {
+                var totalMs = Ms(elapsed);
+                var subject = !string.IsNullOrEmpty(trace.Bucket)
+                    ? (!string.IsNullOrEmpty(trace.Key) ? $"{trace.Bucket}/{trace.Key}" : trace.Bucket)
+                    : null;
+                var level = status switch
+                {
+                    >= 500 => "Error",
+                    >= 400 => "Warning",
+                    _ => "Information"
+                };
+
+                logBuffer.Log(new ServerLogEntry(
+                    Id: Guid.NewGuid().ToString("N"),
+                    Timestamp: DateTimeOffset.UtcNow,
+                    Level: level,
+                    Source: "Access",
+                    Message: $"{ctx.Request.Method} {ctx.Request.Path.Value ?? "/"} -> {status}",
+                    Protocol: trace.Protocol,
+                    Action: trace.Action,
+                    Subject: subject,
+                    Actor: trace.Actor,
+                    StatusCode: status,
+                    DurationMs: totalMs,
+                    TraceId: trace.TraceId,
+                    ErrorDetails: failure?.ToString()));
+            }
 
             if (options.AccessLogEnabled && log.IsEnabled(LogLevel.Information))
             {
