@@ -36,22 +36,26 @@ internal sealed class CredentialStore(Credential? root, IIdentityRegistry? ident
         if (sessions.TryGetValue(accessKey, out var session))
             return session;
 
-        if (identity is not null)
+        if (identity is null)
         {
-            if (identity.GetAccessKey(accessKey) is Result<AccessKey?>.Success { Value: { } key }
-                && !key.IsRevoked
-                && (key.ExpiresAt is null || key.ExpiresAt > clock.GetUtcNow()))
-            {
-                if (identity.GetUser(key.UserId) is Result<User?>.Success { Value: { } user }
-                    && user.Status is UserStatus.Active)
-                {
-                    var caller = new CallerIdentity(user.Id, user.Username, user.Role, key.Id);
-                    return new Credential(key.Id, key.SecretKey, null, key.ExpiresAt, user.Username, null, caller);
-                }
-            }
+            return null;
         }
 
-        return null;
+        if (identity.GetAccessKey(accessKey) is not Result<AccessKey?>.Success { Value: { } key }
+            || key.IsRevoked
+            || (key.ExpiresAt is not null && key.ExpiresAt <= clock.GetUtcNow()))
+        {
+            return null;
+        }
+
+        if (identity.GetUser(key.UserId) is not Result<User?>.Success { Value: { } user }
+            || user.Status is not UserStatus.Active)
+        {
+            return null;
+        }
+
+        var caller = new CallerIdentity(user.Id, user.Username, user.Role, key.Id);
+        return new Credential(key.Id, key.SecretKey, null, key.ExpiresAt, user.Username, null, caller);
     }
 
     public Credential IssueSession(string subject, TimeSpan ttl, string? accountId = null)

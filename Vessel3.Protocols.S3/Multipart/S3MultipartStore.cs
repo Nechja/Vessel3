@@ -13,9 +13,6 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
             session => new CreateUploadOutcome(session.SessionId),
             err => err);
 
-    public Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, ChecksumSet declaredChecksums, CancellationToken ct) =>
-        UploadPart(uploadId, partNumber, body, declaredSize, DeclaredChecksums.FromSet(declaredChecksums), ct);
-
     public async Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct)
     {
         if (partNumber is < 1 or > 10000)

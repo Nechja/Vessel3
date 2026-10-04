@@ -104,13 +104,16 @@ internal sealed partial class RequestTelemetry(
             return parts.Length >= 4 && parts[1].Length == 32 ? parts[1] : val;
         }
 
-        return headers.TryGetValue("x-request-id", out var xrid) && !string.IsNullOrEmpty(xrid)
-            ? xrid.ToString()
-            : headers.TryGetValue("x-amz-request-id", out var amzid) && !string.IsNullOrEmpty(amzid)
-                ? amzid.ToString()
-                : headers.TryGetValue("x-ms-request-id", out var msid) && !string.IsNullOrEmpty(msid)
-                    ? msid.ToString()
-                    : (!string.IsNullOrEmpty(ctx.TraceIdentifier) ? ctx.TraceIdentifier : Ulid.NewUlid().ToString());
+        if (headers.TryGetValue("x-request-id", out var xrid) && !string.IsNullOrEmpty(xrid))
+            return xrid.ToString();
+
+        if (headers.TryGetValue("x-amz-request-id", out var amzid) && !string.IsNullOrEmpty(amzid))
+            return amzid.ToString();
+
+        if (headers.TryGetValue("x-ms-request-id", out var msid) && !string.IsNullOrEmpty(msid))
+            return msid.ToString();
+
+        return !string.IsNullOrEmpty(ctx.TraceIdentifier) ? ctx.TraceIdentifier : Ulid.NewUlid().ToString();
     }
 
     [LoggerMessage(EventId = 1, Message =

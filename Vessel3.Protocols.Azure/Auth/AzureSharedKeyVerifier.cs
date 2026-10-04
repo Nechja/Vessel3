@@ -135,21 +135,25 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
             }
         }
 
-        if (identity is not null)
+        if (identity is null)
         {
-            if (identity.GetAccessKey(account) is Result<AccessKey?>.Success { Value: { } ak } && !ak.IsRevoked)
-            {
-                if (identity.GetUser(ak.UserId) is Result<User?>.Success { Value: { } user } && user.Status is UserStatus.Active)
-                {
-                    byte[] bytes;
-                    try { bytes = Convert.FromBase64String(ak.SecretKey); }
-                    catch { bytes = Encoding.UTF8.GetBytes(ak.SecretKey); }
-                    return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, ak.Id));
-                }
-            }
+            return (null, null);
         }
 
-        return (null, null);
+        if (identity.GetAccessKey(account) is not Result<AccessKey?>.Success { Value: { } ak } || ak.IsRevoked)
+        {
+            return (null, null);
+        }
+
+        if (identity.GetUser(ak.UserId) is not Result<User?>.Success { Value: { } user } || user.Status is not UserStatus.Active)
+        {
+            return (null, null);
+        }
+
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(ak.SecretKey); }
+        catch { bytes = Encoding.UTF8.GetBytes(ak.SecretKey); }
+        return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, ak.Id));
     }
 
     public static string BuildStringToSign(HttpRequest req, string account)

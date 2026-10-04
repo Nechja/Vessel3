@@ -27,13 +27,16 @@ internal sealed class WebDavBasicAuthenticator(
         }
 
         var b64 = authHeader[WebDavHeaders.BasicScheme.Length..].Trim();
-        return !TryDecodeBasic(b64, out var key, out var secret)
-            ? new HttpError("Unauthorized", "Malformed Basic authentication credentials", StatusCodes.Status401Unauthorized)
-            : TryAuthenticateRoot(key, secret, out var rootCaller)
-                ? rootCaller
-                : TryAuthenticateUser(key, secret, out var userCaller)
-                    ? userCaller
-                    : new HttpError("Unauthorized", "Invalid credentials", StatusCodes.Status401Unauthorized);
+        if (!TryDecodeBasic(b64, out var key, out var secret))
+            return new HttpError("Unauthorized", "Malformed Basic authentication credentials", StatusCodes.Status401Unauthorized);
+
+        if (TryAuthenticateRoot(key, secret, out var rootCaller))
+            return rootCaller;
+
+        if (TryAuthenticateUser(key, secret, out var userCaller))
+            return userCaller;
+
+        return new HttpError("Unauthorized", "Invalid credentials", StatusCodes.Status401Unauthorized);
     }
 
     private bool TryAuthenticateRoot(string key, string secret, out Result<CallerIdentity> result)
