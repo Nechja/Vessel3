@@ -27,6 +27,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "building server (Release)..."
+  dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
+fi
+
 rm -rf "$DATA_DIR" "$SERVER_LOG"
 mkdir -p "$DATA_DIR"
 
@@ -38,4 +43,4 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
-dotnet run --project "$PROBE_PROJ" -c Release --no-launch-profile -- anon
+dotnet run --project "$PROBE_PROJ" -c Release --no-build --no-launch-profile -- anon

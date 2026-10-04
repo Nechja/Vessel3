@@ -17,8 +17,8 @@ export VESSEL3_ACCESS_KEY=AKIATEST
 export VESSEL3_SECRET_KEY=secretkey1234567890
 export VESSEL3_PROBE_STATE=$STATE
 export VESSEL3_ENDPOINT=$ENDPOINT
-export NO_PROXY="*"
-export no_proxy="*"
+export NO_PROXY="127.0.0.1,localhost,::1,*"
+export no_proxy="127.0.0.1,localhost,::1,*"
 unset HTTP_PROXY http_proxy HTTPS_PROXY https_proxy
 
 SERVER_PID=
@@ -58,7 +58,7 @@ stop_server_clean() {
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=
   fi
-  sleep 1
+  sleep 2
 }
 
 stop_server_hard() {
@@ -74,8 +74,13 @@ stop_server_hard() {
 }
 
 run_phase() {
-  dotnet run --project "$PROBE_PROJ" -c Release --no-launch-profile -- "$1"
+  dotnet run --project "$PROBE_PROJ" -c Release --no-build --no-launch-profile -- "$1"
 }
+
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "building server (Release)..."
+  dotnet build "$ROOT/Vessel3.Server" -c Release --nologo -v q > /dev/null
+fi
 
 rm -rf "$DATA_DIR" "$STATE" "$SERVER_LOG"
 mkdir -p "$DATA_DIR"

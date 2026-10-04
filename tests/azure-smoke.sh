@@ -41,4 +41,4 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
-dotnet run --project "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --no-launch-profile
+dotnet run --project "$ROOT/Vessel3.Tests.AzureCompatibility" -c Release --no-build --no-launch-profile

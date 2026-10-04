@@ -36,6 +36,11 @@ internal sealed record VesselConfig(
             return false;
         }
 
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("XDG_DATA_HOME")))
+        {
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", Path.Combine(dataRoot, ".xdg"));
+        }
+
         if (!OidcOptions.FromEnvironment().TryGetValue(out var oidc, out var oidcError))
         {
             config = null;
