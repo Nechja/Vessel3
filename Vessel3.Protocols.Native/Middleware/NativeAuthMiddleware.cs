@@ -21,6 +21,8 @@ internal sealed class NativeAuthMiddleware(
             return;
         }
 
+        RequestTrace.SetContext(protocol: "native");
+
         var callerResult = await AuthenticateCaller(ctx);
         if (!callerResult.TryGetValue(out var caller, out var authErr))
         {
@@ -31,6 +33,7 @@ internal sealed class NativeAuthMiddleware(
         if (caller is not null)
         {
             ctx.SetCallerIdentity(caller);
+            RequestTrace.SetContext(actor: caller.Username);
             await next(ctx);
             return;
         }

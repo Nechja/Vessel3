@@ -13,6 +13,8 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
             return;
         }
 
+        RequestTrace.SetContext(protocol: "s3");
+
         if (ctx.Items.ContainsKey("AnonymousAllowed"))
         {
             var hasAuth = ctx.Request.Headers.ContainsKey("Authorization")
@@ -34,6 +36,7 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
         if (sigCtx.Caller is not null)
         {
             ctx.Items["CallerIdentity"] = sigCtx.Caller;
+            RequestTrace.SetContext(actor: sigCtx.Caller.Username);
         }
         await next(ctx);
     }

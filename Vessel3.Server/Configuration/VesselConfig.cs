@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Vessel3.Server.Oidc;
 using Vessel3.Server.S3;
 
@@ -22,7 +23,11 @@ internal sealed record VesselConfig(
     IReadOnlyList<string>? AdminUsers = null,
     bool ContainerReposEnabled = true,
     bool WebDavEnabled = true,
-    string? WebhooksFile = null)
+    string? WebhooksFile = null,
+    string LogFormat = "text",
+    LogLevel LogLevel = LogLevel.Information,
+    bool AccessLogEnabled = true,
+    string? NodeId = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -73,6 +78,10 @@ internal sealed record VesselConfig(
         var webDavEnabled = !webDavDisabled;
 
         var webhooksFile = ReadString("VESSEL3_WEBHOOKS_FILE");
+        var logFormat = ReadString("VESSEL3_LOG_FORMAT", "text")!.ToLowerInvariant();
+        var logLevel = ReadLogLevel("VESSEL3_LOG_LEVEL", LogLevel.Information);
+        var accessLog = !string.Equals(Environment.GetEnvironmentVariable("VESSEL3_ACCESS_LOG"), "false", StringComparison.OrdinalIgnoreCase);
+        var nodeId = ReadString("VESSEL3_NODE_ID", Environment.MachineName);
 
         config = new VesselConfig(
             dataRoot,
@@ -91,11 +100,28 @@ internal sealed record VesselConfig(
             adminUsers,
             containerReposEnabled,
             webDavEnabled,
-            webhooksFile);
+            webhooksFile,
+            logFormat,
+            logLevel,
+            accessLog,
+            nodeId);
 
         error = null;
         return true;
     }
+
+    private static LogLevel ReadLogLevel(string name, LogLevel fallback) =>
+        Environment.GetEnvironmentVariable(name)?.ToLowerInvariant() switch
+        {
+            "trace" => LogLevel.Trace,
+            "debug" => LogLevel.Debug,
+            "info" or "information" => LogLevel.Information,
+            "warn" or "warning" => LogLevel.Warning,
+            "error" => LogLevel.Error,
+            "critical" => LogLevel.Critical,
+            "none" => LogLevel.None,
+            _ => fallback
+        };
 
     private static string? ReadString(string name, string? fallback = null)
     {

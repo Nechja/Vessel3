@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Logging;
 
 namespace Vessel3.Storage;
 
@@ -18,7 +19,7 @@ internal interface IObjectStore
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
 }
 
-internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate, IWebhookEventPublisher? publisher = null) : IObjectStore
+internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate, IWebhookEventPublisher? publisher = null, ILogger<ObjectStore>? logger = null) : IObjectStore
 {
     public Task<Result<PutOutcome>> Put(string bucket, string key, Stream body, long? declaredSize, string? contentType, string? declaredSha256, string? declaredMd5Base64, IReadOnlyDictionary<string, string> metadata, IReadOnlyDictionary<string, string> tags, ChecksumSet declaredChecksums, CancellationToken ct, Retention? retention = null, bool legalHoldOn = false, IReadOnlyDictionary<string, string>? systemHeaders = null) =>
         Put(new ObjectPutRequest(bucket, key, body, declaredSize, contentType, declaredSha256, declaredMd5Base64, metadata, tags, declaredChecksums, ct, retention, legalHoldOn, systemHeaders));
@@ -27,13 +28,21 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
     {
         using var lease = await gate.Writing();
         var written = await blobs.Write(req.Body, req.DeclaredSize, req.DeclaredChecksums.ToIntent(), req.Ct);
-        return !written.TryGetValue(out var blob, out var blobErr)
-            ? blobErr
-            : ValidateDigests(blob, req.DeclaredSha256, req.DeclaredMd5Base64) is { } digestErr
-                ? digestErr
-                : !ChecksumValidator.Validate(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
-                    ? checksumErr
-                    : RecordPut(req, blob, toStore);
+        if (!written.TryGetValue(out var blob, out var blobErr))
+            return blobErr;
+
+        if (ValidateDigests(blob, req.DeclaredSha256, req.DeclaredMd5Base64) is { } digestErr)
+        {
+            if (logger is not null)
+            {
+                LogDigestMismatch(logger, req.Bucket, req.Key, digestErr.Message);
+            }
+            return digestErr;
+        }
+
+        return !ChecksumValidator.Validate(blob, req.DeclaredChecksums, req.Body, out var toStore, out var checksumErr)
+            ? checksumErr
+            : RecordPut(req, blob, toStore);
     }
 
     private static Error? ValidateDigests(StoredBlob blob, string? declaredSha256, string? declaredMd5Base64) =>
@@ -195,4 +204,7 @@ internal sealed class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPr
                 ? err
                 : new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders);
     }
+
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Digest mismatch on {Bucket}/{Key}: {Reason}")]
+    private static partial void LogDigestMismatch(ILogger logger, string bucket, string key, string reason);
 }

@@ -24,6 +24,8 @@ internal sealed class ContainerRepoAuthMiddleware(
             return;
         }
 
+        RequestTrace.SetContext(protocol: "oci");
+
         if (ctx.Request.Path.Equals("/v2/token", StringComparison.OrdinalIgnoreCase))
         {
             await next(ctx);

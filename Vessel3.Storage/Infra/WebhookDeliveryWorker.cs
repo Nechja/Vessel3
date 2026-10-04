@@ -57,7 +57,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
 
     private async Task ProcessEvent(VesselEvent evt, CancellationToken ct)
     {
-        LogDomainEvent(logger, evt.Type, evt.Subject, evt.Actor ?? "anonymous");
+        LogDomainEvent(logger, evt.Type, evt.Id, evt.Subject, evt.Actor ?? "anonymous");
 
         if (!store.ListWebhooks().TryGetValue(out var webhooks, out _))
             return;
@@ -234,6 +234,6 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
     [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Unexpected error delivering webhooks for event {EventType}:{ResourceId}")]
     private static partial void LogDeliveryError(ILogger logger, Exception ex, string eventType, string resourceId);
 
-    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "EVENT [{EventType}] {Subject} actor={Actor}")]
-    private static partial void LogDomainEvent(ILogger logger, string eventType, string subject, string actor);
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "EVENT [{EventType}] id={EventId} {Subject} actor={Actor}")]
+    private static partial void LogDomainEvent(ILogger logger, string eventType, string eventId, string subject, string actor);
 }

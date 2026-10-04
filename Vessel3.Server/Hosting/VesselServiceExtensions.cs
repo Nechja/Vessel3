@@ -35,7 +35,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
-        services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold));
+        services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold, config.AccessLogEnabled));
         services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
         services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
     }

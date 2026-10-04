@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Auth;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
@@ -32,6 +33,7 @@ internal sealed class AzureProtocolMiddleware(
 
         var requestId = Guid.NewGuid().ToString("D");
         ctx.Items["AzureRequestId"] = requestId;
+        RequestTrace.SetContext(protocol: "azure", traceId: requestId);
 
         var target = AzureRequestParser.Parse(ctx.Request);
 
@@ -45,6 +47,7 @@ internal sealed class AzureProtocolMiddleware(
         }
 
         ctx.Items["CallerIdentity"] = caller;
+        RequestTrace.SetContext(actor: caller.Username);
 
         AzureHeaderCodec.ApplyStandardResponseHeaders(ctx);
 

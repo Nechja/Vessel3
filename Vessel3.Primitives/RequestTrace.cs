@@ -12,6 +12,9 @@ internal sealed class RequestTrace
     public static RequestTrace? Current { get => current.Value; set => current.Value = value; }
 
     public long StartedAt { get; } = Stopwatch.GetTimestamp();
+    public string TraceId { get; set; } = string.Empty;
+    public string Protocol { get; set; } = "http";
+    public string Actor { get; set; } = "anonymous";
     public string Action { get; set; } = "Other";
     public string? Bucket { get; set; }
     public string? Key { get; set; }
@@ -28,6 +31,13 @@ internal sealed class RequestTrace
         trace.Action = action;
         trace.Bucket = bucket;
         trace.Key = key;
+    }
+    public static void SetContext(string? protocol = null, string? actor = null, string? traceId = null)
+    {
+        if (current.Value is not { } trace) return;
+        if (protocol is not null) trace.Protocol = protocol;
+        if (actor is not null) trace.Actor = actor;
+        if (traceId is not null) trace.TraceId = traceId;
     }
     public long Ticks(Stage stage) => Interlocked.Read(ref ticks[(int)stage]);
     public void Add(Stage stage, long elapsed) => Interlocked.Add(ref ticks[(int)stage], elapsed);
