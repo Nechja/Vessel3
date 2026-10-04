@@ -127,5 +127,6 @@ csharp_style_prefer_primary_constructors = true:error
 csharp_style_prefer_method_group_conversion = true:suggestion
 csharp_style_prefer_top_level_statements = true:silent
 dotnet_sort_system_directives_first = true
+dotnet_diagnostic.IDE0005.severity = error
 
 

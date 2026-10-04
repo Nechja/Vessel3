@@ -5,11 +5,10 @@ using System.Text.Json.Serialization.Metadata;
 using k8s;
 using k8s.Autorest;
 using k8s.Models;
-using Vessel3.Primitives;
-using Vessel3.Operator.Adapters.Kubernetes.Models;
 using Vessel3.Operator.Adapters.Serialization;
 using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
+using Vessel3.Primitives;
 
 namespace Vessel3.Operator.Adapters.Kubernetes;
 

@@ -1,10 +1,6 @@
 using System.Text;
 using System.Xml.Linq;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Vessel3.Server;
-using Vessel3.Server.Oidc;
-using Vessel3.Server.S3;
 using Xunit;
 
 namespace Vessel3.Tests;

@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using k8s;
-using Vessel3.Primitives;
 using Xunit;
 
 namespace Vessel3.Tests;

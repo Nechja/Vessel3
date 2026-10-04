@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Xml;
-using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -13,32 +12,32 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
 
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             var advanced = true;
             while (advanced)
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element)
+                if (reader.NodeType is not XmlNodeType.Element)
                 {
-                    advanced = await r.ReadAsync();
+                    advanced = await reader.ReadAsync();
                     continue;
                 }
 
-                if (r.LocalName is "Object")
+                if (reader.LocalName is "Object")
                 {
-                    var key = await ReadObjectEntry(r);
+                    var key = await ReadObjectEntry(reader);
                     if (key is not null) keys.Add(key);
-                    advanced = await r.ReadAsync();
+                    advanced = await reader.ReadAsync();
                 }
-                else if (r.LocalName is "Quiet")
+                else if (reader.LocalName is "Quiet")
                 {
-                    var raw = await r.ReadElementContentAsStringAsync();
+                    var raw = await reader.ReadElementContentAsStringAsync();
                     quiet = raw.Equals("true", StringComparison.OrdinalIgnoreCase);
-                    advanced = !r.EOF;
+                    advanced = !reader.EOF;
                 }
                 else
                 {
-                    advanced = await r.ReadAsync();
+                    advanced = await reader.ReadAsync();
                 }
             }
         }
@@ -56,13 +55,13 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
 
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
-            while (await r.ReadAsync())
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element || r.LocalName is not "Part") continue;
+                if (reader.NodeType is not XmlNodeType.Element || reader.LocalName is not "Part") continue;
 
-                var part = await ReadPartEntry(r);
+                var part = await ReadPartEntry(reader);
                 if (part is not null) parts.Add(part);
             }
         }
@@ -79,14 +78,14 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
         List<KeyValuePair<string, string>> pairs = [];
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
-            while (await r.ReadAsync())
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element || r.LocalName is not "Tag") continue;
-                var (k, v) = await ReadTagEntry(r);
-                if (k is null) continue;
-                pairs.Add(new KeyValuePair<string, string>(k, v ?? string.Empty));
+                if (reader.NodeType is not XmlNodeType.Element || reader.LocalName is not "Tag") continue;
+                var (tagKey, tagValue) = await ReadTagEntry(reader);
+                if (tagKey is null) continue;
+                pairs.Add(new KeyValuePair<string, string>(tagKey, tagValue ?? string.Empty));
             }
         }
         catch (XmlException ex)
@@ -100,21 +99,21 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             string? mode = null;
             string? until = null;
             string? current = null;
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        current = r.LocalName;
+                        current = reader.LocalName;
                         break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
-                        if (current is "Mode") mode = await r.GetValueAsync();
-                        else if (current is "RetainUntilDate") until = await r.GetValueAsync();
+                        if (current is "Mode") mode = await reader.GetValueAsync();
+                        else if (current is "RetainUntilDate") until = await reader.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement:
                         current = null;
@@ -124,11 +123,11 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
 
             return mode is null || until is null
                 ? new MalformedXmlError("Retention requires Mode and RetainUntilDate")
-                : !S3XmlDefaults.TryParseMode(mode, out var rm)
+                : !S3XmlDefaults.TryParseMode(mode, out var retentionMode)
                     ? new MalformedXmlError($"unknown Mode '{mode}'")
-                    : !DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt)
+                    : !DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsedDate)
                         ? new MalformedXmlError($"unparseable RetainUntilDate '{until}'")
-                        : new Retention(rm, dt);
+                        : new Retention(retentionMode, parsedDate);
         }
         catch (XmlException ex)
         {
@@ -140,19 +139,19 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             string? status = null;
             string? current = null;
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        current = r.LocalName;
+                        current = reader.LocalName;
                         break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
-                        if (current is "Status") status = await r.GetValueAsync();
+                        if (current is "Status") status = await reader.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement:
                         current = null;
@@ -172,22 +171,22 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
         }
     }
 
-    private static async Task<(string? Key, string? Value)> ReadTagEntry(XmlReader r)
+    private static async Task<(string? Key, string? Value)> ReadTagEntry(XmlReader reader)
     {
         string? key = null;
         string? value = null;
         string? currentField = null;
-        using var sub = r.ReadSubtree();
-        while (await sub.ReadAsync())
+        using var subtree = reader.ReadSubtree();
+        while (await subtree.ReadAsync())
         {
-            switch (sub.NodeType)
+            switch (subtree.NodeType)
             {
                 case XmlNodeType.Element:
-                    currentField = sub.LocalName;
+                    currentField = subtree.LocalName;
                     break;
                 case XmlNodeType.Text or XmlNodeType.CDATA:
-                    if (currentField is "Key") key = await sub.GetValueAsync();
-                    else if (currentField is "Value") value = await sub.GetValueAsync();
+                    if (currentField is "Key") key = await subtree.GetValueAsync();
+                    else if (currentField is "Value") value = await subtree.GetValueAsync();
                     break;
                 case XmlNodeType.EndElement:
                     currentField = null;
@@ -197,31 +196,31 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
         return (key, value);
     }
 
-    private static async Task<CompletedPart?> ReadPartEntry(XmlReader r)
+    private static async Task<CompletedPart?> ReadPartEntry(XmlReader reader)
     {
         int? number = null;
         string? etag = null;
-        string? c32 = null, c32c = null, s1 = null, s256 = null;
+        string? crc32 = null, crc32C = null, sha1 = null, sha256 = null;
         string? currentField = null;
-        using var sub = r.ReadSubtree();
-        while (await sub.ReadAsync())
+        using var subtree = reader.ReadSubtree();
+        while (await subtree.ReadAsync())
         {
-            switch (sub.NodeType)
+            switch (subtree.NodeType)
             {
                 case XmlNodeType.Element:
-                    currentField = sub.LocalName;
+                    currentField = subtree.LocalName;
                     break;
                 case XmlNodeType.Text or XmlNodeType.CDATA:
                     switch (currentField)
                     {
                         case "PartNumber":
-                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) number = n;
+                            if (int.TryParse(await subtree.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedNumber)) number = parsedNumber;
                             break;
-                        case "ETag": etag = (await sub.GetValueAsync()).Trim('"'); break;
-                        case "ChecksumCRC32":   c32 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
-                        case "ChecksumCRC32C":  c32c = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
-                        case "ChecksumSHA1":    s1 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
-                        case "ChecksumSHA256":  s256 = ChecksumAlgorithms.Base64ToHex(await sub.GetValueAsync()); break;
+                        case "ETag": etag = (await subtree.GetValueAsync()).Trim('"'); break;
+                        case "ChecksumCRC32": crc32 = ChecksumAlgorithms.Base64ToHex(await subtree.GetValueAsync()); break;
+                        case "ChecksumCRC32C": crc32C = ChecksumAlgorithms.Base64ToHex(await subtree.GetValueAsync()); break;
+                        case "ChecksumSHA1": sha1 = ChecksumAlgorithms.Base64ToHex(await subtree.GetValueAsync()); break;
+                        case "ChecksumSHA256": sha256 = ChecksumAlgorithms.Base64ToHex(await subtree.GetValueAsync()); break;
                     }
                     break;
                 case XmlNodeType.EndElement:
@@ -229,37 +228,37 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
                     break;
             }
         }
-        if (number is not { } n2 || etag is null) return null;
-        CompletedPartChecksums? sums = (c32 ?? c32c ?? s1 ?? s256) is null ? null : new CompletedPartChecksums(c32, c32c, s1, s256);
-        return new CompletedPart(n2, etag, sums);
+        if (number is not { } partNumber || etag is null) return null;
+        CompletedPartChecksums? checksums = (crc32 ?? crc32C ?? sha1 ?? sha256) is null ? null : new CompletedPartChecksums(crc32, crc32C, sha1, sha256);
+        return new CompletedPart(partNumber, etag, checksums);
     }
 
-    private static async Task<BatchDeleteKey?> ReadObjectEntry(XmlReader r)
+    private static async Task<BatchDeleteKey?> ReadObjectEntry(XmlReader reader)
     {
         string? key = null;
         string? versionId = null;
-        using var sub = r.ReadSubtree();
-        var advanced = await sub.ReadAsync();
+        using var subtree = reader.ReadSubtree();
+        var advanced = await subtree.ReadAsync();
         while (advanced)
         {
-            if (sub.NodeType is not XmlNodeType.Element)
+            if (subtree.NodeType is not XmlNodeType.Element)
             {
-                advanced = await sub.ReadAsync();
+                advanced = await subtree.ReadAsync();
                 continue;
             }
-            if (sub.LocalName is "Key")
+            if (subtree.LocalName is "Key")
             {
-                key = await sub.ReadElementContentAsStringAsync();
-                advanced = !sub.EOF;
+                key = await subtree.ReadElementContentAsStringAsync();
+                advanced = !subtree.EOF;
             }
-            else if (sub.LocalName is "VersionId")
+            else if (subtree.LocalName is "VersionId")
             {
-                versionId = await sub.ReadElementContentAsStringAsync();
-                advanced = !sub.EOF;
+                versionId = await subtree.ReadElementContentAsStringAsync();
+                advanced = !subtree.EOF;
             }
             else
             {
-                advanced = await sub.ReadAsync();
+                advanced = await subtree.ReadAsync();
             }
         }
         return key is not null ? new BatchDeleteKey(key, versionId) : null;

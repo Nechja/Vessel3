@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Vessel3.Server.S3.Bucket;
 using Vessel3.Server.S3.Key;
 

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Vessel3.Primitives;
 using Vessel3.Server.Configuration;
 using Xunit;
 

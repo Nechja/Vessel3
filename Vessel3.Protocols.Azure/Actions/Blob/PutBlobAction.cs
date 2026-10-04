@@ -1,6 +1,5 @@
 using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
 using Vessel3.Protocols.Azure.Serialization;

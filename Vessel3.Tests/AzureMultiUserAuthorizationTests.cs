@@ -2,12 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Azure;
 using Vessel3.Protocols.Azure.Auth;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Middleware;
-using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;

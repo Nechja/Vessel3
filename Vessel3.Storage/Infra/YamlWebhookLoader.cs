@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using Vessel3.Primitives;
 
 namespace Vessel3.Storage;
 
@@ -15,60 +14,16 @@ internal static class YamlWebhookLoader
 
         var lines = yamlContent.Split(["\r\n", "\r", "\n"], StringSplitOptions.None);
         var inWebhooks = false;
-
-        string? curId = null;
-        string? curName = null;
-        string? curUrl = null;
-        string? curSecret = null;
-        var curEvents = new List<string>();
-        var curResources = new List<string>();
-        var curActive = true;
-        string? curListProperty = null;
+        var builder = new WebhookEntryBuilder();
 
         void FlushCurrent()
         {
-            if (string.IsNullOrWhiteSpace(curUrl) || string.IsNullOrWhiteSpace(curName))
+            var webhook = builder.Build(clock);
+            if (webhook is not null)
             {
-                curId = null;
-                curName = null;
-                curUrl = null;
-                curSecret = null;
-                curEvents.Clear();
-                curResources.Clear();
-                curActive = true;
-                curListProperty = null;
-                return;
+                list.Add(webhook);
             }
-
-            var finalId = !string.IsNullOrWhiteSpace(curId)
-                ? curId
-                : "whk_yaml_" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{curName}:{curUrl}")))[..12];
-
-            var events = curEvents.Count > 0 ? curEvents.ToList() : ["*"];
-            var resources = curResources.Count > 0 ? curResources.ToList() : null;
-
-            list.Add(new Webhook(
-                finalId,
-                curName.Trim(),
-                curUrl.Trim(),
-                curSecret,
-                events,
-                resources,
-                curActive,
-                clock.GetUtcNow(),
-                null,
-                null,
-                null,
-                IsStatic: true));
-
-            curId = null;
-            curName = null;
-            curUrl = null;
-            curSecret = null;
-            curEvents.Clear();
-            curResources.Clear();
-            curActive = true;
-            curListProperty = null;
+            builder.Reset();
         }
 
         foreach (var rawLine in lines)
@@ -93,123 +48,169 @@ internal static class YamlWebhookLoader
                 var remainder = trimmed[2..].Trim();
                 if (!string.IsNullOrEmpty(remainder))
                 {
-                    ParseKeyValue(remainder, ref curId, ref curName, ref curUrl, ref curSecret, ref curActive, ref curListProperty);
+                    builder.ParseKeyValue(remainder);
                 }
                 continue;
             }
 
             // Check if item in a list property (events or resources)
-            if (trimmed.StartsWith("- ", StringComparison.Ordinal) && curListProperty is not null)
+            if (trimmed.StartsWith("- ", StringComparison.Ordinal) && builder.ListProperty is not null)
             {
                 var itemVal = StripQuotes(trimmed[2..].Trim());
-                if (curListProperty == "events") curEvents.Add(itemVal);
-                else if (curListProperty == "resources") curResources.Add(itemVal);
+                if (builder.ListProperty == "events") builder.Events.Add(itemVal);
+                else if (builder.ListProperty == "resources") builder.Resources.Add(itemVal);
                 continue;
             }
 
             // Normal key-value property
-            ParseKeyValue(trimmed, ref curId, ref curName, ref curUrl, ref curSecret, ref curActive, ref curListProperty);
+            builder.ParseKeyValue(trimmed);
         }
 
         FlushCurrent();
         return list;
     }
 
-    private static void ParseKeyValue(
-        string line,
-        ref string? curId,
-        ref string? curName,
-        ref string? curUrl,
-        ref string? curSecret,
-        ref bool curActive,
-        ref string? curListProperty)
+    private sealed class WebhookEntryBuilder
     {
-        var colonIdx = line.IndexOf(':');
-        if (colonIdx <= 0) return;
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Url { get; set; }
+        public string? Secret { get; set; }
+        public List<string> Events { get; } = [];
+        public List<string> Resources { get; } = [];
+        public bool IsActive { get; set; } = true;
+        public string? ListProperty { get; set; }
 
-        var key = line[..colonIdx].Trim().ToLowerInvariant();
-        var val = line[(colonIdx + 1)..].Trim();
-
-        switch (key)
+        public void Reset()
         {
-            case "id":
-                curId = StripQuotes(val);
-                curListProperty = null;
-                break;
-            case "name":
-                curName = StripQuotes(val);
-                curListProperty = null;
-                break;
-            case "url":
-                curUrl = StripQuotes(val);
-                curListProperty = null;
-                break;
-            case "secret":
-                curSecret = string.IsNullOrEmpty(val) ? null : StripQuotes(val);
-                curListProperty = null;
-                break;
-            case "active":
-            case "enabled":
-                curActive = val.Equals("true", StringComparison.OrdinalIgnoreCase) || val.Equals("yes", StringComparison.OrdinalIgnoreCase) || val == "1";
-                curListProperty = null;
-                break;
-            case "events":
-                curListProperty = "events";
-                break;
-            case "resources":
-            case "repositories":
-                curListProperty = "resources";
-                break;
-            default:
-                curListProperty = null;
-                break;
+            Id = null;
+            Name = null;
+            Url = null;
+            Secret = null;
+            Events.Clear();
+            Resources.Clear();
+            IsActive = true;
+            ListProperty = null;
+        }
+
+        public Webhook? Build(TimeProvider clock)
+        {
+            if (string.IsNullOrWhiteSpace(Url) || string.IsNullOrWhiteSpace(Name))
+            {
+                return null;
+            }
+
+            var finalId = !string.IsNullOrWhiteSpace(Id)
+                ? Id
+                : "whk_yaml_" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{Name}:{Url}")))[..12];
+
+            var eventFilters = Events.Count > 0 ? Events.ToList() : ["*"];
+            var resourceFilters = Resources.Count > 0 ? Resources.ToList() : null;
+
+            return new Webhook(
+                finalId,
+                Name.Trim(),
+                Url.Trim(),
+                Secret,
+                eventFilters,
+                resourceFilters,
+                IsActive,
+                clock.GetUtcNow(),
+                null,
+                null,
+                null,
+                IsStatic: true);
+        }
+
+        public void ParseKeyValue(string line)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0) return;
+
+            var key = line[..colonIndex].Trim().ToLowerInvariant();
+            var value = line[(colonIndex + 1)..].Trim();
+
+            switch (key)
+            {
+                case "id":
+                    Id = StripQuotes(value);
+                    ListProperty = null;
+                    break;
+                case "name":
+                    Name = StripQuotes(value);
+                    ListProperty = null;
+                    break;
+                case "url":
+                    Url = StripQuotes(value);
+                    ListProperty = null;
+                    break;
+                case "secret":
+                    Secret = string.IsNullOrEmpty(value) ? null : StripQuotes(value);
+                    ListProperty = null;
+                    break;
+                case "active":
+                case "enabled":
+                    IsActive = value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("yes", StringComparison.OrdinalIgnoreCase) || value == "1";
+                    ListProperty = null;
+                    break;
+                case "events":
+                    ListProperty = "events";
+                    break;
+                case "resources":
+                case "repositories":
+                    ListProperty = "resources";
+                    break;
+                default:
+                    ListProperty = null;
+                    break;
+            }
         }
     }
 
-    private static string StripQuotes(string str) =>
-        str.Length >= 2 && ((str.StartsWith('"') && str.EndsWith('"')) || (str.StartsWith('\'') && str.EndsWith('\'')))
-            ? str[1..^1]
-            : str;
+    private static string StripQuotes(string input) =>
+        input.Length >= 2 && ((input.StartsWith('"') && input.EndsWith('"')) || (input.StartsWith('\'') && input.EndsWith('\'')))
+            ? input[1..^1]
+            : input;
 
     public static string ExportToYaml(IEnumerable<Webhook> webhooks)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("# Vessel3 Webhook Declarations");
-        sb.AppendLine("webhooks:");
+        var builder = new StringBuilder();
+        builder.AppendLine("# Vessel3 Webhook Declarations");
+        builder.AppendLine("webhooks:");
 
-        foreach (var w in webhooks)
+        foreach (var webhook in webhooks)
         {
-            sb.Append("  - id: ").AppendLine(EscapeYaml(w.Id));
-            sb.Append("    name: \"").Append(EscapeYaml(w.Name)).AppendLine("\"");
-            sb.Append("    url: \"").Append(EscapeYaml(w.Url)).AppendLine("\"");
-            if (!string.IsNullOrEmpty(w.Secret))
+            builder.Append("  - id: ").AppendLine(EscapeYaml(webhook.Id));
+            builder.Append("    name: \"").Append(EscapeYaml(webhook.Name)).AppendLine("\"");
+            builder.Append("    url: \"").Append(EscapeYaml(webhook.Url)).AppendLine("\"");
+            if (!string.IsNullOrEmpty(webhook.Secret))
             {
-                sb.Append("    secret: \"").Append(EscapeYaml(w.Secret)).AppendLine("\"");
+                builder.Append("    secret: \"").Append(EscapeYaml(webhook.Secret)).AppendLine("\"");
             }
-            sb.Append("    active: ").AppendLine(w.Active ? "true" : "false");
+            builder.Append("    active: ").AppendLine(webhook.Active ? "true" : "false");
 
-            if (w.EventFilters is { Count: > 0 } evts)
+            if (webhook.EventFilters is { Count: > 0 } eventFilters)
             {
-                sb.AppendLine("    events:");
-                foreach (var e in evts)
+                builder.AppendLine("    events:");
+                foreach (var eventFilter in eventFilters)
                 {
-                    sb.Append("      - ").AppendLine(EscapeYaml(e));
+                    builder.Append("      - ").AppendLine(EscapeYaml(eventFilter));
                 }
             }
 
-            if (w.ResourceFilters is { Count: > 0 } res)
+            if (webhook.ResourceFilters is { Count: > 0 } resourceFilters)
             {
-                sb.AppendLine("    resources:");
-                foreach (var r in res)
+                builder.AppendLine("    resources:");
+                foreach (var resourceFilter in resourceFilters)
                 {
-                    sb.Append("      - ").AppendLine(EscapeYaml(r));
+                    builder.Append("      - ").AppendLine(EscapeYaml(resourceFilter));
                 }
             }
         }
 
-        return sb.ToString();
+        return builder.ToString();
     }
 
-    private static string EscapeYaml(string val) =>
-        val.Replace("\"", "\\\"", StringComparison.Ordinal);
+    private static string EscapeYaml(string value) =>
+        value.Replace("\"", "\\\"", StringComparison.Ordinal);
 }

@@ -3,8 +3,6 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Vessel3.Protocols.WebDav;
 using Vessel3.Server.Configuration;
 using Vessel3.Server.Endpoints;
 using Vessel3.Server.Hosting;

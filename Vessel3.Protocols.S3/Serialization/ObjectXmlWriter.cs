@@ -2,86 +2,85 @@ using System.Globalization;
 using System.Security;
 using System.Text;
 using System.Xml;
-using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
 internal sealed class ObjectXmlWriter : IObjectXmlWriter
 {
-    public async Task WriteListObjects(Stream output, S3ListObjectsRequest req, ListPage page, CancellationToken ct)
+    public async Task WriteListObjects(Stream output, S3ListObjectsRequest request, ListPage page, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ListBucketResult", S3XmlDefaults.S3Namespace);
+        await using var writer = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
+        await writer.WriteStartDocumentAsync();
+        await writer.WriteStartElementAsync(null, "ListBucketResult", S3XmlDefaults.S3Namespace);
 
-        var urlEncode = S3XmlDefaults.IsUrlEncoding(req.EncodingType);
+        var urlEncode = S3XmlDefaults.IsUrlEncoding(request.EncodingType);
 
-        await w.WriteElementStringAsync(null, "Name", null, req.Bucket);
-        await w.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(req.Prefix ?? "", urlEncode));
-        if (req.IsV1) await w.WriteElementStringAsync(null, "Marker", null, S3XmlDefaults.Encode(req.Marker ?? "", urlEncode));
-        if (req.Delimiter is not null) await w.WriteElementStringAsync(null, "Delimiter", null, S3XmlDefaults.Encode(req.Delimiter, urlEncode));
-        await w.WriteElementStringAsync(null, "MaxKeys", null,
-            req.MaxKeys.ToString(CultureInfo.InvariantCulture));
-        if (urlEncode) await w.WriteElementStringAsync(null, "EncodingType", null, "url");
-        if (!req.IsV1)
-            await w.WriteElementStringAsync(null, "KeyCount", null,
+        await writer.WriteElementStringAsync(null, "Name", null, request.Bucket);
+        await writer.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(request.Prefix ?? "", urlEncode));
+        if (request.IsV1) await writer.WriteElementStringAsync(null, "Marker", null, S3XmlDefaults.Encode(request.Marker ?? "", urlEncode));
+        if (request.Delimiter is not null) await writer.WriteElementStringAsync(null, "Delimiter", null, S3XmlDefaults.Encode(request.Delimiter, urlEncode));
+        await writer.WriteElementStringAsync(null, "MaxKeys", null,
+            request.MaxKeys.ToString(CultureInfo.InvariantCulture));
+        if (urlEncode) await writer.WriteElementStringAsync(null, "EncodingType", null, "url");
+        if (!request.IsV1)
+            await writer.WriteElementStringAsync(null, "KeyCount", null,
                 page.KeyCount.ToString(CultureInfo.InvariantCulture));
-        if (!req.IsV1 && req.StartAfter is not null)
-            await w.WriteElementStringAsync(null, "StartAfter", null, S3XmlDefaults.Encode(req.StartAfter, urlEncode));
-        await w.WriteElementStringAsync(null, "IsTruncated", null, page.IsTruncated ? "true" : "false");
+        if (!request.IsV1 && request.StartAfter is not null)
+            await writer.WriteElementStringAsync(null, "StartAfter", null, S3XmlDefaults.Encode(request.StartAfter, urlEncode));
+        await writer.WriteElementStringAsync(null, "IsTruncated", null, page.IsTruncated ? "true" : "false");
 
-        if (req.IsV1 && page.IsTruncated && page.LastKey is not null)
-            await w.WriteElementStringAsync(null, "NextMarker", null, S3XmlDefaults.Encode(page.LastKey, urlEncode));
-        if (!req.IsV1 && page.NextContinuationToken is not null)
-            await w.WriteElementStringAsync(null, "NextContinuationToken", null, page.NextContinuationToken);
+        if (request.IsV1 && page.IsTruncated && page.LastKey is not null)
+            await writer.WriteElementStringAsync(null, "NextMarker", null, S3XmlDefaults.Encode(page.LastKey, urlEncode));
+        if (!request.IsV1 && page.NextContinuationToken is not null)
+            await writer.WriteElementStringAsync(null, "NextContinuationToken", null, page.NextContinuationToken);
 
         foreach (var entry in page.Entries)
         {
             ct.ThrowIfCancellationRequested();
             await (entry switch
             {
-                ListEntry.Contents c => WriteContents(w, c, urlEncode),
-                ListEntry.CommonPrefix cp => WriteCommonPrefix(w, cp, urlEncode),
+                ListEntry.Contents contents => WriteContents(writer, contents, urlEncode),
+                ListEntry.CommonPrefix commonPrefix => WriteCommonPrefix(writer, commonPrefix, urlEncode),
                 _ => Task.CompletedTask,
             });
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await writer.WriteEndElementAsync();
+        await writer.WriteEndDocumentAsync();
+        await writer.FlushAsync();
     }
 
     public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ListVersionsResult", S3XmlDefaults.S3Namespace);
+        await using var writer = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
+        await writer.WriteStartDocumentAsync();
+        await writer.WriteStartElementAsync(null, "ListVersionsResult", S3XmlDefaults.S3Namespace);
         var urlEncode = S3XmlDefaults.IsUrlEncoding(encodingType);
-        await w.WriteElementStringAsync(null, "Name", null, bucket);
-        await w.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(prefix ?? "", urlEncode));
-        await w.WriteElementStringAsync(null, "MaxKeys", null, maxKeys.ToString(CultureInfo.InvariantCulture));
-        if (urlEncode) await w.WriteElementStringAsync(null, "EncodingType", null, "url");
-        await w.WriteElementStringAsync(null, "IsTruncated", null, isTruncated ? "true" : "false");
+        await writer.WriteElementStringAsync(null, "Name", null, bucket);
+        await writer.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(prefix ?? "", urlEncode));
+        await writer.WriteElementStringAsync(null, "MaxKeys", null, maxKeys.ToString(CultureInfo.InvariantCulture));
+        if (urlEncode) await writer.WriteElementStringAsync(null, "EncodingType", null, "url");
+        await writer.WriteElementStringAsync(null, "IsTruncated", null, isTruncated ? "true" : "false");
         if (isTruncated && entries.Count > 0)
         {
-            await w.WriteElementStringAsync(null, "NextKeyMarker", null, S3XmlDefaults.Encode(entries[^1].Key, urlEncode));
-            await w.WriteElementStringAsync(null, "NextVersionIdMarker", null, entries[^1].VersionId);
+            await writer.WriteElementStringAsync(null, "NextKeyMarker", null, S3XmlDefaults.Encode(entries[^1].Key, urlEncode));
+            await writer.WriteElementStringAsync(null, "NextVersionIdMarker", null, entries[^1].VersionId);
         }
 
-        foreach (var e in entries)
+        foreach (var entry in entries)
         {
             ct.ThrowIfCancellationRequested();
-            await (e switch
+            await (entry switch
             {
-                AllVersionsEntry.Put p => WriteVersionEntry(w, p, urlEncode),
-                AllVersionsEntry.Marker m => WriteDeleteMarkerEntry(w, m, urlEncode),
+                AllVersionsEntry.Put putEntry => WriteVersionEntry(writer, putEntry, urlEncode),
+                AllVersionsEntry.Marker markerEntry => WriteDeleteMarkerEntry(writer, markerEntry, urlEncode),
                 _ => Task.CompletedTask,
             });
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await writer.WriteEndElementAsync();
+        await writer.WriteEndDocumentAsync();
+        await writer.FlushAsync();
     }
 
     public Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct)
@@ -93,41 +92,41 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
     public Task WriteCompleteMultipartUploadResult(Stream output, string bucket, string key, string etag, ChecksumSet objectChecksums, int partsCount, CancellationToken ct)
     {
         var suffix = $"-{partsCount.ToString(CultureInfo.InvariantCulture)}";
-        var c32Xml = objectChecksums.Crc32 is { } c32 ? $"<ChecksumCRC32>{ChecksumAlgorithms.HexToBase64(c32) + suffix}</ChecksumCRC32>" : "";
-        var c32cXml = objectChecksums.Crc32C is { } c32c ? $"<ChecksumCRC32C>{ChecksumAlgorithms.HexToBase64(c32c) + suffix}</ChecksumCRC32C>" : "";
-        var s1Xml = objectChecksums.Sha1 is { } s1 ? $"<ChecksumSHA1>{ChecksumAlgorithms.HexToBase64(s1) + suffix}</ChecksumSHA1>" : "";
-        var s256Xml = objectChecksums.Sha256 is { } s256 ? $"<ChecksumSHA256>{ChecksumAlgorithms.HexToBase64(s256) + suffix}</ChecksumSHA256>" : "";
-        var xml = $"""<?xml version="1.0" encoding="utf-8"?><CompleteMultipartUploadResult xmlns="{S3XmlDefaults.S3Namespace}"><Location>/{SecurityElement.Escape(bucket)}/{SecurityElement.Escape(key)}</Location><Bucket>{SecurityElement.Escape(bucket)}</Bucket><Key>{SecurityElement.Escape(key)}</Key><ETag>"{SecurityElement.Escape(etag)}"</ETag>{c32Xml}{c32cXml}{s1Xml}{s256Xml}</CompleteMultipartUploadResult>""";
+        var crc32Xml = objectChecksums.Crc32 is { } crc32 ? $"<ChecksumCRC32>{ChecksumAlgorithms.HexToBase64(crc32) + suffix}</ChecksumCRC32>" : "";
+        var crc32CXml = objectChecksums.Crc32C is { } crc32C ? $"<ChecksumCRC32C>{ChecksumAlgorithms.HexToBase64(crc32C) + suffix}</ChecksumCRC32C>" : "";
+        var sha1Xml = objectChecksums.Sha1 is { } sha1 ? $"<ChecksumSHA1>{ChecksumAlgorithms.HexToBase64(sha1) + suffix}</ChecksumSHA1>" : "";
+        var sha256Xml = objectChecksums.Sha256 is { } sha256 ? $"<ChecksumSHA256>{ChecksumAlgorithms.HexToBase64(sha256) + suffix}</ChecksumSHA256>" : "";
+        var xml = $"""<?xml version="1.0" encoding="utf-8"?><CompleteMultipartUploadResult xmlns="{S3XmlDefaults.S3Namespace}"><Location>/{SecurityElement.Escape(bucket)}/{SecurityElement.Escape(key)}</Location><Bucket>{SecurityElement.Escape(bucket)}</Bucket><Key>{SecurityElement.Escape(key)}</Key><ETag>"{SecurityElement.Escape(etag)}"</ETag>{crc32Xml}{crc32CXml}{sha1Xml}{sha256Xml}</CompleteMultipartUploadResult>""";
         return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
     public async Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ListPartsResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
-        await w.WriteElementStringAsync(null, "Key", null, key);
-        await w.WriteElementStringAsync(null, "UploadId", null, uploadId);
-        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
-        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
+        await using var writer = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
+        await writer.WriteStartDocumentAsync();
+        await writer.WriteStartElementAsync(null, "ListPartsResult", S3XmlDefaults.S3Namespace);
+        await writer.WriteElementStringAsync(null, "Bucket", null, bucket);
+        await writer.WriteElementStringAsync(null, "Key", null, key);
+        await writer.WriteElementStringAsync(null, "UploadId", null, uploadId);
+        await writer.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await writer.WriteElementStringAsync(null, "IsTruncated", null, "false");
 
-        foreach (var p in parts)
+        foreach (var part in parts)
         {
             ct.ThrowIfCancellationRequested();
-            await w.WriteStartElementAsync(null, "Part", null);
-            await w.WriteElementStringAsync(null, "PartNumber", null,
-                p.Number.ToString(CultureInfo.InvariantCulture));
-            await w.WriteElementStringAsync(null, "LastModified", null,
-                p.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-            await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.Etag}\"");
-            await w.WriteElementStringAsync(null, "Size", null, p.Size.ToString(CultureInfo.InvariantCulture));
-            await w.WriteEndElementAsync();
+            await writer.WriteStartElementAsync(null, "Part", null);
+            await writer.WriteElementStringAsync(null, "PartNumber", null,
+                part.Number.ToString(CultureInfo.InvariantCulture));
+            await writer.WriteElementStringAsync(null, "LastModified", null,
+                part.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+            await writer.WriteElementStringAsync(null, "ETag", null, $"\"{part.Etag}\"");
+            await writer.WriteElementStringAsync(null, "Size", null, part.Size.ToString(CultureInfo.InvariantCulture));
+            await writer.WriteEndElementAsync();
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await writer.WriteEndElementAsync();
+        await writer.WriteEndDocumentAsync();
+        await writer.FlushAsync();
     }
 
     public Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
@@ -146,9 +145,9 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "DeleteResult", S3XmlDefaults.S3Namespace);
+        await using var writer = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
+        await writer.WriteStartDocumentAsync();
+        await writer.WriteStartElementAsync(null, "DeleteResult", S3XmlDefaults.S3Namespace);
 
         foreach (var outcome in outcomes)
         {
@@ -156,80 +155,80 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             if (outcome.Error is null)
             {
                 if (quiet) continue;
-                await w.WriteStartElementAsync(null, "Deleted", null);
-                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                await writer.WriteStartElementAsync(null, "Deleted", null);
+                await writer.WriteElementStringAsync(null, "Key", null, outcome.Key);
                 if (outcome.VersionId is not null)
-                    await w.WriteElementStringAsync(null, "VersionId", null, outcome.VersionId);
-                await w.WriteEndElementAsync();
+                    await writer.WriteElementStringAsync(null, "VersionId", null, outcome.VersionId);
+                await writer.WriteEndElementAsync();
             }
             else
             {
-                await w.WriteStartElementAsync(null, "Error", null);
-                await w.WriteElementStringAsync(null, "Key", null, outcome.Key);
-                await w.WriteElementStringAsync(null, "Code", null, outcome.Error.Code);
-                await w.WriteElementStringAsync(null, "Message", null, outcome.Error.Message);
-                await w.WriteEndElementAsync();
+                await writer.WriteStartElementAsync(null, "Error", null);
+                await writer.WriteElementStringAsync(null, "Key", null, outcome.Key);
+                await writer.WriteElementStringAsync(null, "Code", null, outcome.Error.Code);
+                await writer.WriteElementStringAsync(null, "Message", null, outcome.Error.Message);
+                await writer.WriteEndElementAsync();
             }
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await writer.WriteEndElementAsync();
+        await writer.WriteEndDocumentAsync();
+        await writer.FlushAsync();
     }
 
-    public async Task WriteObjectAttributes(Stream output, ObjectAttributesRequest req, CancellationToken ct)
+    public async Task WriteObjectAttributes(Stream output, ObjectAttributesRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "GetObjectAttributesOutput", S3XmlDefaults.S3Namespace);
+        await using var writer = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
+        await writer.WriteStartDocumentAsync();
+        await writer.WriteStartElementAsync(null, "GetObjectAttributesOutput", S3XmlDefaults.S3Namespace);
 
-        if (req.WantEtag && req.Etag is not null)
-            await w.WriteElementStringAsync(null, "ETag", null, req.Etag);
+        if (request.WantEtag && request.Etag is not null)
+            await writer.WriteElementStringAsync(null, "ETag", null, request.Etag);
 
-        if (req.WantChecksum && !string.IsNullOrEmpty(req.ChecksumSha256Base64))
+        if (request.WantChecksum && !string.IsNullOrEmpty(request.ChecksumSha256Base64))
         {
-            await w.WriteStartElementAsync(null, "Checksum", null);
-            await w.WriteElementStringAsync(null, "ChecksumSHA256", null, req.ChecksumSha256Base64);
-            await w.WriteEndElementAsync();
+            await writer.WriteStartElementAsync(null, "Checksum", null);
+            await writer.WriteElementStringAsync(null, "ChecksumSHA256", null, request.ChecksumSha256Base64);
+            await writer.WriteEndElementAsync();
         }
 
-        if (req.WantObjectParts && req.Parts is { Count: > 0 } parts)
+        if (request.WantObjectParts && request.Parts is { Count: > 0 } parts)
         {
-            await w.WriteStartElementAsync(null, "ObjectParts", null);
-            await w.WriteElementStringAsync(null, "PartsCount", null,
+            await writer.WriteStartElementAsync(null, "ObjectParts", null);
+            await writer.WriteElementStringAsync(null, "PartsCount", null,
                 parts.Count.ToString(CultureInfo.InvariantCulture));
-            foreach (var p in parts)
+            foreach (var part in parts)
             {
                 ct.ThrowIfCancellationRequested();
-                await w.WriteStartElementAsync(null, "Part", null);
-                await w.WriteElementStringAsync(null, "PartNumber", null,
-                    p.Number.ToString(CultureInfo.InvariantCulture));
-                await w.WriteElementStringAsync(null, "Size", null,
-                    p.Size.ToString(CultureInfo.InvariantCulture));
-                if (!string.IsNullOrEmpty(p.BlobSha))
-                    await w.WriteElementStringAsync(null, "ChecksumSHA256", null,
-                        Convert.ToBase64String(Convert.FromHexString(p.BlobSha)));
-                await w.WriteEndElementAsync();
+                await writer.WriteStartElementAsync(null, "Part", null);
+                await writer.WriteElementStringAsync(null, "PartNumber", null,
+                    part.Number.ToString(CultureInfo.InvariantCulture));
+                await writer.WriteElementStringAsync(null, "Size", null,
+                    part.Size.ToString(CultureInfo.InvariantCulture));
+                if (!string.IsNullOrEmpty(part.BlobSha))
+                    await writer.WriteElementStringAsync(null, "ChecksumSHA256", null,
+                        Convert.ToBase64String(Convert.FromHexString(part.BlobSha)));
+                await writer.WriteEndElementAsync();
             }
-            await w.WriteEndElementAsync();
+            await writer.WriteEndElementAsync();
         }
 
-        if (req.WantStorageClass)
-            await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        if (request.WantStorageClass)
+            await writer.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
 
-        if (req.WantObjectSize)
-            await w.WriteElementStringAsync(null, "ObjectSize", null,
-                req.Size.ToString(CultureInfo.InvariantCulture));
+        if (request.WantObjectSize)
+            await writer.WriteElementStringAsync(null, "ObjectSize", null,
+                request.Size.ToString(CultureInfo.InvariantCulture));
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await writer.WriteEndElementAsync();
+        await writer.WriteEndDocumentAsync();
+        await writer.FlushAsync();
     }
 
     public Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct)
     {
-        var tagsXml = string.Concat(tags.Select(t => $"<Tag><Key>{SecurityElement.Escape(t.Key)}</Key><Value>{SecurityElement.Escape(t.Value)}</Value></Tag>"));
+        var tagsXml = string.Concat(tags.Select(tag => $"<Tag><Key>{SecurityElement.Escape(tag.Key)}</Key><Value>{SecurityElement.Escape(tag.Value)}</Value></Tag>"));
         var xml = $"""<?xml version="1.0" encoding="utf-8"?><Tagging xmlns="{S3XmlDefaults.S3Namespace}"><TagSet>{tagsXml}</TagSet></Tagging>""";
         return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
@@ -249,47 +248,47 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
         return output.WriteAsync(Encoding.UTF8.GetBytes(xml), ct).AsTask();
     }
 
-    private static async Task WriteContents(XmlWriter w, ListEntry.Contents c, bool urlEncode)
+    private static async Task WriteContents(XmlWriter writer, ListEntry.Contents contents, bool urlEncode)
     {
-        await w.WriteStartElementAsync(null, "Contents", null);
-        await w.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(c.Key, urlEncode));
-        await w.WriteElementStringAsync(null, "LastModified", null,
-            c.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, $"\"{c.Etag}\"");
-        await w.WriteElementStringAsync(null, "Size", null, c.Size.ToString(CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
-        await w.WriteEndElementAsync();
+        await writer.WriteStartElementAsync(null, "Contents", null);
+        await writer.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(contents.Key, urlEncode));
+        await writer.WriteElementStringAsync(null, "LastModified", null,
+            contents.LastModified.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+        await writer.WriteElementStringAsync(null, "ETag", null, $"\"{contents.Etag}\"");
+        await writer.WriteElementStringAsync(null, "Size", null, contents.Size.ToString(CultureInfo.InvariantCulture));
+        await writer.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await writer.WriteEndElementAsync();
     }
 
-    private static async Task WriteCommonPrefix(XmlWriter w, ListEntry.CommonPrefix cp, bool urlEncode)
+    private static async Task WriteCommonPrefix(XmlWriter writer, ListEntry.CommonPrefix commonPrefix, bool urlEncode)
     {
-        await w.WriteStartElementAsync(null, "CommonPrefixes", null);
-        await w.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(cp.Key, urlEncode));
-        await w.WriteEndElementAsync();
+        await writer.WriteStartElementAsync(null, "CommonPrefixes", null);
+        await writer.WriteElementStringAsync(null, "Prefix", null, S3XmlDefaults.Encode(commonPrefix.Key, urlEncode));
+        await writer.WriteEndElementAsync();
     }
 
-    private static async Task WriteVersionEntry(XmlWriter w, AllVersionsEntry.Put p, bool urlEncode)
+    private static async Task WriteVersionEntry(XmlWriter writer, AllVersionsEntry.Put putEntry, bool urlEncode)
     {
-        await w.WriteStartElementAsync(null, "Version", null);
-        await w.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(p.Key, urlEncode));
-        await w.WriteElementStringAsync(null, "VersionId", null, p.VersionId);
-        await w.WriteElementStringAsync(null, "IsLatest", null, p.IsLatest ? "true" : "false");
-        await w.WriteElementStringAsync(null, "LastModified", null,
-            p.At.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "ETag", null, $"\"{p.WireEtag}\"");
-        await w.WriteElementStringAsync(null, "Size", null, p.Size.ToString(CultureInfo.InvariantCulture));
-        await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
-        await w.WriteEndElementAsync();
+        await writer.WriteStartElementAsync(null, "Version", null);
+        await writer.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(putEntry.Key, urlEncode));
+        await writer.WriteElementStringAsync(null, "VersionId", null, putEntry.VersionId);
+        await writer.WriteElementStringAsync(null, "IsLatest", null, putEntry.IsLatest ? "true" : "false");
+        await writer.WriteElementStringAsync(null, "LastModified", null,
+            putEntry.At.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+        await writer.WriteElementStringAsync(null, "ETag", null, $"\"{putEntry.WireEtag}\"");
+        await writer.WriteElementStringAsync(null, "Size", null, putEntry.Size.ToString(CultureInfo.InvariantCulture));
+        await writer.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
+        await writer.WriteEndElementAsync();
     }
 
-    private static async Task WriteDeleteMarkerEntry(XmlWriter w, AllVersionsEntry.Marker m, bool urlEncode)
+    private static async Task WriteDeleteMarkerEntry(XmlWriter writer, AllVersionsEntry.Marker markerEntry, bool urlEncode)
     {
-        await w.WriteStartElementAsync(null, "DeleteMarker", null);
-        await w.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(m.Key, urlEncode));
-        await w.WriteElementStringAsync(null, "VersionId", null, m.VersionId);
-        await w.WriteElementStringAsync(null, "IsLatest", null, m.IsLatest ? "true" : "false");
-        await w.WriteElementStringAsync(null, "LastModified", null,
-            m.At.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-        await w.WriteEndElementAsync();
+        await writer.WriteStartElementAsync(null, "DeleteMarker", null);
+        await writer.WriteElementStringAsync(null, "Key", null, S3XmlDefaults.Encode(markerEntry.Key, urlEncode));
+        await writer.WriteElementStringAsync(null, "VersionId", null, markerEntry.VersionId);
+        await writer.WriteElementStringAsync(null, "IsLatest", null, markerEntry.IsLatest ? "true" : "false");
+        await writer.WriteElementStringAsync(null, "LastModified", null,
+            markerEntry.At.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+        await writer.WriteEndElementAsync();
     }
 }

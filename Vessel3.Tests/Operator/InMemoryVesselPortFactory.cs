@@ -1,4 +1,3 @@
-using Vessel3.Primitives;
 using Vessel3.Operator.Domain.Models;
 using Vessel3.Operator.Ports;
 

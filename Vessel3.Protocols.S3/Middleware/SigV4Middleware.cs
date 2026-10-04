@@ -1,6 +1,3 @@
-
-using Vessel3.Primitives;
-
 namespace Vessel3.Server.S3;
 
 internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper http) : IMiddleware

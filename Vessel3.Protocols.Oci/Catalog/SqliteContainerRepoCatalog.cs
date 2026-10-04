@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Vessel3.Primitives;
-using Vessel3.Storage;
 
 namespace Vessel3.Protocols.Oci;
 

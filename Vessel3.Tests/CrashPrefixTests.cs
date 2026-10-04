@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Vessel3.Server;
 using Xunit;
 
 namespace Vessel3.Tests;

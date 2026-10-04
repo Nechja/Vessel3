@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Xml;
-using Vessel3.Storage;
 
 namespace Vessel3.Server.S3;
 
@@ -10,19 +9,19 @@ internal sealed class BucketXmlReader : IBucketXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             string? currentField = null;
             string? statusValue = null;
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        currentField = r.LocalName;
+                        currentField = reader.LocalName;
                         break;
                     case XmlNodeType.Text:
-                        if (currentField is "Status") statusValue = await r.GetValueAsync();
+                        if (currentField is "Status") statusValue = await reader.GetValueAsync();
                         break;
                     case XmlNodeType.EndElement:
                         currentField = null;
@@ -31,8 +30,8 @@ internal sealed class BucketXmlReader : IBucketXmlReader
             }
             return statusValue is null
                 ? new MalformedXmlError("VersioningConfiguration missing Status element")
-                : Enum.TryParse<VersioningStatus>(statusValue, out var s) && s is not VersioningStatus.Unversioned
-                    ? s
+                : Enum.TryParse<VersioningStatus>(statusValue, out var parsedStatus) && parsedStatus is not VersioningStatus.Unversioned
+                    ? parsedStatus
                     : new MalformedXmlError($"unknown Status '{statusValue}'");
         }
         catch (XmlException ex)
@@ -45,30 +44,30 @@ internal sealed class BucketXmlReader : IBucketXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             string? enabled = null;
             string? mode = null;
             int? days = null;
             int? years = null;
             string? current = null;
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        current = r.LocalName;
+                        current = reader.LocalName;
                         break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
                         switch (current)
                         {
-                            case "ObjectLockEnabled": enabled = await r.GetValueAsync(); break;
-                            case "Mode": mode = await r.GetValueAsync(); break;
+                            case "ObjectLockEnabled": enabled = await reader.GetValueAsync(); break;
+                            case "Mode": mode = await reader.GetValueAsync(); break;
                             case "Days":
-                                if (int.TryParse(await r.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
+                                if (int.TryParse(await reader.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var daysValue)) days = daysValue;
                                 break;
                             case "Years":
-                                if (int.TryParse(await r.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var y)) years = y;
+                                if (int.TryParse(await reader.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var yearsValue)) years = yearsValue;
                                 break;
                         }
                         break;
@@ -77,17 +76,17 @@ internal sealed class BucketXmlReader : IBucketXmlReader
                         break;
                 }
             }
-            var en = enabled is "Enabled";
-            ObjectLockDefault? def = null;
+            var isEnabled = enabled is "Enabled";
+            ObjectLockDefault? defaultRetention = null;
             if (mode is not null)
             {
-                if (!S3XmlDefaults.TryParseMode(mode, out var rm))
+                if (!S3XmlDefaults.TryParseMode(mode, out var retentionMode))
                     return new MalformedXmlError($"unknown Mode '{mode}'");
                 if (days is null && years is null)
                     return new MalformedXmlError("DefaultRetention requires Days or Years");
-                def = new ObjectLockDefault(rm, days, years);
+                defaultRetention = new ObjectLockDefault(retentionMode, days, years);
             }
-            return new ObjectLockConfig(en, def);
+            return new ObjectLockConfig(isEnabled, defaultRetention);
         }
         catch (XmlException ex)
         {
@@ -100,12 +99,12 @@ internal sealed class BucketXmlReader : IBucketXmlReader
         List<LifecycleRule> rules = [];
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
-            while (await r.ReadAsync())
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element || r.LocalName is not "Rule") continue;
-                if (!(await ReadLifecycleRule(r)).TryGetValue(out var rule, out var ruleErr)) return ruleErr;
+                if (reader.NodeType is not XmlNodeType.Element || reader.LocalName is not "Rule") continue;
+                if (!(await ReadLifecycleRule(reader)).TryGetValue(out var rule, out var ruleError)) return ruleError;
                 rules.Add(rule);
             }
         }
@@ -118,7 +117,7 @@ internal sealed class BucketXmlReader : IBucketXmlReader
             : new LifecycleConfig(rules);
     }
 
-    private static async Task<Result<LifecycleRule>> ReadLifecycleRule(XmlReader r)
+    private static async Task<Result<LifecycleRule>> ReadLifecycleRule(XmlReader reader)
     {
         string? id = null;
         string? status = null;
@@ -136,13 +135,13 @@ internal sealed class BucketXmlReader : IBucketXmlReader
         var depth = 0;
         var section = "";
 
-        using var sub = r.ReadSubtree();
-        while (await sub.ReadAsync())
+        using var subtree = reader.ReadSubtree();
+        while (await subtree.ReadAsync())
         {
-            switch (sub.NodeType)
+            switch (subtree.NodeType)
             {
                 case XmlNodeType.Element:
-                    currentField = sub.LocalName;
+                    currentField = subtree.LocalName;
                     if (currentField is "Expiration") { sawExpiration = true; section = "Expiration"; }
                     else if (currentField is "Transition" or "NoncurrentVersionTransition") sawTransition = true;
                     else if (currentField is "NoncurrentVersionExpiration") { sawNoncurrent = true; section = "NoncurrentVersionExpiration"; }
@@ -155,17 +154,17 @@ internal sealed class BucketXmlReader : IBucketXmlReader
                 case XmlNodeType.Text or XmlNodeType.CDATA:
                     switch (currentField)
                     {
-                        case "ID": id = await sub.GetValueAsync(); break;
-                        case "Status": status = await sub.GetValueAsync(); break;
-                        case "Prefix": prefix = await sub.GetValueAsync(); break;
+                        case "ID": id = await subtree.GetValueAsync(); break;
+                        case "Status": status = await subtree.GetValueAsync(); break;
+                        case "Prefix": prefix = await subtree.GetValueAsync(); break;
                         case "Days" when section is "Expiration":
-                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) days = d;
+                            if (int.TryParse(await subtree.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var daysValue)) days = daysValue;
                             break;
                         case "NoncurrentDays" when section is "NoncurrentVersionExpiration":
-                            if (int.TryParse(await sub.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var nd)) noncurrentDays = nd;
+                            if (int.TryParse(await subtree.GetValueAsync(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var noncurrentDaysValue)) noncurrentDays = noncurrentDaysValue;
                             break;
                         case "ExpiredObjectDeleteMarker":
-                            expiredMarker = (await sub.GetValueAsync()).Equals("true", StringComparison.OrdinalIgnoreCase);
+                            expiredMarker = (await subtree.GetValueAsync()).Equals("true", StringComparison.OrdinalIgnoreCase);
                             break;
                     }
                     break;
@@ -203,40 +202,82 @@ internal sealed class BucketXmlReader : IBucketXmlReader
         bool sawNoncurrent,
         int? days,
         bool expiredMarker,
-        int? noncurrentDays) =>
-        sawTransition ? new InvalidArgumentError("Transitions are not supported")
-        : sawAbortMultipart ? new InvalidArgumentError("AbortIncompleteMultipartUpload is not supported in this version")
-        : sawFilterTag ? new InvalidArgumentError("Tag filters are not supported in this version")
-        : sawFilterAnd ? new InvalidArgumentError("Compound Filter (And) is not supported in this version")
-        : status is not ("Enabled" or "Disabled") ? new MalformedXmlError($"Rule Status must be Enabled or Disabled, got '{status}'")
-        : !sawExpiration && !sawNoncurrent ? new MalformedXmlError("Rule requires an Expiration or NoncurrentVersionExpiration element")
-        : sawExpiration && days is null && !expiredMarker ? new MalformedXmlError("Expiration requires Days or ExpiredObjectDeleteMarker")
-        : days is { } dd && dd < 1 ? new InvalidArgumentError("Expiration.Days must be >= 1")
-        : sawNoncurrent && noncurrentDays is null ? new MalformedXmlError("NoncurrentVersionExpiration requires NoncurrentDays")
-        : noncurrentDays is { } ndd && ndd < 1 ? new InvalidArgumentError("NoncurrentVersionExpiration.NoncurrentDays must be >= 1")
-        : null;
+        int? noncurrentDays)
+    {
+        if (sawTransition)
+        {
+            return new InvalidArgumentError("Transitions are not supported");
+        }
+
+        if (sawAbortMultipart)
+        {
+            return new InvalidArgumentError("AbortIncompleteMultipartUpload is not supported in this version");
+        }
+
+        if (sawFilterTag)
+        {
+            return new InvalidArgumentError("Tag filters are not supported in this version");
+        }
+
+        if (sawFilterAnd)
+        {
+            return new InvalidArgumentError("Compound Filter (And) is not supported in this version");
+        }
+
+        if (status is not ("Enabled" or "Disabled"))
+        {
+            return new MalformedXmlError($"Rule Status must be Enabled or Disabled, got '{status}'");
+        }
+
+        if (!sawExpiration && !sawNoncurrent)
+        {
+            return new MalformedXmlError("Rule requires an Expiration or NoncurrentVersionExpiration element");
+        }
+
+        if (sawExpiration && days is null && !expiredMarker)
+        {
+            return new MalformedXmlError("Expiration requires Days or ExpiredObjectDeleteMarker");
+        }
+
+        if (days is { } daysValue && daysValue < 1)
+        {
+            return new InvalidArgumentError("Expiration.Days must be >= 1");
+        }
+
+        if (sawNoncurrent && noncurrentDays is null)
+        {
+            return new MalformedXmlError("NoncurrentVersionExpiration requires NoncurrentDays");
+        }
+
+        if (noncurrentDays is { } noncurrentDaysValue && noncurrentDaysValue < 1)
+        {
+            return new InvalidArgumentError("NoncurrentVersionExpiration.NoncurrentDays must be >= 1");
+        }
+
+        return null;
+    }
 
     public async Task<Result<WebsiteConfig>> ReadWebsiteConfiguration(Stream input, CancellationToken ct)
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             string? indexSuffix = null;
             string? errorKey = null;
             string? current = null;
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        current = r.LocalName;
+                        current = reader.LocalName;
                         break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
                         switch (current)
                         {
-                            case "Suffix": indexSuffix = (await r.GetValueAsync()).Trim(); break;
-                            case "Key": errorKey = (await r.GetValueAsync()).Trim(); break;
+                            case "Suffix": indexSuffix = (await reader.GetValueAsync()).Trim(); break;
+                            case "Key": errorKey = (await reader.GetValueAsync()).Trim(); break;
                         }
                         break;
                     case XmlNodeType.EndElement:
@@ -259,14 +300,14 @@ internal sealed class BucketXmlReader : IBucketXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             List<CorsRule> rules = [];
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                if (r.NodeType is not XmlNodeType.Element || r.LocalName is not "CORSRule") continue;
-                var ruleResult = await ReadCorsRule(r, ct);
-                if (!ruleResult.TryGetValue(out var rule, out var ruleErr)) return ruleErr;
+                if (reader.NodeType is not XmlNodeType.Element || reader.LocalName is not "CORSRule") continue;
+                var ruleResult = await ReadCorsRule(reader, ct);
+                if (!ruleResult.TryGetValue(out var rule, out var ruleError)) return ruleError;
                 rules.Add(rule);
             }
 
@@ -283,7 +324,7 @@ internal sealed class BucketXmlReader : IBucketXmlReader
         }
     }
 
-    private static async Task<Result<CorsRule>> ReadCorsRule(XmlReader r, CancellationToken ct)
+    private static async Task<Result<CorsRule>> ReadCorsRule(XmlReader reader, CancellationToken ct)
     {
         string? id = null;
         List<string> origins = [];
@@ -292,29 +333,29 @@ internal sealed class BucketXmlReader : IBucketXmlReader
         List<string> exposeHeaders = [];
         int? maxAgeSeconds = null;
 
-        using var sub = r.ReadSubtree();
+        using var subtree = reader.ReadSubtree();
         string? currentField = null;
 
-        while (await sub.ReadAsync())
+        while (await subtree.ReadAsync())
         {
             ct.ThrowIfCancellationRequested();
-            switch (sub.NodeType)
+            switch (subtree.NodeType)
             {
                 case XmlNodeType.Element:
-                    currentField = sub.LocalName;
+                    currentField = subtree.LocalName;
                     break;
                 case XmlNodeType.Text or XmlNodeType.CDATA:
-                    var val = (await sub.GetValueAsync()).Trim();
+                    var elementValue = (await subtree.GetValueAsync()).Trim();
                     switch (currentField)
                     {
-                        case "ID": id = val; break;
-                        case "AllowedOrigin": if (!string.IsNullOrEmpty(val)) origins.Add(val); break;
-                        case "AllowedMethod": if (!string.IsNullOrEmpty(val)) methods.Add(val.ToUpperInvariant()); break;
-                        case "AllowedHeader": if (!string.IsNullOrEmpty(val)) headers.Add(val); break;
-                        case "ExposeHeader": if (!string.IsNullOrEmpty(val)) exposeHeaders.Add(val); break;
+                        case "ID": id = elementValue; break;
+                        case "AllowedOrigin": if (!string.IsNullOrEmpty(elementValue)) origins.Add(elementValue); break;
+                        case "AllowedMethod": if (!string.IsNullOrEmpty(elementValue)) methods.Add(elementValue.ToUpperInvariant()); break;
+                        case "AllowedHeader": if (!string.IsNullOrEmpty(elementValue)) headers.Add(elementValue); break;
+                        case "ExposeHeader": if (!string.IsNullOrEmpty(elementValue)) exposeHeaders.Add(elementValue); break;
                         case "MaxAgeSeconds":
-                            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var age))
-                                maxAgeSeconds = age;
+                            if (int.TryParse(elementValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var maxAge))
+                                maxAgeSeconds = maxAge;
                             break;
                     }
                     break;
@@ -335,38 +376,38 @@ internal sealed class BucketXmlReader : IBucketXmlReader
     {
         try
         {
-            using var r = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
+            using var reader = XmlReader.Create(input, S3XmlDefaults.ReaderSettings);
             var publicRead = false;
             string? currentField = null;
             var isGroupGrantee = false;
             var isAllUsersUri = false;
 
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
                 ct.ThrowIfCancellationRequested();
-                switch (r.NodeType)
+                switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
-                        currentField = r.LocalName;
+                        currentField = reader.LocalName;
                         if (currentField is "Grantee")
                         {
-                            isGroupGrantee = r.GetAttribute("type") is "Group" || r.GetAttribute("xsi:type") is "Group";
+                            isGroupGrantee = reader.GetAttribute("type") is "Group" || reader.GetAttribute("xsi:type") is "Group";
                             isAllUsersUri = false;
                         }
                         break;
                     case XmlNodeType.Text or XmlNodeType.CDATA:
-                        var val = (await r.GetValueAsync()).Trim();
-                        if (currentField is "URI" && isGroupGrantee && val.Contains("AllUsers", StringComparison.OrdinalIgnoreCase))
+                        var elementValue = (await reader.GetValueAsync()).Trim();
+                        if (currentField is "URI" && isGroupGrantee && elementValue.Contains("AllUsers", StringComparison.OrdinalIgnoreCase))
                         {
                             isAllUsersUri = true;
                         }
-                        else if (currentField is "Permission" && isAllUsersUri && val is "READ" or "FULL_CONTROL")
+                        else if (currentField is "Permission" && isAllUsersUri && elementValue is "READ" or "FULL_CONTROL")
                         {
                             publicRead = true;
                         }
                         break;
                     case XmlNodeType.EndElement:
-                        if (r.LocalName is "Grant")
+                        if (reader.LocalName is "Grant")
                         {
                             isGroupGrantee = false;
                             isAllUsersUri = false;

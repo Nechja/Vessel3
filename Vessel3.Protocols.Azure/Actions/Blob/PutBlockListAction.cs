@@ -1,6 +1,5 @@
 using System.Xml;
 using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
 using Vessel3.Protocols.Azure.Serialization;
@@ -14,7 +13,7 @@ internal sealed class PutBlockListAction(
 {
     public AzureOperationKind Operation => AzureOperationKind.PutBlockList;
 
-    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(AzureRequestTarget target, HttpContext context)
     {
         if (string.IsNullOrEmpty(target.Container) || string.IsNullOrEmpty(target.Blob))
         {
@@ -29,74 +28,99 @@ internal sealed class PutBlockListAction(
             return new AzureErrorResult(new InvalidResourceNameError("No staged blocks found for blob"), errorXml);
         }
 
-        using var bodyMs = new MemoryStream();
-        await ctx.Request.Body.CopyToAsync(bodyMs, ctx.RequestAborted);
-        bodyMs.Position = 0;
+        using var bodyStream = new MemoryStream();
+        await context.Request.Body.CopyToAsync(bodyStream, context.RequestAborted);
+        bodyStream.Position = 0;
 
-        var blockIds = new List<string>();
-        try
-        {
-            var doc = System.Xml.Linq.XDocument.Load(bodyMs);
-            if (doc.Root is not null)
-            {
-                foreach (var el in doc.Root.Elements())
-                {
-                    if (el.Name.LocalName is "Latest" or "Uncommitted" or "Committed")
-                    {
-                        var id = el.Value.Trim();
-                        if (!string.IsNullOrEmpty(id))
-                        {
-                            blockIds.Add(id);
-                        }
-                    }
-                }
-            }
-        }
-        catch (XmlException)
+        if (!TryParseBlockListXml(bodyStream, out var blockIds))
         {
             return new AzureErrorResult(new InvalidResourceNameError("Malformed BlockList XML"), errorXml);
         }
 
-        var chunksRes = stager.ListChunks(session.SessionId);
-        if (!chunksRes.TryGetValue(out var stagedChunks, out var chunksErr))
+        var listChunksResult = stager.ListChunks(session.SessionId);
+        if (!listChunksResult.TryGetValue(out var stagedChunks, out var chunksError))
         {
-            return new AzureErrorResult(chunksErr, errorXml);
+            return new AzureErrorResult(chunksError, errorXml);
         }
 
-        var chunkMap = stagedChunks.ToDictionary(c => c.Token, StringComparer.Ordinal);
-        var orderedParts = new List<MultipartPart>(blockIds.Count);
-
-        for (var i = 0; i < blockIds.Count; i++)
+        var chunkMap = stagedChunks.ToDictionary(chunk => chunk.Token, StringComparer.Ordinal);
+        if (!TryBuildOrderedParts(blockIds, chunkMap, out var orderedParts, out var missingBlockId))
         {
-            var id = blockIds[i];
-            if (!chunkMap.TryGetValue(id, out var chunk))
-            {
-                return new AzureErrorResult(new InvalidResourceNameError($"Block '{id}' was not found"), errorXml);
-            }
-            orderedParts.Add(new MultipartPart(i + 1, chunk.BlobSha, chunk.Md5, chunk.Size));
+            return new AzureErrorResult(new InvalidResourceNameError($"Block '{missingBlockId}' was not found"), errorXml);
         }
 
         var wireEtag = $"{Guid.NewGuid():N}";
-        var metadata = AzureHeaderCodec.ExtractUserMetadata(ctx.Request.Headers);
-        var contentType = ctx.Request.Headers["x-ms-blob-content-type"].ToString();
+        var metadata = AzureHeaderCodec.ExtractUserMetadata(context.Request.Headers);
+        var contentType = context.Request.Headers["x-ms-blob-content-type"].ToString();
 
-        var commitRes = await stager.Commit(
+        var commitResult = await stager.Commit(
             session.SessionId,
             orderedParts,
             wireEtag,
             ChecksumSet.Empty,
-            ctx.RequestAborted,
+            context.RequestAborted,
             metadataOverride: metadata.Count > 0 ? metadata : null,
             contentTypeOverride: !string.IsNullOrEmpty(contentType) ? contentType : null);
 
-        if (!commitRes.TryGetValue(out _, out var commitErr))
+        if (!commitResult.TryGetValue(out _, out var commitError))
         {
-            return new AzureErrorResult(commitErr, errorXml);
+            return new AzureErrorResult(commitError, errorXml);
         }
 
-        ctx.Response.Headers.ETag = $"\"{wireEtag}\"";
-        ctx.Response.Headers.LastModified = AzureXmlDefaults.ToRfc1123(DateTimeOffset.UtcNow);
+        context.Response.Headers.ETag = $"\"{wireEtag}\"";
+        context.Response.Headers.LastModified = AzureXmlDefaults.ToRfc1123(DateTimeOffset.UtcNow);
 
         return Results.StatusCode(StatusCodes.Status201Created);
+    }
+
+    private static bool TryParseBlockListXml(Stream stream, out List<string> blockIds)
+    {
+        blockIds = [];
+        try
+        {
+            var document = System.Xml.Linq.XDocument.Load(stream);
+            if (document.Root is not null)
+            {
+                foreach (var element in document.Root.Elements())
+                {
+                    if (element.Name.LocalName is "Latest" or "Uncommitted" or "Committed")
+                    {
+                        var blockId = element.Value.Trim();
+                        if (!string.IsNullOrEmpty(blockId))
+                        {
+                            blockIds.Add(blockId);
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryBuildOrderedParts(
+        IReadOnlyList<string> blockIds,
+        IReadOnlyDictionary<string, StagedChunk> chunkMap,
+        out List<MultipartPart> orderedParts,
+        out string? missingBlockId)
+    {
+        orderedParts = new List<MultipartPart>(blockIds.Count);
+        missingBlockId = null;
+
+        for (var i = 0; i < blockIds.Count; i++)
+        {
+            var blockId = blockIds[i];
+            if (!chunkMap.TryGetValue(blockId, out var chunk))
+            {
+                missingBlockId = blockId;
+                return false;
+            }
+            orderedParts.Add(new MultipartPart(i + 1, chunk.BlobSha, chunk.Md5, chunk.Size));
+        }
+
+        return true;
     }
 }

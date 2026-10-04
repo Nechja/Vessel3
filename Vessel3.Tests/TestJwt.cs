@@ -1,7 +1,6 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
-using Vessel3.Server.Oidc;
 
 namespace Vessel3.Tests;
 

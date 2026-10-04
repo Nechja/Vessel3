@@ -1,9 +1,5 @@
 using Vessel3.Server.Configuration;
-using Vessel3.Server.Oidc;
 using Vessel3.Server.Pipeline;
-using Vessel3.Server.S3;
-using Vessel3.Server.Telemetry;
-using Vessel3.Storage;
 
 namespace Vessel3.Server.Hosting;
 

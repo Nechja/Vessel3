@@ -1,12 +1,10 @@
-using Vessel3.Storage;
-
 namespace Vessel3.Server.S3;
 
 internal static class ChecksumHeaders
 {
-    public const string HeaderCrc32  = "x-amz-checksum-crc32";
+    public const string HeaderCrc32 = "x-amz-checksum-crc32";
     public const string HeaderCrc32C = "x-amz-checksum-crc32c";
-    public const string HeaderSha1   = "x-amz-checksum-sha1";
+    public const string HeaderSha1 = "x-amz-checksum-sha1";
     public const string HeaderSha256 = "x-amz-checksum-sha256";
 
     public static string HeaderFor(ChecksumAlgorithm a) => a switch

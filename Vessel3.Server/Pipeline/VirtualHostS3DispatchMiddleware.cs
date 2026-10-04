@@ -1,7 +1,3 @@
-using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
-using Vessel3.Server.S3;
-
 namespace Vessel3.Server.Pipeline;
 
 internal sealed class VirtualHostS3DispatchMiddleware(

@@ -2,7 +2,6 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Vessel3.Primitives;
 using Vessel3.Server.Configuration;
 using Vessel3.Server.Endpoints;
 using Vessel3.Server.Hosting;

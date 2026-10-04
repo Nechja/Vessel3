@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
-using Microsoft.Extensions.Logging.Console;
 using Vessel3.Server.Configuration;
 
 namespace Vessel3.Server.Hosting;

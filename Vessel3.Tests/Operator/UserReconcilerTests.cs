@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Vessel3.Operator.Domain;
 using Vessel3.Operator.Domain.Models;
-using Vessel3.Primitives;
 using Xunit;
 
 namespace Vessel3.Tests.Operator;

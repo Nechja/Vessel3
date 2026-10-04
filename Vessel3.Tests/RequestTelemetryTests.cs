@@ -3,10 +3,8 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Vessel3.Primitives;
 using Vessel3.Server;
 using Vessel3.Server.Telemetry;
-using Vessel3.Storage;
 using Xunit;
 
 namespace Vessel3.Tests;

@@ -6,63 +6,56 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
 {
     public S3KeyRoute Route => new(HttpMethods.Put, S3KeySubresource.None);
 
-    public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    public async Task<IResult> Invoke(string bucket, string key, HttpContext context)
     {
-        var req = ctx.Request;
-        var res = ctx.Response;
-        var ct = ctx.RequestAborted;
+        var request = context.Request;
+        var response = context.Response;
+        var cancellationToken = context.RequestAborted;
 
-        var writePre = S3HeaderCodec.ExtractWritePreconditions(req.Headers);
-        if (pre.HasWriteConditions(writePre))
+        if (!await CheckWritePreconditionsAsync(bucket, key, request, cancellationToken))
         {
-            var existing = objects.Stat(bucket, key);
-            var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
-            if (pre.EvaluateForWrite(writePre, currentEtag) is Precondition.Failed)
-            {
-                await req.Body.CopyToAsync(Stream.Null, ct);
-                return Results.StatusCode(412);
-            }
+            return Results.StatusCode(412);
         }
 
-        var (body, declaredLength) = RequestBodyDecoder.Decode(req);
-        var contentSha = req.Headers["x-amz-content-sha256"].ToString();
+        var (body, declaredLength) = RequestBodyDecoder.Decode(request);
+        var contentSha = request.Headers["x-amz-content-sha256"].ToString();
         var declaredSha = body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64
             ? null
             : contentSha;
-        var declaredMd5OrNull = S3RequestExtensions.Nullify(req.Headers["Content-MD5"].ToString());
+        var declaredMd5OrNull = S3RequestExtensions.Nullify(request.Headers["Content-MD5"].ToString());
 
-        var metadata = S3HeaderCodec.ExtractUserMetadata(req.Headers);
-        var declaredChecksums = ChecksumHeaders.ParseDeclared(req.Headers);
+        var metadata = S3HeaderCodec.ExtractUserMetadata(request.Headers);
+        var declaredChecksums = ChecksumHeaders.ParseDeclared(request.Headers);
         if (declaredChecksums is null)
         {
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
         }
 
-        if (!TagSet.ParseHeader(req.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagErr))
+        if (!TagSet.ParseHeader(request.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagError))
         {
-            return http.Map(tagErr);
+            return http.Map(tagError);
         }
 
-        if (!ResolveInitialRetention(req.Headers, bucket).TryGetValue(out var initialRetention, out var retErr))
+        if (!ResolveInitialRetention(request.Headers, bucket).TryGetValue(out var initialRetention, out var retentionError))
         {
-            return http.Map(retErr);
+            return http.Map(retentionError);
         }
 
-        var initialHold = req.Headers["x-amz-object-lock-legal-hold"].ToString()
+        var initialHold = request.Headers["x-amz-object-lock-legal-hold"].ToString()
             .Equals("ON", StringComparison.OrdinalIgnoreCase);
 
         Result<PutOutcome> result;
         try
         {
-            var systemHeaders = S3HeaderCodec.ExtractSystemHeaders(req.Headers);
-            var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
-            var putReq = new ObjectPutRequest(
-                bucket, key, body, declaredLength, req.ContentType,
+            var actor = context.Items.TryGetValue("CallerIdentity", out var callerItem) && callerItem is CallerIdentity callerIdentity
+                ? callerIdentity.Username
+                : "anonymous";
+            var putRequest = CreatePutRequest(
+                bucket, key, request, body, declaredLength,
                 declaredSha, declaredMd5OrNull, metadata, initialTags,
-                declaredChecksums, initialRetention, initialHold, systemHeaders,
-                Protocol: "s3", Actor: caller, Host: req.Host.Value,
-                Ct: ct);
-            result = await objects.Put(putReq);
+                declaredChecksums, initialRetention, initialHold, actor,
+                cancellationToken);
+            result = await objects.Put(putRequest);
         }
         catch (InvalidDataException ex)
         {
@@ -70,14 +63,58 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         }
 
         return result.Match<IResult>(
-            put =>
+            putOutcome =>
             {
-                res.Headers.ETag = $"\"{put.Etag}\"";
-                ChecksumHeaders.Emit(res.Headers, put.Checksums, fallbackSha256Hex: put.Sha256);
-                res.Headers["x-amz-version-id"] = put.VersionId;
+                response.Headers.ETag = $"\"{putOutcome.Etag}\"";
+                ChecksumHeaders.Emit(response.Headers, putOutcome.Checksums, fallbackSha256Hex: putOutcome.Sha256);
+                response.Headers["x-amz-version-id"] = putOutcome.VersionId;
                 return Results.Ok();
             },
             http.Map);
+    }
+
+    private async Task<bool> CheckWritePreconditionsAsync(string bucket, string key, HttpRequest request, CancellationToken cancellationToken)
+    {
+        var writeConditions = S3HeaderCodec.ExtractWritePreconditions(request.Headers);
+        if (!pre.HasWriteConditions(writeConditions))
+        {
+            return true;
+        }
+
+        var existing = objects.Stat(bucket, key);
+        var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
+        if (pre.EvaluateForWrite(writeConditions, currentEtag) is Precondition.Failed)
+        {
+            await request.Body.CopyToAsync(Stream.Null, cancellationToken);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static ObjectPutRequest CreatePutRequest(
+        string bucket,
+        string key,
+        HttpRequest request,
+        Stream body,
+        long? declaredLength,
+        string? declaredSha,
+        string? declaredMd5OrNull,
+        IReadOnlyDictionary<string, string> metadata,
+        IReadOnlyDictionary<string, string> initialTags,
+        DeclaredChecksums declaredChecksums,
+        Retention? initialRetention,
+        bool initialHold,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        var systemHeaders = S3HeaderCodec.ExtractSystemHeaders(request.Headers);
+        return new ObjectPutRequest(
+            bucket, key, body, declaredLength, request.ContentType,
+            declaredSha, declaredMd5OrNull, metadata, initialTags,
+            declaredChecksums, initialRetention, initialHold, systemHeaders,
+            Protocol: "s3", Actor: actor, Host: request.Host.Value,
+            Ct: cancellationToken);
     }
 
     private Result<Retention?> ResolveInitialRetention(IHeaderDictionary headers, string bucket)

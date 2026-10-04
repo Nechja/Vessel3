@@ -1,9 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Vessel3.Server;
-using Vessel3.Server.S3;
 using Xunit;
 
 namespace Vessel3.Tests;

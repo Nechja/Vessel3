@@ -1,5 +1,3 @@
-using Vessel3.Primitives;
-
 namespace Vessel3.Storage;
 
 internal interface IWebhookStore : IDisposable

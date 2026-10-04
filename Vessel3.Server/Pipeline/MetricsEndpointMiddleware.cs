@@ -1,7 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.AspNetCore.Http;
-using Vessel3.Primitives;
 using Vessel3.Server.Configuration;
 using Vessel3.Server.Telemetry;
 

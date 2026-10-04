@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using Vessel3.Server;
 using Xunit;
 
 namespace Vessel3.Tests;

@@ -15,133 +15,151 @@ internal sealed class ContainerRepoAuthMiddleware(
     ContainerRepoAuthOptions options,
     ITokenAuthenticator? tokenAuthenticator = null) : IMiddleware
 {
-    public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
-        if (!ctx.Request.Path.StartsWithSegments("/v2"))
+        if (!context.Request.Path.StartsWithSegments("/v2"))
         {
-            await next(ctx);
+            await next(context);
             return;
         }
 
         RequestTrace.SetContext(protocol: "oci");
 
-        if (ctx.Request.Path.Equals("/v2/token", StringComparison.OrdinalIgnoreCase))
+        if (context.Request.Path.Equals("/v2/token", StringComparison.OrdinalIgnoreCase))
         {
-            await next(ctx);
+            await next(context);
             return;
         }
 
-        var isPing = ctx.Request.Path.Equals("/v2", StringComparison.OrdinalIgnoreCase)
-            || ctx.Request.Path.Equals("/v2/", StringComparison.OrdinalIgnoreCase);
+        var isPing = context.Request.Path.Equals("/v2", StringComparison.OrdinalIgnoreCase)
+            || context.Request.Path.Equals("/v2/", StringComparison.OrdinalIgnoreCase);
 
-        var authHeader = ctx.Request.Headers.Authorization.ToString().Trim();
+        var authHeader = context.Request.Headers.Authorization.ToString().Trim();
 
-        if (options.IsUnauthenticated && string.IsNullOrEmpty(authHeader) && !ctx.Request.Headers.ContainsKey("X-Vessel-Key"))
+        if (options.IsUnauthenticated && string.IsNullOrEmpty(authHeader) && !context.Request.Headers.ContainsKey("X-Vessel-Key"))
         {
-            ctx.Items["CallerIdentity"] = CallerIdentity.System;
-            await next(ctx);
+            context.Items["CallerIdentity"] = CallerIdentity.System;
+            await next(context);
             return;
         }
 
-        if (ctx.Request.Headers.TryGetValue("X-Vessel-Key", out var vKey) &&
-            ctx.Request.Headers.TryGetValue("X-Vessel-Secret", out var vSecret))
+        if (context.Request.Headers.TryGetValue("X-Vessel-Key", out var vesselKey) &&
+            context.Request.Headers.TryGetValue("X-Vessel-Secret", out var vesselSecret))
         {
-            var authResult = AuthenticateBasic(vKey.ToString(), vSecret.ToString());
-            if (!authResult.TryGetValue(out var vCaller, out var vErr))
+            if (await HandleCustomHeadersAuthAsync(context, vesselKey.ToString(), vesselSecret.ToString(), next))
             {
-                await WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", vErr.Message);
                 return;
             }
-
-            ctx.Items["CallerIdentity"] = vCaller;
-            if (!vCaller.CanWrite && IsWriteMethod(ctx.Request.Method))
-            {
-                await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
-                return;
-            }
-
-            await next(ctx);
-            return;
         }
 
         if (string.IsNullOrEmpty(authHeader))
         {
-            await Challenge(ctx, isPing);
+            await Challenge(context, isPing);
             return;
         }
 
         if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            var token = authHeader["Bearer ".Length..].Trim();
-            if (tokenService.ValidateToken(token, out var userId, out var scopes))
-            {
-                var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _) && user is not null
-                    ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
-                    : CallerIdentity.System;
-
-                ctx.Items["CallerIdentity"] = caller;
-                ctx.Items["OciScopes"] = scopes ?? [];
-
-                if (!IsOperationAuthorized(ctx, caller, scopes))
-                {
-                    await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "Requested access to the resource is denied");
-                    return;
-                }
-
-                await next(ctx);
-                return;
-            }
-
-            if (tokenAuthenticator is not null)
-            {
-                var verified = await tokenAuthenticator.AuthenticateToken(token, ctx.RequestAborted);
-                if (verified.TryGetValue(out var oidcCaller, out _))
-                {
-                    ctx.Items["CallerIdentity"] = oidcCaller;
-                    if (!oidcCaller.CanWrite && IsWriteMethod(ctx.Request.Method))
-                    {
-                        await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
-                        return;
-                    }
-
-                    await next(ctx);
-                    return;
-                }
-            }
-
-            await WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid or expired token");
+            await HandleBearerAuthAsync(context, authHeader, next);
             return;
         }
 
         if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
         {
-            var basicStr = authHeader["Basic ".Length..].Trim();
-            if (!TryDecodeBasic(basicStr, out var key, out var secret))
-            {
-                await Challenge(ctx, isPing);
-                return;
-            }
-
-            var authResult = AuthenticateBasic(key, secret);
-            if (!authResult.TryGetValue(out var caller, out var err))
-            {
-                await WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", err.Message);
-                return;
-            }
-
-            ctx.Items["CallerIdentity"] = caller;
-
-            if (!caller.CanWrite && IsWriteMethod(ctx.Request.Method))
-            {
-                await WriteOciError(ctx, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
-                return;
-            }
-
-            await next(ctx);
+            await HandleBasicAuthAsync(context, authHeader, isPing, next);
             return;
         }
 
-        await Challenge(ctx, isPing);
+        await Challenge(context, isPing);
+    }
+
+    private async Task<bool> HandleCustomHeadersAuthAsync(HttpContext context, string vesselKey, string vesselSecret, RequestDelegate next)
+    {
+        var authResult = AuthenticateBasic(vesselKey, vesselSecret);
+        if (!authResult.TryGetValue(out var caller, out var error))
+        {
+            await WriteOciError(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", error.Message);
+            return true;
+        }
+
+        context.Items["CallerIdentity"] = caller;
+        if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
+        {
+            await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
+            return true;
+        }
+
+        await next(context);
+        return true;
+    }
+
+    private async Task HandleBearerAuthAsync(HttpContext context, string authHeader, RequestDelegate next)
+    {
+        var token = authHeader["Bearer ".Length..].Trim();
+        if (tokenService.ValidateToken(token, out var userId, out var scopes))
+        {
+            var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _) && user is not null
+                ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
+                : CallerIdentity.System;
+
+            context.Items["CallerIdentity"] = caller;
+            context.Items["OciScopes"] = scopes ?? [];
+
+            if (!IsOperationAuthorized(context, caller, scopes))
+            {
+                await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "Requested access to the resource is denied");
+                return;
+            }
+
+            await next(context);
+            return;
+        }
+
+        if (tokenAuthenticator is not null)
+        {
+            var verified = await tokenAuthenticator.AuthenticateToken(token, context.RequestAborted);
+            if (verified.TryGetValue(out var oidcCaller, out _))
+            {
+                context.Items["CallerIdentity"] = oidcCaller;
+                if (!oidcCaller.CanWrite && IsWriteMethod(context.Request.Method))
+                {
+                    await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
+                    return;
+                }
+
+                await next(context);
+                return;
+            }
+        }
+
+        await WriteOciError(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid or expired token");
+    }
+
+    private async Task HandleBasicAuthAsync(HttpContext context, string authHeader, bool isPing, RequestDelegate next)
+    {
+        var basicStr = authHeader["Basic ".Length..].Trim();
+        if (!TryDecodeBasic(basicStr, out var key, out var secret))
+        {
+            await Challenge(context, isPing);
+            return;
+        }
+
+        var authResult = AuthenticateBasic(key, secret);
+        if (!authResult.TryGetValue(out var caller, out var error))
+        {
+            await WriteOciError(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", error.Message);
+            return;
+        }
+
+        context.Items["CallerIdentity"] = caller;
+
+        if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
+        {
+            await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
+            return;
+        }
+
+        await next(context);
     }
 
     private Result<CallerIdentity> AuthenticateBasic(string key, string secret)
@@ -188,17 +206,17 @@ internal sealed class ContainerRepoAuthMiddleware(
     private static bool IsWriteMethod(string method) =>
         HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsPatch(method) || HttpMethods.IsDelete(method);
 
-    private static bool IsOperationAuthorized(HttpContext ctx, CallerIdentity caller, IReadOnlyList<string>? scopes)
+    private static bool IsOperationAuthorized(HttpContext context, CallerIdentity caller, IReadOnlyList<string>? scopes)
     {
         if (caller.IsAdmin) return true;
-        if (!caller.CanWrite && IsWriteMethod(ctx.Request.Method)) return false;
+        if (!caller.CanWrite && IsWriteMethod(context.Request.Method)) return false;
 
         if (scopes is null || scopes.Count == 0) return true;
 
-        var repo = ExtractRepoFromPath(ctx.Request.Path);
+        var repo = ExtractRepoFromPath(context.Request.Path);
         if (string.IsNullOrEmpty(repo)) return true;
 
-        var requiredAction = IsWriteMethod(ctx.Request.Method) ? "push" : "pull";
+        var requiredAction = IsWriteMethod(context.Request.Method) ? "push" : "pull";
         var expectedScope = $"repository:{repo}:{requiredAction}";
 
         foreach (var scope in scopes)
@@ -229,28 +247,28 @@ internal sealed class ContainerRepoAuthMiddleware(
         return tagsIdx > 0 ? sub[..tagsIdx] : "";
     }
 
-    private static Task Challenge(HttpContext ctx, bool isPing)
+    private static Task Challenge(HttpContext context, bool isPing)
     {
-        var scheme = ctx.Request.Scheme;
-        var host = ctx.Request.Host.Value;
+        var scheme = context.Request.Scheme;
+        var host = context.Request.Host.Value;
         var realm = $"{scheme}://{host}/v2/token";
         var service = host;
 
-        var repo = ExtractRepoFromPath(ctx.Request.Path);
-        var actions = IsWriteMethod(ctx.Request.Method) ? "pull,push" : "pull";
+        var repo = ExtractRepoFromPath(context.Request.Path);
+        var actions = IsWriteMethod(context.Request.Method) ? "pull,push" : "pull";
         var scope = string.IsNullOrEmpty(repo) ? "" : $",scope=\"repository:{repo}:{actions}\"";
 
-        ctx.Response.Headers.Append("Www-Authenticate", $"Bearer realm=\"{realm}\",service=\"{service}\"{scope}");
-        ctx.Response.Headers.Append("Docker-Distribution-API-Version", "registry/2.0");
+        context.Response.Headers.Append("Www-Authenticate", $"Bearer realm=\"{realm}\",service=\"{service}\"{scope}");
+        context.Response.Headers.Append("Docker-Distribution-API-Version", "registry/2.0");
 
-        return WriteOciError(ctx, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "authentication required");
+        return WriteOciError(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "authentication required");
     }
 
-    private static async Task WriteOciError(HttpContext ctx, int statusCode, string code, string message)
+    private static async Task WriteOciError(HttpContext context, int statusCode, string code, string message)
     {
-        ctx.Response.StatusCode = statusCode;
-        ctx.Response.ContentType = "application/json";
-        var errDto = new OciErrorResponseDto([new OciErrorItemDto(code, message, null)]);
-        await JsonSerializer.SerializeAsync(ctx.Response.Body, errDto, OciJsonContext.Default.OciErrorResponseDto);
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+        var errorDto = new OciErrorResponseDto([new OciErrorItemDto(code, message, null)]);
+        await JsonSerializer.SerializeAsync(context.Response.Body, errorDto, OciJsonContext.Default.OciErrorResponseDto);
     }
 }

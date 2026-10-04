@@ -1,6 +1,4 @@
 using System.Text;
-using Microsoft.AspNetCore.Http;
-using Vessel3.Server;
 using Xunit;
 
 namespace Vessel3.Tests;
