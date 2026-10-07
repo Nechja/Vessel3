@@ -118,8 +118,8 @@ docker run --rm --net=host -v "$WORK_DIR:/work" \
   s3 cp /work/test-10mb.bin s3://transfer-test/test-10mb.bin
 
 echo "=== 4. Verifying Hexagonal Storage Ingest Placement ==="
-FAST_BLOB_COUNT=$(find "$FAST_DIR/blobs" -type f 2>/dev/null | wc -l)
-BULK_BLOB_COUNT=$(find "$BULK_DIR/blobs" -type f 2>/dev/null | wc -l)
+FAST_BLOB_COUNT=$(find "$FAST_DIR" -type f ! -path "*/tmp/*" -type f 2>/dev/null | wc -l)
+BULK_BLOB_COUNT=$(find "$BULK_DIR" -type f ! -path "*/tmp/*" -type f 2>/dev/null | wc -l)
 
 echo "Blobs on fast ingest volume: $FAST_BLOB_COUNT"
 echo "Blobs on bulk vault volume:  $BULK_BLOB_COUNT"
