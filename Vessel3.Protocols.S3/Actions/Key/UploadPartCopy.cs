@@ -29,7 +29,8 @@ internal sealed class UploadPartCopy(IObjectStore objects, IMultipartStore multi
             return http.Map(new InvalidPathError($"x-amz-copy-source: {copySource}"));
         }
 
-        if (!objects.Get(srcBucket, srcKey).TryGetValue(out var src, out var srcErr))
+        var getResult = await objects.Get(srcBucket, srcKey, ct: ct);
+        if (!getResult.TryGetValue(out var src, out var srcErr))
         {
             return http.Map(srcErr);
         }

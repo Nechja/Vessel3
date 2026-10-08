@@ -25,7 +25,8 @@ internal sealed record VesselConfig(
     LogLevel LogLevel = LogLevel.Information,
     bool AccessLogEnabled = true,
     string? NodeId = null,
-    OtelConfig? Otel = null)
+    OtelConfig? Otel = null,
+    IReadOnlyList<StorageVolume>? Volumes = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -77,6 +78,12 @@ internal sealed record VesselConfig(
         var otelServiceName = ReadString("VESSEL3_OTEL_SERVICE_NAME", "vessel3")!;
         var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
 
+        if (!TryReadVolumes("VESSEL3_VOLUMES", dataRoot, out var volumes, out error))
+        {
+            config = null;
+            return false;
+        }
+
         config = new VesselConfig(
             dataRoot,
             accessKey,
@@ -99,7 +106,8 @@ internal sealed record VesselConfig(
             logLevel,
             accessLogEnabled,
             nodeId,
-            otel);
+            otel,
+            volumes);
 
         error = null;
         return true;
@@ -174,4 +182,107 @@ internal sealed record VesselConfig(
             : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct()];
     }
+
+    internal static bool TryParseVolumes(
+        string? raw,
+        string dataRoot,
+        [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
+        [NotNullWhen(false)] out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            error = null;
+            return true;
+        }
+
+        List<StorageVolume> list = [];
+        HashSet<string> seenIds = new(StringComparer.OrdinalIgnoreCase);
+        var parts = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var part in parts)
+        {
+            var tokens = part.Split(':', StringSplitOptions.TrimEntries);
+            if (tokens.Length < 2)
+            {
+                volumes = null;
+                error = $"Invalid volume entry '{part}': expected at least 'id:path'";
+                return false;
+            }
+
+            var id = tokens[0];
+            var path = tokens[1];
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                volumes = null;
+                error = $"Invalid volume entry '{part}': volume id cannot be empty";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                volumes = null;
+                error = $"Invalid volume entry '{part}': volume path cannot be empty";
+                return false;
+            }
+
+            if (!seenIds.Add(id))
+            {
+                volumes = null;
+                error = $"Duplicate volume id '{id}'";
+                return false;
+            }
+
+            var pool = tokens.Length > 2 && !string.IsNullOrWhiteSpace(tokens[2]) ? tokens[2] : "default";
+            var flags = VolumeCapabilities.None;
+
+            if (tokens.Length > 3 && !string.IsNullOrWhiteSpace(tokens[3]))
+            {
+                var flagTokens = tokens[3].Split('+', StringSplitOptions.TrimEntries);
+                foreach (var ft in flagTokens)
+                {
+                    if (string.IsNullOrWhiteSpace(ft)) continue;
+                    if (!Enum.TryParse<VolumeCapabilities>(ft, ignoreCase: true, out var parsedFlag))
+                    {
+                        volumes = null;
+                        error = $"Invalid volume capability '{ft}' for volume '{id}'";
+                        return false;
+                    }
+                    flags |= parsedFlag;
+                }
+            }
+
+            if (flags == VolumeCapabilities.None)
+            {
+                flags = VolumeCapabilities.Ingest;
+            }
+
+            list.Add(new StorageVolume(id, path, pool, flags));
+        }
+
+        if (list.Count == 0)
+        {
+            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            error = null;
+            return true;
+        }
+
+        if (!list.Any(v => v.IsWritable))
+        {
+            volumes = null;
+            error = "No writable volume configured. At least one volume must not be ReadOnly or Remote.";
+            return false;
+        }
+
+        volumes = list;
+        error = null;
+        return true;
+    }
+
+    private static bool TryReadVolumes(
+        string name,
+        string dataRoot,
+        [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
+        [NotNullWhen(false)] out string? error) =>
+        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error);
 }

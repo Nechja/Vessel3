@@ -11,10 +11,7 @@ internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Get;
 
-    public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx) =>
-        Task.FromResult(ExecuteCore(target, ctx));
-
-    private IResult ExecuteCore(WebDavRequestTarget target, HttpContext ctx)
+    public async Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
     {
         if (string.IsNullOrEmpty(target.Bucket))
         {
@@ -27,7 +24,7 @@ internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
         }
 
         var cleanPath = target.Path.TrimStart('/');
-        var getRes = objects.Get(target.Bucket, cleanPath);
+        var getRes = await objects.Get(target.Bucket, cleanPath, ct: ctx.RequestAborted);
         if (!getRes.TryGetValue(out var obj, out var err))
         {
             return new WebDavErrorResult(err);

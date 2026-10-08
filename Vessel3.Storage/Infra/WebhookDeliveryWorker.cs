@@ -81,7 +81,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
 
         try
         {
-            var result = await SendWebhookHttpRequestAsync(webhook.Url, payloadBytes, signature, domainEvent, cancellationToken);
+            var result = await SendWebhookHttpRequest(webhook.Url, payloadBytes, signature, domainEvent, cancellationToken);
             statusCode = result.StatusCode;
             error = result.Error;
             result.Response?.Dispose();
@@ -126,7 +126,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
 
         try
         {
-            var result = await SendWebhookHttpRequestAsync(webhook.Url, payloadBytes, signature, testEvent, cancellationToken);
+            var result = await SendWebhookHttpRequest(webhook.Url, payloadBytes, signature, testEvent, cancellationToken);
             stopwatch.Stop();
             statusCode = result.StatusCode;
             deliveryError = result.Error;
@@ -157,7 +157,7 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
         }
     }
 
-    private async Task<(int? StatusCode, string? Error, HttpResponseMessage? Response)> SendWebhookHttpRequestAsync(
+    private async Task<(int? StatusCode, string? Error, HttpResponseMessage? Response)> SendWebhookHttpRequest(
         string url,
         byte[] payloadBytes,
         string? signature,

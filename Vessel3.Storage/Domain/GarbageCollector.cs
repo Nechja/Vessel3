@@ -14,7 +14,7 @@ internal sealed partial class AdminJsonContext : JsonSerializerContext;
 
 internal interface IGarbageCollector
 {
-    Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge);
+    Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge, CancellationToken ct = default);
 }
 
 internal sealed class GarbageCollector(
@@ -28,7 +28,7 @@ internal sealed class GarbageCollector(
         : this(blobs, [registry], stager, gate, options)
     {
     }
-    public async Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge)
+    public async Task<GcReport> Run(TimeSpan minBlobAge, TimeSpan minUploadAge, CancellationToken ct = default)
     {
         using var lease = await gate.Collecting(options.MaxWait);
         if (lease is null) return new GcReport(0, 0, TimedOut: true);
@@ -52,7 +52,7 @@ internal sealed class GarbageCollector(
                     if (referenced.Contains(sha)) continue;
                     var mtime = blobs.GetLastWriteUtc(sha);
                     if (mtime is null || mtime > blobCutoff) continue;
-                    if (blobs.Delete(sha) is Result<bool>.Success { Value: true }) deleted++;
+                    if (await blobs.Delete(sha, ct) is Result<bool>.Success { Value: true }) deleted++;
                 }
             }
 

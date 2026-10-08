@@ -47,7 +47,7 @@ internal sealed class StartBlobUploadAction(
 
         if (!string.Equals(storedBlob.Sha, cleanDeclaredSha, StringComparison.OrdinalIgnoreCase))
         {
-            blobs.Delete(storedBlob.Sha);
+            await blobs.Delete(storedBlob.Sha, ctx.RequestAborted);
             await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} did not match actual sha256:{storedBlob.Sha}");
             return;
         }

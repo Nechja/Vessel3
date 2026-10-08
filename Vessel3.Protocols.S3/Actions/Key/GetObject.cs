@@ -6,8 +6,10 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
 {
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.None);
 
-    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx) =>
-        Task.FromResult(objects.Get(bucket, key, ctx.VersionId()).Match<IResult>(
+    public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    {
+        var result = await objects.Get(bucket, key, ctx.VersionId(), ctx.RequestAborted);
+        return result.Match<IResult>(
             ok =>
             {
                 var req = ctx.Request;
@@ -60,5 +62,6 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
                     lastModified: ok.LastModified,
                     enableRangeProcessing: true);
             },
-            http.Map));
+            http.Map);
+    }
 }

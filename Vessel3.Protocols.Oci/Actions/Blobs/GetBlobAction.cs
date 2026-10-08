@@ -14,13 +14,7 @@ internal sealed class GetBlobAction(IBlobPool blobs) : IOciAction
         var digest = target.Reference ?? "";
         var cleanSha = OciResponseWriter.CleanSha(digest);
 
-        if (!blobs.Exists(cleanSha))
-        {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUnknown, $"Blob unknown: {digest}");
-            return;
-        }
-
-        var openResult = blobs.Open(cleanSha);
+        var openResult = await blobs.Open(cleanSha, ctx.RequestAborted);
         if (!openResult.TryGetValue(out var stream, out _))
         {
             await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUnknown, $"Blob unknown: {digest}");

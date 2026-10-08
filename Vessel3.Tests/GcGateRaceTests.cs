@@ -54,19 +54,19 @@ public class GcGateRaceTests : IDisposable
 
         await published.Task;
         var publishedSha = paused.PublishedSha!;
-        Assert.True(blobs.Exists(publishedSha));
+        Assert.True(await blobs.Exists(publishedSha));
 
         var report = await collector.Run(TimeSpan.Zero, TimeSpan.FromDays(7));
 
-        Assert.True(blobs.Exists(publishedSha), "GC deleted a blob that was published but not yet committed");
+        Assert.True(await blobs.Exists(publishedSha), "GC deleted a blob that was published but not yet committed");
         Assert.Equal(0, report.BlobsDeleted);
         Assert.True(report.TimedOut);
 
         resume.SetResult();
         var put = Assert.IsType<Result<PutOutcome>.Success>(await putTask).Value;
 
-        Assert.True(blobs.Exists(put.Sha256));
-        var stored = Assert.IsType<Result<StoredObject>.Success>(objects.Get("landing", "k")).Value;
+        Assert.True(await blobs.Exists(put.Sha256));
+        var stored = Assert.IsType<Result<StoredObject>.Success>(await objects.Get("landing", "k")).Value;
         using var body = stored.Body;
         var read = new MemoryStream();
         await body.CopyToAsync(read, ct);
@@ -100,15 +100,15 @@ public class GcGateRaceTests : IDisposable
 
         var report = await collector.Run(TimeSpan.Zero, TimeSpan.FromDays(7));
 
-        Assert.True(blobs.Exists(seeded.Sha256), "GC deleted a blob whose only reference was moving between buckets");
+        Assert.True(await blobs.Exists(seeded.Sha256), "GC deleted a blob whose only reference was moving between buckets");
         Assert.Equal(0, report.BlobsDeleted);
         Assert.True(report.TimedOut);
 
         resume.SetResult();
         Assert.IsType<Result<CopyOutcome>.Success>(await copyTask);
 
-        Assert.True(blobs.Exists(seeded.Sha256));
-        var stored = Assert.IsType<Result<StoredObject>.Success>(objects.Get("alpha-dest", "k")).Value;
+        Assert.True(await blobs.Exists(seeded.Sha256));
+        var stored = Assert.IsType<Result<StoredObject>.Success>(await objects.Get("alpha-dest", "k")).Value;
         using var body = stored.Body;
         var read = new MemoryStream();
         await body.CopyToAsync(read, ct);
@@ -126,7 +126,7 @@ public class GcGateRaceTests : IDisposable
 
         Assert.False(report.TimedOut);
         Assert.Equal(1, report.BlobsDeleted);
-        Assert.False(blobs.Exists(orphan.Sha));
+        Assert.False(await blobs.Exists(orphan.Sha));
     }
 
     private sealed class PausingBlobPool(IBlobPool inner, TaskCompletionSource published, Task resume) : IBlobPool
@@ -142,9 +142,9 @@ public class GcGateRaceTests : IDisposable
             return written;
         }
 
-        public Result<Stream> Open(string sha) => inner.Open(sha);
-        public bool Exists(string sha) => inner.Exists(sha);
-        public Result<bool> Delete(string sha) => inner.Delete(sha);
+        public Task<Result<Stream>> Open(string sha, CancellationToken ct = default) => inner.Open(sha, ct);
+        public Task<bool> Exists(string sha, CancellationToken ct = default) => inner.Exists(sha, ct);
+        public Task<Result<bool>> Delete(string sha, CancellationToken ct = default) => inner.Delete(sha, ct);
         public IEnumerable<string> EnumerateShards() => inner.EnumerateShards();
         public IEnumerable<string> Enumerate(string shard) => inner.Enumerate(shard);
         public DateTime? GetLastWriteUtc(string sha) => inner.GetLastWriteUtc(sha);
