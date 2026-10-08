@@ -13,7 +13,11 @@ public sealed record StorageVolume(
     public bool IsReadOnly => Capabilities.HasFlag(VolumeCapabilities.ReadOnly);
     public bool IsMirrored => Capabilities.HasFlag(VolumeCapabilities.Mirrored);
     public bool IsRemote => Capabilities.HasFlag(VolumeCapabilities.Remote);
+    public bool IsWritable => !IsReadOnly && !IsRemote;
 
     public string BlobsRoot => Path;
     public string TmpDir => System.IO.Path.Combine(Path, "tmp");
+
+    public static StorageVolume CreateDefault(string dataRoot) =>
+        new("default", System.IO.Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest);
 }

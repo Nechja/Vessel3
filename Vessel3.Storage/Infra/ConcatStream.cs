@@ -26,35 +26,20 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         set => Seek(value, SeekOrigin.Begin);
     }
 
-    public override int Read(byte[] buffer, int offset, int count)
-    {
-        if (count is 0 || position >= totalLength) return 0;
-        EnsureCurrent();
-        if (currentStream is null) return 0;
-
-        var n = currentStream.Read(buffer, offset, count);
-        if (n is 0)
-        {
-            AdvancePart();
-            EnsureCurrent();
-            if (currentStream is null) return 0;
-            n = currentStream.Read(buffer, offset, count);
-        }
-        position += n;
-        return n;
-    }
+    public override int Read(byte[] buffer, int offset, int count) =>
+        throw new NotSupportedException("Synchronous reads are not supported on ConcatStream; use ReadAsync.");
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
     {
         if (buffer.Length is 0 || position >= totalLength) return 0;
-        EnsureCurrent();
+        await EnsureCurrent(ct);
         if (currentStream is null) return 0;
 
         var n = await currentStream.ReadAsync(buffer, ct);
         if (n is 0)
         {
             AdvancePart();
-            EnsureCurrent();
+            await EnsureCurrent(ct);
             if (currentStream is null) return 0;
             n = await currentStream.ReadAsync(buffer, ct);
         }
@@ -101,7 +86,7 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         base.Dispose(disposing);
     }
 
-    private void EnsureCurrent()
+    private async ValueTask EnsureCurrent(CancellationToken ct)
     {
         if (currentStream is not null) return;
         if (position >= totalLength) return;
@@ -123,11 +108,10 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         }
 
         if (currentIndex < 0 || currentIndex >= parts.Count) return;
-        currentStream = OpenPart(parts[currentIndex]);
+        currentStream = await OpenPart(parts[currentIndex], ct);
         var skip = position - currentPartStart;
         if (skip > 0) currentStream.Seek(skip, SeekOrigin.Begin);
     }
-
     private void AdvancePart()
     {
         DisposeCurrent();
@@ -138,10 +122,13 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         }
     }
 
-    private Stream OpenPart(MultipartPart part) =>
-        blobs.Open(part.BlobSha) is Result<Stream>.Success ok
+    private async Task<Stream> OpenPart(MultipartPart part, CancellationToken ct)
+    {
+        var openResult = await blobs.Open(part.BlobSha, ct);
+        return openResult is Result<Stream>.Success ok
             ? ok.Value
             : throw new InvalidOperationException($"missing blob for part {part.Number}: {part.BlobSha}");
+    }
 
     private void DisposeCurrent()
     {

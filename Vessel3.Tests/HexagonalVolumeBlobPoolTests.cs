@@ -32,9 +32,9 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
 
         var writeResult = await pool.Write(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
         Assert.True(writeResult.TryGetValue(out var stored, out _));
-        Assert.True(pool.Exists(stored.Sha));
+        Assert.True(await pool.Exists(stored.Sha));
 
-        var openResult = pool.Open(stored.Sha);
+        var openResult = await pool.Open(stored.Sha);
         Assert.True(openResult.TryGetValue(out var stream, out _));
         using (stream)
         {
@@ -43,10 +43,10 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
             Assert.Equal(data, ms.ToArray());
         }
 
-        var deleteResult = pool.Delete(stored.Sha);
+        var deleteResult = await pool.Delete(stored.Sha);
         Assert.True(deleteResult.TryGetValue(out var deleted, out _));
         Assert.True(deleted);
-        Assert.False(pool.Exists(stored.Sha));
+        Assert.False(await pool.Exists(stored.Sha));
     }
 
     [Fact]
@@ -82,12 +82,12 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
 
         var data = "vault historical data payload"u8.ToArray();
         var vaultStorage = registry.GetStorage("vault");
-        var directWrite = await vaultStorage.WriteStagedBlobAsync(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        var directWrite = await vaultStorage.WriteStagedBlob(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
 
         Assert.True(directWrite.TryGetValue(out var stored, out _));
         Assert.Null(catalog.LocateBlob(stored.Sha));
 
-        var openResult = pool.Open(stored.Sha);
+        var openResult = await pool.Open(stored.Sha);
         Assert.True(openResult.TryGetValue(out var stream, out _));
         using (stream)
         {
@@ -111,8 +111,8 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         var data1 = "first blob in fast"u8.ToArray();
         var data2 = "second blob in vault"u8.ToArray();
 
-        var w1 = await registry.GetStorage("fast").WriteStagedBlobAsync(new MemoryStream(data1), data1.Length, ChecksumIntent.All, CancellationToken.None);
-        var w2 = await registry.GetStorage("vault").WriteStagedBlobAsync(new MemoryStream(data2), data2.Length, ChecksumIntent.All, CancellationToken.None);
+        var w1 = await registry.GetStorage("fast").WriteStagedBlob(new MemoryStream(data1), data1.Length, ChecksumIntent.All, CancellationToken.None);
+        var w2 = await registry.GetStorage("vault").WriteStagedBlob(new MemoryStream(data2), data2.Length, ChecksumIntent.All, CancellationToken.None);
 
         Assert.True(w1.TryGetValue(out var s1, out _));
         Assert.True(w2.TryGetValue(out var s2, out _));
@@ -138,14 +138,14 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         var pool = new BlobPool(registry, catalog);
 
         var data = "blob to be deleted"u8.ToArray();
-        var w = await registry.GetStorage("vault").WriteStagedBlobAsync(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        var w = await registry.GetStorage("vault").WriteStagedBlob(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
         Assert.True(w.TryGetValue(out var s, out _));
 
-        Assert.True(pool.Exists(s.Sha));
-        var del = pool.Delete(s.Sha);
+        Assert.True(await pool.Exists(s.Sha));
+        var del = await pool.Delete(s.Sha);
         Assert.True(del.TryGetValue(out var deleted, out _));
         Assert.True(deleted);
-        Assert.False(pool.Exists(s.Sha));
+        Assert.False(await pool.Exists(s.Sha));
         Assert.Null(catalog.LocateBlob(s.Sha));
     }
 
@@ -173,5 +173,57 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         Assert.Equal(2, reaped);
         Assert.False(File.Exists(temp1));
         Assert.False(File.Exists(temp2));
+    }
+
+    [Fact]
+    public async Task MultiVolume_Delete_DoesNotDeleteFromReadOnlyVolume()
+    {
+        var fastVol = new StorageVolume("fast", fastPath, "default", VolumeCapabilities.Ingest);
+        var readOnlyVol = new StorageVolume("archive", vaultPath, "vault", VolumeCapabilities.ReadOnly);
+        var catalog = new MemoryBlobLocationCatalog();
+        var registry = new VolumeRegistry([fastVol, readOnlyVol], sync);
+        var pool = new BlobPool(registry, catalog);
+
+        var data = "immutable archive blob"u8.ToArray();
+        var archiveStorage = registry.GetStorage("archive");
+        var directWrite = await archiveStorage.WriteStagedBlob(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(directWrite.TryGetValue(out var stored, out _));
+
+        var archiveBlobFile = Path.Combine(vaultPath, stored.Sha[..2], stored.Sha[2..4], stored.Sha);
+        Assert.True(File.Exists(archiveBlobFile));
+        Assert.True(await pool.Exists(stored.Sha));
+
+        var deleteResult = await pool.Delete(stored.Sha);
+        Assert.True(deleteResult.TryGetValue(out var deleted, out _));
+        Assert.False(deleted);
+        Assert.True(File.Exists(archiveBlobFile));
+        Assert.True(await pool.Exists(stored.Sha));
+    }
+
+    [Fact]
+    public async Task SingleVolume_NullLocationCatalog_WritesAndReadsDirectly()
+    {
+        var vol = StorageVolume.CreateDefault(testRoot);
+        var registry = new VolumeRegistry([vol], sync);
+        var pool = new BlobPool(registry, NullBlobLocationCatalog.Instance);
+
+        var data = "single volume direct payload"u8.ToArray();
+        var write = await pool.Write(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(write.TryGetValue(out var stored, out _));
+
+        Assert.True(await pool.Exists(stored.Sha));
+        var open = await pool.Open(stored.Sha);
+        Assert.True(open.TryGetValue(out var stream, out _));
+        using (stream)
+        {
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            Assert.Equal(data, ms.ToArray());
+        }
+
+        var delete = await pool.Delete(stored.Sha);
+        Assert.True(delete.TryGetValue(out var deleted, out _));
+        Assert.True(deleted);
+        Assert.False(await pool.Exists(stored.Sha));
     }
 }

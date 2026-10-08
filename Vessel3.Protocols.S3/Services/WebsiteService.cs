@@ -12,24 +12,22 @@ internal sealed class WebsiteService(
     IObjectStore objects,
     IPreconditionEvaluator preconditions) : IWebsiteService
 {
-    public Task<IResult> Serve(string bucket, string rawPath, HttpContext ctx)
+    public async Task<IResult> Serve(string bucket, string rawPath, HttpContext ctx)
     {
         if (registry.GetWebsite(bucket) is not Result<WebsiteConfig?>.Success { Value: { } cfg })
-            return Task.FromResult<IResult>(Results.StatusCode(404));
+            return Results.StatusCode(404);
 
         var path = (rawPath ?? "/").TrimStart('/');
         if (TryResolveDirectoryRedirect(bucket, path, cfg, ctx, out var redirectResult))
         {
-            return Task.FromResult(redirectResult);
+            return redirectResult;
         }
 
         var targetKey = ResolveTargetKey(path, cfg);
 
-        var result = HttpMethods.IsHead(ctx.Request.Method)
+        return HttpMethods.IsHead(ctx.Request.Method)
             ? ServeHead(bucket, targetKey, cfg, ctx)
-            : ServeGet(bucket, targetKey, cfg, ctx);
-
-        return Task.FromResult(result);
+            : await ServeGet(bucket, targetKey, cfg, ctx, ctx.RequestAborted);
     }
 
     private bool TryResolveDirectoryRedirect(
@@ -97,13 +95,14 @@ internal sealed class WebsiteService(
         return Results.StatusCode(404);
     }
 
-    private IResult ServeGet(
+    private async Task<IResult> ServeGet(
         string bucket,
         string targetKey,
         WebsiteConfig cfg,
-        HttpContext ctx)
+        HttpContext ctx,
+        CancellationToken ct)
     {
-        if (objects.Get(bucket, targetKey, versionId: null) is Result<StoredObject>.Success { Value: var obj })
+        if (await objects.Get(bucket, targetKey, versionId: null, ct) is Result<StoredObject>.Success { Value: var obj })
         {
             var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
             var precond = preconditions.Evaluate(readPre, obj.Etag, obj.LastModified);
@@ -129,16 +128,17 @@ internal sealed class WebsiteService(
                 enableRangeProcessing: true);
         }
 
-        return ServeErrorDocumentOrDefault(bucket, cfg, ctx);
+        return await ServeErrorDocumentOrDefault(bucket, cfg, ctx, ct);
     }
 
-    private IResult ServeErrorDocumentOrDefault(
+    private async Task<IResult> ServeErrorDocumentOrDefault(
         string bucket,
         WebsiteConfig cfg,
-        HttpContext ctx)
+        HttpContext ctx,
+        CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(cfg.ErrorDocument)
-            && objects.Get(bucket, cfg.ErrorDocument, versionId: null) is Result<StoredObject>.Success { Value: var errObj })
+            && await objects.Get(bucket, cfg.ErrorDocument, versionId: null, ct) is Result<StoredObject>.Success { Value: var errObj })
         {
             ctx.Response.StatusCode = string.Equals(cfg.ErrorDocument, cfg.IndexDocument, StringComparison.OrdinalIgnoreCase)
                 ? StatusCodes.Status200OK

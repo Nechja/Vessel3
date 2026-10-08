@@ -14,9 +14,9 @@ internal readonly record struct ChecksumIntent(bool Crc32, bool Crc32C, bool Sha
 internal interface IBlobPool
 {
     Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct);
-    Result<Stream> Open(string sha);
-    bool Exists(string sha);
-    Result<bool> Delete(string sha);
+    Task<Result<Stream>> Open(string sha, CancellationToken ct = default);
+    Task<bool> Exists(string sha, CancellationToken ct = default);
+    Task<Result<bool>> Delete(string sha, CancellationToken ct = default);
     IEnumerable<string> EnumerateShards();
     IEnumerable<string> Enumerate(string shard);
     DateTime? GetLastWriteUtc(string sha);
@@ -26,7 +26,7 @@ internal interface IBlobPool
 internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog) : IBlobPool
 {
     public BlobPool(BlobPoolOptions options, IFileSync fileSync)
-        : this(new VolumeRegistry([new StorageVolume("default", options.Root, "default", VolumeCapabilities.Ingest)], fileSync), new MemoryBlobLocationCatalog())
+        : this(new VolumeRegistry([new StorageVolume("default", options.Root, "default", VolumeCapabilities.Ingest)], fileSync), NullBlobLocationCatalog.Instance)
     {
     }
 
@@ -34,7 +34,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
     {
         var targetVolume = registry.DefaultIngestVolume;
         var storage = registry.GetStorage(targetVolume.Id);
-        var writeResult = await storage.WriteStagedBlobAsync(source, declaredSize, intent, ct);
+        var writeResult = await storage.WriteStagedBlob(source, declaredSize, intent, ct);
 
         if (!writeResult.TryGetValue(out var stored, out var err))
             return err;
@@ -43,13 +43,13 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         return stored;
     }
 
-    public Result<Stream> Open(string sha)
+    public async Task<Result<Stream>> Open(string sha, CancellationToken ct = default)
     {
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null)
         {
             var storage = registry.GetStorage(locatedVolumeId);
-            var openResult = storage.OpenBlobAsync(sha).GetAwaiter().GetResult();
+            var openResult = await storage.OpenBlob(sha, ct);
             if (openResult.TryGetValue(out var s, out _)) return s;
             catalog.RemoveLocation(sha);
         }
@@ -57,7 +57,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         foreach (var vol in registry.ReadPriorityVolumes)
         {
             var storage = registry.GetStorage(vol.Id);
-            var openResult = storage.OpenBlobAsync(sha).GetAwaiter().GetResult();
+            var openResult = await storage.OpenBlob(sha, ct);
             if (!openResult.TryGetValue(out var s, out _)) continue;
 
             catalog.RecordLocation(sha, vol.Id);
@@ -67,13 +67,13 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         return new NotFoundError($"blob {sha}");
     }
 
-    public bool Exists(string sha)
+    public async Task<bool> Exists(string sha, CancellationToken ct = default)
     {
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null)
         {
             var storage = registry.GetStorage(locatedVolumeId);
-            if (storage.BlobExistsAsync(sha).GetAwaiter().GetResult())
+            if (await storage.BlobExists(sha, ct))
                 return true;
             catalog.RemoveLocation(sha);
         }
@@ -81,7 +81,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         foreach (var vol in registry.ReadPriorityVolumes)
         {
             var storage = registry.GetStorage(vol.Id);
-            if (!storage.BlobExistsAsync(sha).GetAwaiter().GetResult()) continue;
+            if (!await storage.BlobExists(sha, ct)) continue;
 
             catalog.RecordLocation(sha, vol.Id);
             return true;
@@ -90,13 +90,13 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         return false;
     }
 
-    public Result<bool> Delete(string sha)
+    public async Task<Result<bool>> Delete(string sha, CancellationToken ct = default)
     {
         var deletedAny = false;
-        foreach (var vol in registry.Volumes)
+        foreach (var vol in registry.WritableVolumes)
         {
             var storage = registry.GetStorage(vol.Id);
-            if (storage.DeleteBlobAsync(sha).GetAwaiter().GetResult() is Result<bool>.Success { Value: true })
+            if (await storage.DeleteBlob(sha, ct) is Result<bool>.Success { Value: true })
                 deletedAny = true;
         }
 
@@ -123,10 +123,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
         {
             var storage = registry.GetStorage(vol.Id);
             foreach (var sha in storage.Enumerate(shard))
-            {
-                catalog.RecordLocation(sha, vol.Id);
                 shas.Add(sha);
-            }
         }
         return shas;
     }

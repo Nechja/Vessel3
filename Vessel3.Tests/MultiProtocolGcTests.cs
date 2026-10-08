@@ -83,9 +83,9 @@ public class MultiProtocolGcTests : IDisposable
         var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(1, report.BlobsDeleted);
-        Assert.True(blobs.Exists(blobS3.Sha), "S3 blob must be preserved");
-        Assert.True(blobs.Exists(blobOci.Sha), "Container Repo layer blob must be preserved");
-        Assert.True(blobs.Exists(manifestOutcome.Digest[7..]), "Container Repo manifest blob must be preserved");
-        Assert.False(blobs.Exists(blobOrphan.Sha), "Orphan blob must be deleted");
+        Assert.True(await blobs.Exists(blobS3.Sha), "S3 blob must be preserved");
+        Assert.True(await blobs.Exists(blobOci.Sha), "Container Repo layer blob must be preserved");
+        Assert.True(await blobs.Exists(manifestOutcome.Digest[7..]), "Container Repo manifest blob must be preserved");
+        Assert.False(await blobs.Exists(blobOrphan.Sha), "Orphan blob must be deleted");
     }
 }

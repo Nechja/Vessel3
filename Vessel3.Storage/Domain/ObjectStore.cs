@@ -4,7 +4,7 @@ internal interface IObjectStore
 {
     Task<Result<PutOutcome>> Put(ObjectPutRequest request);
     Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null);
-    Result<StoredObject> Get(string bucket, string key, string? versionId = null);
+    Task<Result<StoredObject>> Get(string bucket, string key, string? versionId = null, CancellationToken ct = default);
     Result<ObjectStat> Stat(string bucket, string key, string? versionId = null);
     Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null);
     Result<DeleteOutcome> Delete(string bucket, string key, bool bypassGovernance = false);
@@ -75,14 +75,14 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
     public Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId) =>
         PutTagging(bucket, key, versionId, new Dictionary<string, string>());
 
-    public Result<StoredObject> Get(string bucket, string key, string? versionId = null)
+    public async Task<Result<StoredObject>> Get(string bucket, string key, string? versionId = null, CancellationToken ct = default)
     {
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
         return put is null
             ? new NoSuchKeyError(key)
-            : OpenBlob(put);
+            : await OpenBlob(put, ct);
     }
 
     public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null)
@@ -205,14 +205,16 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         return new PutOutcome(blob.Md5, blob.Sha, entry.VersionId, blob.Size, toStore);
     }
 
-    private Result<StoredObject> OpenBlob(PutEntry put)
+    private async Task<Result<StoredObject>> OpenBlob(PutEntry put, CancellationToken ct)
     {
         var sums = new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null);
-        return put.Parts is { } parts
-            ? new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders)
-            : !blobs.Open(put.BlobSha).TryGetValue(out var stream, out var err)
-                ? err
-                : new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders);
+        if (put.Parts is { } parts)
+            return new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders);
+
+        var openResult = await blobs.Open(put.BlobSha, ct);
+        return !openResult.TryGetValue(out var stream, out var err)
+            ? err
+            : new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders);
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Digest mismatch on {Bucket}/{Key}: {Reason}")]

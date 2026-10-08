@@ -9,14 +9,14 @@ public class ConcatStreamTests
         private readonly Dictionary<string, byte[]> map;
         public FakeBlobs(Dictionary<string, byte[]> map) => this.map = map;
 
-        public Result<Stream> Open(string sha) =>
-            map.TryGetValue(sha, out var bytes)
+        public Task<Result<Stream>> Open(string sha, CancellationToken ct = default) =>
+            Task.FromResult(map.TryGetValue(sha, out var bytes)
                 ? (Result<Stream>)new MemoryStream(bytes, writable: false)
-                : new NotFoundError($"blob {sha}");
+                : new NotFoundError($"blob {sha}"));
 
         public Task<Result<StoredBlob>> Write(Stream s, long? sz, ChecksumIntent intent, CancellationToken ct) => throw new NotImplementedException();
-        public bool Exists(string sha) => map.ContainsKey(sha);
-        public Result<bool> Delete(string sha) => map.Remove(sha);
+        public Task<bool> Exists(string sha, CancellationToken ct = default) => Task.FromResult(map.ContainsKey(sha));
+        public Task<Result<bool>> Delete(string sha, CancellationToken ct = default) => Task.FromResult<Result<bool>>(map.Remove(sha));
         public IEnumerable<string> EnumerateShards() => map.Keys.Select(k => k[..2]).Distinct(StringComparer.Ordinal);
         public IEnumerable<string> Enumerate(string shard) => map.Keys.Where(k => k.StartsWith(shard, StringComparison.Ordinal));
         public DateTime? GetLastWriteUtc(string sha) => map.ContainsKey(sha) ? DateTime.UtcNow : null;
@@ -55,7 +55,7 @@ public class ConcatStreamTests
     }
 
     [Fact]
-    public void Seek_AcrossParts()
+    public async Task Seek_AcrossParts()
     {
         var (parts, blobs) = Setup("0123"u8.ToArray(), "4567"u8.ToArray(), "89"u8.ToArray());
         using var s = new ConcatStream(parts, blobs);
@@ -63,8 +63,16 @@ public class ConcatStreamTests
         Assert.Equal(5, s.Position);
 
         var buf = new byte[4];
-        s.ReadExactly(buf);
+        await s.ReadExactlyAsync(buf, TestContext.Current.CancellationToken);
         Assert.Equal("5678"u8.ToArray(), buf);
+    }
+
+    [Fact]
+    public void Read_SynchronousRead_ThrowsNotSupportedException()
+    {
+        var (parts, blobs) = Setup("0123"u8.ToArray());
+        using var s = new ConcatStream(parts, blobs);
+        Assert.Throws<NotSupportedException>(() => s.Read(new byte[1], 0, 1));
     }
 
     [Fact]

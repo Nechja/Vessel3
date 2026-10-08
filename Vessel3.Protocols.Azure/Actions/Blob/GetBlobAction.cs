@@ -19,7 +19,7 @@ internal sealed class GetBlobAction(
             return new AzureErrorResult(new InvalidResourceNameError("Container and Blob are required"), errorXml);
         }
 
-        var getResult = objects.Get(target.Container, target.Blob);
+        var getResult = await objects.Get(target.Container, target.Blob, ct: ctx.RequestAborted);
         if (!getResult.TryGetValue(out var obj, out var err))
         {
             return new AzureErrorResult(err, errorXml);

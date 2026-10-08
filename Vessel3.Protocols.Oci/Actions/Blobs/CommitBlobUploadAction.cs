@@ -52,7 +52,7 @@ internal sealed class CommitBlobUploadAction(
 
         if (!string.Equals(storedBlob.Sha, cleanDeclaredSha, StringComparison.OrdinalIgnoreCase))
         {
-            blobs.Delete(storedBlob.Sha);
+            await blobs.Delete(storedBlob.Sha, ctx.RequestAborted);
             catalog.CancelUploadSession(uploadId);
             await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} does not match computed sha256:{storedBlob.Sha}");
             return;

@@ -17,7 +17,9 @@ internal sealed class VolumeRegistry : IVolumeRegistry
 
         foreach (var vol in volumes)
         {
-            volumesById[vol.Id] = vol;
+            if (!volumesById.TryAdd(vol.Id, vol))
+                throw new ArgumentException($"Duplicate volume id '{vol.Id}'.", nameof(volumes));
+
             storages[vol.Id] = factory(vol);
 
             if (!pools.TryGetValue(vol.Pool, out var poolList))
@@ -28,16 +30,19 @@ internal sealed class VolumeRegistry : IVolumeRegistry
             poolList.Add(vol);
         }
 
+        WritableVolumes = [.. volumes.Where(v => v.IsWritable)];
+
         ReadPriorityVolumes = [.. volumes
             .OrderBy(v => v.IsOnDemand || v.IsRemote ? 2 : (v.IsIngest ? 0 : 1))
             .ThenBy(v => v.Id, StringComparer.Ordinal)];
 
-        DefaultIngestVolume = volumes.FirstOrDefault(v => v.IsIngest && !v.IsReadOnly && !v.IsOnDemand)
-            ?? volumes.FirstOrDefault(v => !v.IsReadOnly)
-            ?? volumes[0];
+        DefaultIngestVolume = volumes.FirstOrDefault(v => v.IsIngest && v.IsWritable && !v.IsOnDemand)
+            ?? volumes.FirstOrDefault(v => v.IsWritable)
+            ?? throw new InvalidOperationException("No writable storage volume configured.");
     }
 
     public IReadOnlyList<StorageVolume> Volumes { get; }
+    public IReadOnlyList<StorageVolume> WritableVolumes { get; }
     public IReadOnlyList<StorageVolume> ReadPriorityVolumes { get; }
     public StorageVolume DefaultIngestVolume { get; }
 

@@ -54,7 +54,7 @@ public class GarbageCollectorTests : IDisposable
         var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(0, report.BlobsDeleted);
-        Assert.True(blobs.Exists(part.BlobSha));
+        Assert.True(await blobs.Exists(part.BlobSha));
 
         var current = ((Result<PutEntry?>.Success)registry.GetCurrentPut("mybucket", "big")).Value!;
         Assert.Equal(part.BlobSha, current.Parts![0].BlobSha);
@@ -90,7 +90,7 @@ public class GarbageCollectorTests : IDisposable
         var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(1, report.BlobsDeleted);
-        Assert.False(blobs.Exists(orphan.Sha));
+        Assert.False(await blobs.Exists(orphan.Sha));
     }
 
     [Fact]
@@ -123,8 +123,8 @@ public class GarbageCollectorTests : IDisposable
         var report = await gc.Run(minBlobAge: TimeSpan.FromHours(1), minUploadAge: TimeSpan.FromDays(7));
 
         Assert.Equal(orphaned.Count, report.BlobsDeleted);
-        Assert.All(kept, sha => Assert.True(blobs.Exists(sha)));
-        Assert.All(orphaned, sha => Assert.False(blobs.Exists(sha)));
+        foreach (var sha in kept) Assert.True(await blobs.Exists(sha));
+        foreach (var sha in orphaned) Assert.False(await blobs.Exists(sha));
     }
 
     [Fact]

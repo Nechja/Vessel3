@@ -54,7 +54,7 @@ internal static class ObjectEndpoints
         return Results.Json(dto, NativeJsonContext.Default.ObjectsPageDto);
     }
 
-    private static IResult GetObject(
+    private static async Task<IResult> GetObject(
         string bucket,
         string key,
         HttpContext context,
@@ -69,7 +69,7 @@ internal static class ObjectEndpoints
         }
 
         var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
-        var result = objects.Get(bucket, key, versionId);
+        var result = await objects.Get(bucket, key, versionId, context.RequestAborted);
         if (!result.TryGetValue(out var storedObject, out var error))
         {
             return error.ToHttpResult();

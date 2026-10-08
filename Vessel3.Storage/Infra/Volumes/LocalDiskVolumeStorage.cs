@@ -12,7 +12,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
 
     public string VolumeId => volume.Id;
 
-    public async Task<Result<StoredBlob>> WriteStagedBlobAsync(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
+    public async Task<Result<StoredBlob>> WriteStagedBlob(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
         if (!tmpDirEnsured)
         {
@@ -135,7 +135,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
         }
     }
 
-    public Task<Result<Stream>> OpenBlobAsync(string sha, CancellationToken ct = default)
+    public Task<Result<Stream>> OpenBlob(string sha, CancellationToken ct = default)
     {
         var path = PathFor(sha);
         try
@@ -160,10 +160,10 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
         }
     }
 
-    public Task<bool> BlobExistsAsync(string sha, CancellationToken ct = default) =>
+    public Task<bool> BlobExists(string sha, CancellationToken ct = default) =>
         Task.FromResult(File.Exists(PathFor(sha)));
 
-    public Task<Result<bool>> DeleteBlobAsync(string sha, CancellationToken ct = default)
+    public Task<Result<bool>> DeleteBlob(string sha, CancellationToken ct = default)
     {
         var path = PathFor(sha);
         if (!File.Exists(path)) return Task.FromResult<Result<bool>>(false);

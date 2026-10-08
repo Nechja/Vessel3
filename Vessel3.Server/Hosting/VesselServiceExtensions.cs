@@ -26,7 +26,6 @@ internal static class VesselServiceExtensions
         services.AddSingleton(config);
         services.AddSingleton(new ServerRegion(config.Region));
         services.AddSingleton(new VirtualHostOptions(config.BaseDomains));
-        services.AddSingleton(new BlobPoolOptions(Path.Combine(config.DataRoot, "blobs")));
         services.AddSingleton(new BucketRegistryOptions(config.DataRoot));
         services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, "uploads")));
         services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
@@ -41,8 +40,18 @@ internal static class VesselServiceExtensions
     {
         services.AddSingleton<IFileSync>(OperatingSystem.IsLinux() ? new PosixFileSync() : new PortableFileSync());
         services.AddSingleton<IDurableWrite, DurableWrite>();
-        services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
-        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(config.Volumes ?? [new StorageVolume("default", Path.Combine(config.DataRoot, "blobs"), "default", VolumeCapabilities.Ingest)], sp.GetRequiredService<IFileSync>()));
+
+        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot)];
+        if (volumes.Count <= 1)
+        {
+            services.AddSingleton<IBlobLocationCatalog>(NullBlobLocationCatalog.Instance);
+        }
+        else
+        {
+            services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
+        }
+
+        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(volumes, sp.GetRequiredService<IFileSync>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
             sp.GetRequiredService<IBlobLocationCatalog>()));

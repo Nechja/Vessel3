@@ -31,11 +31,12 @@ public class BlobRecoveryTests : IDisposable
         BlobSha: blob.Sha, Md5: blob.Md5, Size: blob.Size,
         ContentType: "application/octet-stream", Metadata: new Dictionary<string, string>());
 
-    private static byte[] ReadBlob(IBlobPool pool, string sha)
+    private static async Task<byte[]> ReadBlob(IBlobPool pool, string sha)
     {
-        using var s = ((Result<Stream>.Success)pool.Open(sha)).Value;
+        var open = await pool.Open(sha);
+        using var s = ((Result<Stream>.Success)open).Value;
         using var ms = new MemoryStream();
-        s.CopyTo(ms);
+        await s.CopyToAsync(ms);
         return ms.ToArray();
     }
 
@@ -44,10 +45,10 @@ public class BlobRecoveryTests : IDisposable
         foreach (var f in Directory.GetFiles(root, "index*")) File.Delete(f);
     }
 
-    private static void AssertNoDanglingReferences(Bucket b, IBlobPool pool)
+    private static async Task AssertNoDanglingReferences(Bucket b, IBlobPool pool)
     {
         foreach (var sha in b.Index.ReferencedBlobs())
-            Assert.True(pool.Exists(sha), $"index references blob with no readable file: {sha}");
+            Assert.True(await pool.Exists(sha), $"index references blob with no readable file: {sha}");
     }
 
     [Fact]
@@ -66,8 +67,8 @@ public class BlobRecoveryTests : IDisposable
         restored.Open();
         var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
         Assert.Equal(blob.Sha, entry.BlobSha);
-        Assert.Equal(body, ReadBlob(pool, entry.BlobSha));
-        AssertNoDanglingReferences(restored, pool);
+        Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
+        await AssertNoDanglingReferences(restored, pool);
     }
 
     [Fact]
@@ -87,8 +88,8 @@ public class BlobRecoveryTests : IDisposable
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
-        Assert.Equal(body, ReadBlob(pool, entry.BlobSha));
-        AssertNoDanglingReferences(restored, pool);
+        Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
+        await AssertNoDanglingReferences(restored, pool);
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        Assert.True(pool.Exists(orphan.Sha));
+        Assert.True(await pool.Exists(orphan.Sha));
         Assert.DoesNotContain(orphan.Sha, restored.Index.ReferencedBlobs());
     }
 
@@ -133,7 +134,7 @@ public class BlobRecoveryTests : IDisposable
         Assert.NotNull(((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value);
         Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry?>.Success { Value: not null });
         Assert.Equal("AAAAAAAA"u8.ToArray(),
-            ReadBlob(pool, ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value!.BlobSha));
-        AssertNoDanglingReferences(restored, pool);
+            await ReadBlob(pool, ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value!.BlobSha));
+        await AssertNoDanglingReferences(restored, pool);
     }
 }
