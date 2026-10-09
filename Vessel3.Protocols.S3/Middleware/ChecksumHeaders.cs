@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Primitives;
+
 namespace Vessel3.Server.S3;
 
 internal static class ChecksumHeaders
@@ -18,28 +20,38 @@ internal static class ChecksumHeaders
 
     public static DeclaredChecksums? ParseDeclared(IHeaderDictionary headers)
     {
-        var trailers = headers["x-amz-trailer"].ToString();
-        var hasTrailers = !string.IsNullOrEmpty(trailers);
+        var hasTrailers = headers.TryGetValue("x-amz-trailer", out var trailersVal) && !StringValues.IsNullOrEmpty(trailersVal);
+        var hasC32 = headers.TryGetValue(HeaderCrc32, out var c32Val) && !StringValues.IsNullOrEmpty(c32Val);
+        var hasC32c = headers.TryGetValue(HeaderCrc32C, out var c32cVal) && !StringValues.IsNullOrEmpty(c32cVal);
+        var hasSha1 = headers.TryGetValue(HeaderSha1, out var s1Val) && !StringValues.IsNullOrEmpty(s1Val);
+        var hasSha256 = headers.TryGetValue(HeaderSha256, out var s256Val) && !StringValues.IsNullOrEmpty(s256Val);
 
-        return !TryParseTarget(headers, HeaderCrc32, trailers, hasTrailers, out var c32)
-            || !TryParseTarget(headers, HeaderCrc32C, trailers, hasTrailers, out var c32c)
-            || !TryParseTarget(headers, HeaderSha1, trailers, hasTrailers, out var s1)
-            || !TryParseTarget(headers, HeaderSha256, trailers, hasTrailers, out var s256)
+        if (!hasTrailers && !hasC32 && !hasC32c && !hasSha1 && !hasSha256)
+        {
+            return DeclaredChecksums.Empty;
+        }
+
+        var trailers = hasTrailers ? trailersVal.ToString() : string.Empty;
+
+        return !TryParseTarget(hasC32, c32Val, HeaderCrc32, trailers, hasTrailers, out var c32)
+            || !TryParseTarget(hasC32c, c32cVal, HeaderCrc32C, trailers, hasTrailers, out var c32c)
+            || !TryParseTarget(hasSha1, s1Val, HeaderSha1, trailers, hasTrailers, out var s1)
+            || !TryParseTarget(hasSha256, s256Val, HeaderSha256, trailers, hasTrailers, out var s256)
             ? null
             : new DeclaredChecksums(c32, c32c, s1, s256);
     }
 
     private static bool TryParseTarget(
-        IHeaderDictionary headers,
+        bool hasHeader,
+        StringValues headerVal,
         string headerName,
         string trailers,
         bool hasTrailers,
         out ChecksumTarget target)
     {
-        var raw = headers[headerName].ToString();
-        if (!string.IsNullOrEmpty(raw))
+        if (hasHeader)
         {
-            var hex = ChecksumAlgorithms.Base64ToHex(raw);
+            var hex = ChecksumAlgorithms.Base64ToHex(headerVal.ToString());
             if (hex is null)
             {
                 target = ChecksumTarget.None;

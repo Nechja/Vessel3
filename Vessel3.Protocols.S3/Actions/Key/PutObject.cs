@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Primitives;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -18,11 +19,15 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         }
 
         var (body, declaredLength) = RequestBodyDecoder.Decode(request);
-        var contentSha = request.Headers["x-amz-content-sha256"].ToString();
-        var declaredSha = body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64
+        var contentSha = request.Headers.TryGetValue("x-amz-content-sha256", out var cShaVal) && !StringValues.IsNullOrEmpty(cShaVal)
+            ? cShaVal.ToString()
+            : null;
+        var declaredSha = body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha?.Length is not 64
             ? null
             : contentSha;
-        var declaredMd5OrNull = S3RequestExtensions.Nullify(request.Headers["Content-MD5"].ToString());
+        var declaredMd5OrNull = request.Headers.TryGetValue("Content-MD5", out var md5Val)
+            ? S3RequestExtensions.Nullify(md5Val)
+            : null;
 
         var metadata = S3HeaderCodec.ExtractUserMetadata(request.Headers);
         var declaredChecksums = ChecksumHeaders.ParseDeclared(request.Headers);
@@ -31,7 +36,10 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
         }
 
-        if (!TagSet.ParseHeader(request.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagError))
+        var taggingHeader = request.Headers.TryGetValue("x-amz-tagging", out var tagVal)
+            ? S3RequestExtensions.Nullify(tagVal)
+            : null;
+        if (!TagSet.ParseHeader(taggingHeader).TryGetValue(out var initialTags, out var tagError))
         {
             return http.Map(tagError);
         }
@@ -41,8 +49,8 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             return http.Map(retentionError);
         }
 
-        var initialHold = request.Headers["x-amz-object-lock-legal-hold"].ToString()
-            .Equals("ON", StringComparison.OrdinalIgnoreCase);
+        var initialHold = request.Headers.TryGetValue("x-amz-object-lock-legal-hold", out var holdVal)
+            && string.Equals(holdVal, "ON", StringComparison.OrdinalIgnoreCase);
 
         Result<PutOutcome> result;
         try
@@ -119,10 +127,13 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
 
     private Result<Retention?> ResolveInitialRetention(IHeaderDictionary headers, string bucket)
     {
-        var lockModeHeader = headers["x-amz-object-lock-mode"].ToString();
-        var lockUntilHeader = headers["x-amz-object-lock-retain-until-date"].ToString();
-        if (!string.IsNullOrEmpty(lockModeHeader) && !string.IsNullOrEmpty(lockUntilHeader))
+        if (headers.TryGetValue("x-amz-object-lock-mode", out var lockModeVal)
+            && headers.TryGetValue("x-amz-object-lock-retain-until-date", out var lockUntilVal)
+            && !StringValues.IsNullOrEmpty(lockModeVal)
+            && !StringValues.IsNullOrEmpty(lockUntilVal))
         {
+            var lockModeHeader = lockModeVal.ToString();
+            var lockUntilHeader = lockUntilVal.ToString();
             var mode = lockModeHeader switch
             {
                 "GOVERNANCE" => (RetentionMode?)RetentionMode.Governance,

@@ -396,6 +396,7 @@ internal static class Scenarios
             {
                 try { await op(wid, ct); }
                 catch (OperationCanceledException) { return; }
+                catch (Exception) when (ct.IsCancellationRequested) { return; }
                 catch (AmazonS3Exception) { }
             }
         }
