@@ -11,9 +11,6 @@ var accessKey = Environment.GetEnvironmentVariable("VESSEL3_ACCESS_KEY") ?? "AKI
 var secretKey = Environment.GetEnvironmentVariable("VESSEL3_SECRET_KEY") ?? "secretkey1234567890";
 var region    = Environment.GetEnvironmentVariable("VESSEL3_REGION")     ?? "us-east-1";
 
-#if AWSSDK_V3
-Amazon.AWSConfigsS3.UseSignatureVersion4 = true;
-#endif
 var config = new AmazonS3Config
 {
     ServiceURL = endpoint,

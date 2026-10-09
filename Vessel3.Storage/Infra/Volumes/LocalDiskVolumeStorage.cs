@@ -104,10 +104,12 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
             var finalDir = Path.GetDirectoryName(finalPath)!;
 
             using var publish = RequestTrace.Time(Stage.BlobSync);
+            var isNewDir = false;
             if (!ensuredDirs.ContainsKey(finalDir))
             {
                 if (fileSync.CreateDirectoryDurable(finalDir) is Result.Failure cf) return cf.Error;
                 ensuredDirs.TryAdd(finalDir, true);
+                isNewDir = true;
             }
 
             try
@@ -121,9 +123,10 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 TryDelete(tempPath);
             }
 
-            return fileSync.SyncDirectory(finalDir) is Result.Failure ef
-                ? ef.Error
-                : new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
+            if (isNewDir && fileSync.SyncDirectory(finalDir) is Result.Failure ef)
+                return ef.Error;
+
+            return new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
         }
         catch (IOException ex) when (IsOutOfSpace(ex))
         {
