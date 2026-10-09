@@ -58,7 +58,7 @@ public class BucketListerTests
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => (Retention?)null;
         public Result PutLegalHold(string bucket, string key, string versionId, bool on) => throw new NotImplementedException();
         public Result<bool> GetLegalHold(string bucket, string key, string versionId) => false;
-        public IEnumerable<string> AllReferencedBlobs() => [];
+        public async IAsyncEnumerable<string> AllReferencedBlobs([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { yield break; }
         public void Dispose() { }
     }
 

@@ -96,7 +96,9 @@ public class GcGateRaceTests : IDisposable
         await entered.Task;
 
         Assert.IsType<Result<DeleteOutcome>.Success>(registry.HardDeleteVersion("zulu-src", "k", seeded.VersionId, false));
-        Assert.DoesNotContain(seeded.Sha256, registry.AllReferencedBlobs());
+        var allBlobs = new List<string>();
+        await foreach (var b in registry.AllReferencedBlobs(ct)) allBlobs.Add(b);
+        Assert.DoesNotContain(seeded.Sha256, allBlobs);
 
         var report = await collector.Run(TimeSpan.Zero, TimeSpan.FromDays(7));
 
@@ -204,7 +206,7 @@ public class GcGateRaceTests : IDisposable
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => inner.GetRetention(bucket, key, versionId);
         public Result PutLegalHold(string bucket, string key, string versionId, bool on) => inner.PutLegalHold(bucket, key, versionId, on);
         public Result<bool> GetLegalHold(string bucket, string key, string versionId) => inner.GetLegalHold(bucket, key, versionId);
-        public IEnumerable<string> AllReferencedBlobs() => inner.AllReferencedBlobs();
+        public IAsyncEnumerable<string> AllReferencedBlobs(CancellationToken ct = default) => inner.AllReferencedBlobs(ct);
         public void Dispose() { }
     }
 }

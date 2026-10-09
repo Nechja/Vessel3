@@ -3,6 +3,6 @@ namespace Vessel3.Storage;
 internal interface IBlobReferenceSource
 {
     string ProtocolName { get; }
-    IEnumerable<string> AllReferencedBlobs();
+    IAsyncEnumerable<string> AllReferencedBlobs(CancellationToken ct = default);
     IEnumerable<string> EnumerateInFlightShas() => [];
 }

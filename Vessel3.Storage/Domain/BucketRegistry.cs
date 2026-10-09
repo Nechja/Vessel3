@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace Vessel3.Storage;
 
@@ -437,13 +438,13 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     public Result SetVersioning(string bucket, VersioningStatus status, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetVersioning(bucket, status);
 
-    public IEnumerable<string> AllReferencedBlobs()
+    public async IAsyncEnumerable<string> AllReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var info in List())
         {
             var b = Open(info.Name);
             if (b is null) continue;
-            foreach (var sha in b.Index.ReferencedBlobs())
+            await foreach (var sha in b.Index.ReferencedBlobs(ct).WithCancellation(ct))
                 yield return sha;
         }
     }

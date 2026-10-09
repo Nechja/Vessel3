@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Vessel3.Primitives;
@@ -502,21 +503,27 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
         }
     }
 
-    public IEnumerable<string> AllReferencedBlobs()
+    public async IAsyncEnumerable<string> AllReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
+        List<string> list;
         lock (gate)
         {
             EnsureOpen();
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = "SELECT DISTINCT blob_sha FROM manifest_blobs;";
 
-            var list = new List<string>();
+            list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
                 list.Add(reader.GetString(0));
             }
-            return list;
+        }
+
+        foreach (var sha in list)
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return sha;
         }
     }
 

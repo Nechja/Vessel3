@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -429,16 +430,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     internal static string ListCurrentSql(string? prefix, string? hi, KeyBound? from)
     {
         var sql = """
-            SELECT v1.key, v1.md5, v1.size, v1.at_ms,
-                   CASE WHEN v1.parts_json = '' THEN 0 ELSE json_array_length(v1.parts_json) END
-              FROM versions v1
-             WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
-               AND v1.kind = $kp
+            SELECT key, md5, size, at_ms,
+                   CASE WHEN parts_json = '' THEN 0 ELSE json_array_length(parts_json) END,
+                   MAX(seq)
+              FROM versions
             """;
-        if (prefix is not null) sql += " AND v1.key >= $lo ";
-        if (hi is not null) sql += " AND v1.key < $hi ";
-        if (from is { } f) sql += f.Inclusive ? " AND v1.key >= $from " : " AND v1.key > $from ";
-        return sql + " ORDER BY v1.key LIMIT $lim";
+        var clauses = new List<string>();
+        if (prefix is not null) clauses.Add("key >= $lo");
+        if (hi is not null) clauses.Add("key < $hi");
+        if (from is { } f) clauses.Add(f.Inclusive ? "key >= $from" : "key > $from");
+        if (clauses.Count > 0) sql += " WHERE " + string.Join(" AND ", clauses);
+        return sql + " GROUP BY key HAVING kind = $kp ORDER BY key LIMIT $lim";
     }
 
     public (List<VersionListEntry> Entries, bool IsTruncated) ListCurrent(string? prefix, KeyBound? from, int limit)
@@ -501,13 +503,13 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return !r.Read();
     }
 
-    public IEnumerable<string> ReferencedBlobs()
+    public async IAsyncEnumerable<string> ReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
         const int pageSize = 10000;
         long after = 0;
-        while (true)
+        while (!ct.IsCancellationRequested)
         {
-            var page = new List<string>();
+            List<string> page = [];
             var rows = 0;
             using (var rh = ReadCmd())
             {
@@ -515,8 +517,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
                 cmd.Parameters.AddWithValue("@after", after);
                 cmd.Parameters.AddWithValue("@limit", pageSize);
-                using var r = cmd.ExecuteReader();
-                while (r.Read())
+                using var r = await cmd.ExecuteReaderAsync(ct);
+                while (await r.ReadAsync(ct))
                 {
                     rows++;
                     after = r.GetInt64(0);
@@ -526,7 +528,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                             if (p.BlobSha.Length > 0) page.Add(p.BlobSha);
                 }
             }
-            foreach (var sha in page) yield return sha;
+            foreach (var sha in page)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return sha;
+            }
             if (rows < pageSize) yield break;
         }
     }

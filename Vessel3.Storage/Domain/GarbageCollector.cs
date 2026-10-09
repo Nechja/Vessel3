@@ -41,7 +41,7 @@ internal sealed class GarbageCollector(
         Directory.CreateDirectory(scratch);
         try
         {
-            SpillInFlightThenCommittedReferences(scratch);
+            await SpillInFlightThenCommittedReferences(scratch, ct);
 
             var deleted = 0;
             foreach (var shard in blobs.EnumerateShards())
@@ -72,7 +72,7 @@ internal sealed class GarbageCollector(
         }
     }
 
-    private void SpillInFlightThenCommittedReferences(string scratch)
+    private async Task SpillInFlightThenCommittedReferences(string scratch, CancellationToken ct)
     {
         var writers = new Dictionary<string, StreamWriter>(StringComparer.Ordinal);
         try
@@ -81,7 +81,7 @@ internal sealed class GarbageCollector(
             foreach (var source in referenceSources)
             {
                 foreach (var sha in source.EnumerateInFlightShas()) Spill(writers, scratch, sha);
-                foreach (var sha in source.AllReferencedBlobs()) Spill(writers, scratch, sha);
+                await foreach (var sha in source.AllReferencedBlobs(ct).WithCancellation(ct)) Spill(writers, scratch, sha);
             }
         }
         finally

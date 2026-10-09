@@ -55,7 +55,7 @@ public class ContainerRepoCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Manifest_ByTagAndDigest_PutsAndGets()
+    public async Task Manifest_ByTagAndDigest_PutsAndGets()
     {
         var catalog = CreateCatalog();
         var payload = Encoding.UTF8.GetBytes("""{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json"}""");
@@ -74,7 +74,8 @@ public class ContainerRepoCatalogTests : IDisposable
         Assert.True(digestRes.TryGetValue(out var manifestByDigest, out _));
         Assert.Equal(outcome.Digest, manifestByDigest.Digest);
 
-        var referenced = catalog.AllReferencedBlobs().ToList();
+        var referenced = new List<string>();
+        await foreach (var sha in catalog.AllReferencedBlobs()) referenced.Add(sha);
         Assert.Contains("1111111111111111111111111111111111111111111111111111111111111111", referenced);
         Assert.Contains(outcome.Digest[7..], referenced);
     }
