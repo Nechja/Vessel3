@@ -105,7 +105,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         return put is null
             ? new NoSuchKeyError(key)
             : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
-                new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders);
+                new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders, put.VersionId);
     }
 
     private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>
@@ -211,12 +211,12 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
     {
         var sums = new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null);
         if (put.Parts is { } parts)
-            return new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders);
+            return new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
 
         var openResult = await blobs.Open(put.BlobSha, ct);
         return !openResult.TryGetValue(out var stream, out var err)
             ? err
-            : new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders);
+            : new StoredObject(stream, put.Size, put.At, put.Md5, put.BlobSha, put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Digest mismatch on {Bucket}/{Key}: {Reason}")]

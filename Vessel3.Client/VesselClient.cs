@@ -159,17 +159,18 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         var lastModified = res.Content.Headers.LastModified;
         var verId = res.Headers.TryGetValues("X-Vessel-Version-Id", out var v) ? v.FirstOrDefault() : null;
 
-        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string>? metadata = null;
         foreach (var header in res.Headers)
         {
             if (header.Key.StartsWith("X-Vessel-Meta-", StringComparison.OrdinalIgnoreCase))
             {
+                metadata ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var metaKey = header.Key["X-Vessel-Meta-".Length..];
                 metadata[metaKey] = string.Join(',', header.Value);
             }
         }
 
-        return new VesselObjectDownload(stream, contentType, contentLength, etag, lastModified, verId, metadata, res);
+        return new VesselObjectDownload(stream, contentType, contentLength, etag, lastModified, verId, metadata ?? (IReadOnlyDictionary<string, string>)System.Collections.Frozen.FrozenDictionary<string, string>.Empty, res);
     }
 
     public async Task<Result<ObjectSummaryDto>> StatObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default)
@@ -200,7 +201,7 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         CancellationToken ct = default)
     {
         using var req = CreateRequest(HttpMethod.Put, $"v1/buckets/{Uri.EscapeDataString(bucket)}/objects/{EscapeKey(key)}");
-        req.Content = new StreamContent(content);
+        req.Content = new StreamContent(content, 81920);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType ?? "application/octet-stream");
 
         if (metadata is not null)

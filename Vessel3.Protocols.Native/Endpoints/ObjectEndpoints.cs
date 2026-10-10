@@ -45,10 +45,15 @@ internal static class ObjectEndpoints
             return error.ToHttpResult();
         }
 
-        List<ObjectSummaryDto> objectsList = [.. page.Entries.OfType<ListEntry.Contents>()
-            .Select(contents => new ObjectSummaryDto(contents.Key, contents.Size, contents.Etag, contents.LastModified, null))];
-        List<string> prefixes = [.. page.Entries.OfType<ListEntry.CommonPrefix>()
-            .Select(prefixEntry => prefixEntry.Key)];
+        var objectsList = new List<ObjectSummaryDto>(page.Entries.Count);
+        var prefixes = new List<string>();
+        foreach (var entry in page.Entries)
+        {
+            if (entry is ListEntry.Contents contents)
+                objectsList.Add(new ObjectSummaryDto(contents.Key, contents.Size, contents.Etag, contents.LastModified, null));
+            else if (entry is ListEntry.CommonPrefix prefixEntry)
+                prefixes.Add(prefixEntry.Key);
+        }
         var nextMarker = page.NextContinuationToken ?? page.LastKey;
 
         var dto = new ObjectsPageDto(objectsList, prefixes, page.IsTruncated, nextMarker);
@@ -76,10 +81,30 @@ internal static class ObjectEndpoints
             return error.ToHttpResult();
         }
 
-        var currentVersionId = registry.GetCurrentPut(bucket, key).TryGetValue(out var currentPut, out _) ? currentPut?.VersionId : null;
-        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, storedObject, versionId, currentVersionId);
+        var res = context.Response;
+        NativeHeaderCodec.ApplyObjectHeaders(res.Headers, storedObject, versionId);
+        res.ContentType = storedObject.ContentType ?? "application/octet-stream";
+        res.ContentLength = storedObject.Size;
 
-        return Results.Stream(storedObject.Body, storedObject.ContentType ?? "application/octet-stream");
+        await using (storedObject.Body)
+        {
+            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(81920);
+            try
+            {
+                while (true)
+                {
+                    var read = await storedObject.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), context.RequestAborted);
+                    if (read == 0) break;
+                    await res.Body.WriteAsync(buffer.AsMemory(0, read), context.RequestAborted);
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        return Results.Empty;
     }
 
     private static IResult HeadObject(
@@ -103,9 +128,7 @@ internal static class ObjectEndpoints
             return error.ToHttpResult();
         }
 
-        var currentVersionId = registry.GetCurrentPut(bucket, key).TryGetValue(out var currentPut, out _) ? currentPut?.VersionId : null;
-        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, stat, versionId, currentVersionId);
-
+        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, stat, versionId);
         return Results.Ok();
     }
 
@@ -142,10 +165,12 @@ internal static class ObjectEndpoints
             Host: context.Request.Host.Value);
 
         var result = await objects.Put(putRequest);
+        if (!result.TryGetValue(out var outcome, out var err))
+        {
+            return err.ToHttpResult();
+        }
 
-        return result.Match(
-            outcome => Results.Json(new PutObjectResultDto(outcome.Etag, outcome.VersionId, outcome.Size, outcome.Sha256), NativeJsonContext.Default.PutObjectResultDto),
-            NativeHttpResult.ToHttpResult);
+        return Results.Json(new PutObjectResultDto(outcome.Etag, outcome.VersionId, outcome.Size, outcome.Sha256), NativeJsonContext.Default.PutObjectResultDto);
     }
 
     private static IResult DeleteObject(
@@ -167,6 +192,11 @@ internal static class ObjectEndpoints
             ? objects.DeleteVersion(bucket, key, versionId)
             : objects.Delete(bucket, key);
 
-        return result.Match(_ => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out _, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.NoContent();
     }
 }

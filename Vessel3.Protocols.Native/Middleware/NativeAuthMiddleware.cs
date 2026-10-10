@@ -88,6 +88,16 @@ internal sealed class NativeAuthMiddleware(
                 : (CallerIdentity?)null;
         }
 
+        if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
+            string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
+        {
+            var rootSecretBytes = Encoding.UTF8.GetBytes(options.RootSecretKey);
+            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
+            return CryptographicOperations.FixedTimeEquals(rootSecretBytes, reqSecretBytes)
+                ? (CallerIdentity?)new CallerIdentity("usr_admin", "admin", UserRole.Admin, options.RootAccessKey)
+                : new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
+        }
+
         if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null)
         {
             var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
@@ -99,16 +109,6 @@ internal sealed class NativeAuthMiddleware(
             return !authenticated.TryGetValue(out var caller, out var err)
                 ? new HttpError("InvalidCredentials", err.Message, 401)
                 : (CallerIdentity?)caller;
-        }
-
-        if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
-            string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
-        {
-            var rootSecretBytes = Encoding.UTF8.GetBytes(options.RootSecretKey);
-            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-            return CryptographicOperations.FixedTimeEquals(rootSecretBytes, reqSecretBytes)
-                ? (CallerIdentity?)CallerIdentity.System
-                : new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
         }
 
         return new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
