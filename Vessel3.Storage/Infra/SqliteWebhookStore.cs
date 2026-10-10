@@ -89,7 +89,7 @@ internal sealed class SqliteWebhookStore : IWebhookStore
         }
     }
 
-    public Result<Webhook?> GetWebhook(string id)
+    public Result<Webhook> GetWebhook(string id)
     {
         lock (gate)
         {
@@ -98,7 +98,7 @@ internal sealed class SqliteWebhookStore : IWebhookStore
             cmd.CommandText = "SELECT id, name, url, secret, event_filters, resource_filters, active, created_at, last_triggered_at, last_status_code, last_error, is_static FROM webhooks WHERE id = $id;";
             cmd.Parameters.AddWithValue("$id", id);
             using var reader = cmd.ExecuteReader();
-            return reader.Read() ? (Webhook?)ReadWebhook(reader) : null;
+            return reader.Read() ? ReadWebhook(reader) : new NoSuchWebhookError(id);
         }
     }
 
@@ -164,8 +164,6 @@ internal sealed class SqliteWebhookStore : IWebhookStore
             var existingResult = GetWebhook(id);
             if (!existingResult.TryGetValue(out var existing, out var err))
                 return err;
-            if (existing is null)
-                return new NoSuchWebhookError(id);
             if (existing.IsStatic)
                 return new InvalidArgumentError("Cannot modify static webhook defined via YAML");
 
@@ -204,8 +202,6 @@ internal sealed class SqliteWebhookStore : IWebhookStore
             var existingResult = GetWebhook(id);
             if (!existingResult.TryGetValue(out var existing, out var err))
                 return err;
-            if (existing is null)
-                return new NoSuchWebhookError(id);
             if (existing.IsStatic)
                 return new InvalidArgumentError("Cannot delete static webhook defined via YAML");
 

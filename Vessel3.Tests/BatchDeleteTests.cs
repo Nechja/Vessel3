@@ -113,8 +113,8 @@ public sealed class BatchDeleteTests : IDisposable
         var blocked = Assert.IsType<Result<DeleteOutcome>.Failure>(results[0]);
         Assert.IsType<AccessDeniedError>(blocked.Error);
         Assert.True(Ok(results[1]).Found);
-        Assert.NotNull(Assert.IsType<Result<PutEntry?>.Success>(bucket.Index.GetVersion("held", held.VersionId)).Value);
-        Assert.Null(Assert.IsType<Result<PutEntry?>.Success>(bucket.Index.GetVersion("free", free.VersionId)).Value);
+        Assert.NotNull(Assert.IsType<Result<PutEntry>.Success>(bucket.Index.GetVersion("held", held.VersionId)).Value);
+        Assert.IsType<Result<PutEntry>.Failure>(bucket.Index.GetVersion("free", free.VersionId));
     }
 
     [Fact]

@@ -10,8 +10,6 @@ internal sealed class GetBucketCors(IBucketRegistry registry, IS3XmlWriter xml, 
         if (!registry.GetCors(bucket).TryGetValue(out var cfg, out var err))
             return http.Map(err);
 
-        if (cfg is null) return http.Map(new NoSuchCORSConfigurationError(bucket));
-
         ctx.Response.ContentType = "application/xml";
         await xml.WriteCorsConfiguration(ctx.Response.Body, cfg, ctx.RequestAborted);
         return Results.Empty;

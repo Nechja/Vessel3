@@ -138,7 +138,7 @@ public sealed class EventStreamingTests : IAsyncDisposable
         var hub = app.Services.GetRequiredService<IEventStreamHub>();
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var enumerator = client.StreamEventsAsync("object.*", ct: cts.Token).GetAsyncEnumerator(cts.Token);
+        var enumerator = client.StreamEvents("object.*", ct: cts.Token).GetAsyncEnumerator(cts.Token);
 
         var moveNextTask = enumerator.MoveNextAsync().AsTask();
 

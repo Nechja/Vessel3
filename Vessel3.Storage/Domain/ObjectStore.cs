@@ -17,11 +17,11 @@ internal interface IObjectStore
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
 }
 
-internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator pre, IGcGate gate, IWebhookEventPublisher? publisher = null, ILogger<ObjectStore>? logger = null) : IObjectStore
+internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator preconditions, IGcGate gcGate, IWebhookEventPublisher? publisher = null, ILogger<ObjectStore>? logger = null) : IObjectStore
 {
     public async Task<Result<PutOutcome>> Put(ObjectPutRequest req)
     {
-        using var lease = await gate.Writing();
+        using var lease = await gcGate.Writing();
         var written = await blobs.Write(req.Body, req.DeclaredSize, req.Checksums.ToIntent(), req.Ct);
         if (!written.TryGetValue(out var blob, out var blobErr))
             return blobErr;
@@ -59,9 +59,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        return put is null
-            ? new NoSuchKeyError(key)
-            : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? FrozenDictionary<string, string>.Empty);
+        return new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? FrozenDictionary<string, string>.Empty);
     }
 
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
@@ -82,9 +80,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        return put is null
-            ? new NoSuchKeyError(key)
-            : await OpenBlob(put, ct);
+        return await OpenBlob(put, ct);
     }
 
     public Result<ObjectAttributesData> GetAttributes(string bucket, string key, string? versionId = null)
@@ -92,9 +88,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        return put is null
-            ? new NoSuchKeyError(key)
-            : new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
+        return new ObjectAttributesData(put.Size, put.At, put.WireEtag, put.WireSha256, put.Parts);
     }
 
     public Result<ObjectStat> Stat(string bucket, string key, string? versionId = null)
@@ -102,13 +96,11 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!Lookup(bucket, key, versionId).TryGetValue(out var put, out var err))
             return err;
 
-        return put is null
-            ? new NoSuchKeyError(key)
-            : new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
-                new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders, put.VersionId);
+        return new ObjectStat(put.Size, put.At, put.WireEtag, put.WireSha256, put.ContentType, put.Metadata,
+            new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null), put.SystemHeaders, put.VersionId);
     }
 
-    private Result<PutEntry?> Lookup(string bucket, string key, string? versionId) =>
+    private Result<PutEntry> Lookup(string bucket, string key, string? versionId) =>
         versionId is null
             ? registry.GetCurrentPut(bucket, key)
             : registry.GetVersion(bucket, key, versionId);
@@ -146,7 +138,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
 
     public async Task<Result<CopyOutcome>> Copy(string destBucket, string destKey, string srcBucket, string srcKey, PreconditionRules? sourceConditions = null, IReadOnlyDictionary<string, string>? metadataOverride = null, IReadOnlyDictionary<string, string>? tagsOverride = null)
     {
-        using var lease = await gate.Writing();
+        using var lease = await gcGate.Writing();
         return CopyUnderGate(destBucket, destKey, srcBucket, srcKey, sourceConditions, metadataOverride, tagsOverride);
     }
 
@@ -155,10 +147,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
         if (!registry.GetCurrentPut(srcBucket, srcKey).TryGetValue(out var srcEntry, out var err))
             return err;
 
-        if (srcEntry is null)
-            return new NoSuchKeyError(srcKey);
-
-        if (sourceConditions is { } cond && pre.Evaluate(cond, srcEntry.Md5, srcEntry.At) is Precondition.Failed)
+        if (sourceConditions is { } cond && preconditions.Evaluate(cond, srcEntry.Md5, srcEntry.At) is Precondition.Failed)
             return new PreconditionFailedError($"{srcBucket}/{srcKey}");
 
         var putReq = new PutRequest(

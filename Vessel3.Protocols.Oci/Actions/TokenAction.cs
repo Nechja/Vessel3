@@ -65,9 +65,9 @@ internal sealed class TokenAction(
             return ("admin", true);
         }
 
-        if (identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null &&
+        if (identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) &&
             CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(keyEntry.SecretKey), Encoding.UTF8.GetBytes(secret)) &&
-            identity.AuthenticateAccessKey(key).TryGetValue(out var caller, out _) && caller is not null)
+            identity.AuthenticateAccessKey(key).TryGetValue(out var caller, out _))
         {
             return (caller.UserId, caller.CanWrite);
         }

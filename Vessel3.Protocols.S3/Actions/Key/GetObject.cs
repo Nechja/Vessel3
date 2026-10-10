@@ -4,7 +4,10 @@ using Microsoft.Extensions.Primitives;
 
 namespace Vessel3.Server.S3.Key;
 
-internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) : IS3KeyAction
+internal sealed class GetObject(
+    IObjectStore objects,
+    IHttpResultMapper http,
+    IPreconditionEvaluator preconditions) : IS3KeyAction
 {
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.None);
 
@@ -17,7 +20,7 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
         var req = ctx.Request;
         var res = ctx.Response;
         var readPre = S3HeaderCodec.ExtractReadPreconditions(req.Headers);
-        var precond = pre.Evaluate(readPre, ok.Etag, ok.LastModified);
+        var precond = preconditions.Evaluate(readPre, ok.Etag, ok.LastModified);
         if (precond is Precondition.NotModified)
         {
             ok.Body.Dispose();
@@ -29,7 +32,10 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
             return Results.StatusCode(412);
         }
         res.Headers.ETag = $"\"{ok.Etag}\"";
-        foreach (var (k, v) in ok.Metadata) res.Headers[$"x-amz-meta-{k}"] = v;
+        foreach (var (metaKey, metaValue) in ok.Metadata)
+        {
+            res.Headers[$"{S3Headers.UserMetaPrefix}{metaKey}"] = metaValue;
+        }
         S3HeaderCodec.EmitSystemHeaders(res.Headers, ok.SystemHeaders);
 
         var isRangedSlice = false;
@@ -72,18 +78,18 @@ internal sealed class GetObject(IObjectStore objects, IHttpResultMapper http, IP
         {
             if (ok.Size > 0)
             {
-                var buf = ArrayPool<byte>.Shared.Rent(81920);
+                var buffer = ArrayPool<byte>.Shared.Rent(81920);
                 try
                 {
-                    int n;
-                    while ((n = await ok.Body.ReadAsync(buf.AsMemory(0, 81920), ctx.RequestAborted)) > 0)
+                    int bytesRead;
+                    while ((bytesRead = await ok.Body.ReadAsync(buffer.AsMemory(0, 81920), ctx.RequestAborted)) > 0)
                     {
-                        await res.Body.WriteAsync(buf.AsMemory(0, n), ctx.RequestAborted);
+                        await res.Body.WriteAsync(buffer.AsMemory(0, bytesRead), ctx.RequestAborted);
                     }
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(buf);
+                    ArrayPool<byte>.Shared.Return(buffer);
                 }
             }
         }

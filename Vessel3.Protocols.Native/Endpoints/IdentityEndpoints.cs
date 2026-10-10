@@ -94,9 +94,7 @@ internal static class IdentityEndpoints
             return err.ToHttpResult();
         }
 
-        return user is not null
-            ? Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto)
-            : new NotFoundError($"User {userId}").ToHttpResult();
+        return Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto);
     }
 
     private static IResult DeleteUser(string userId, HttpContext context, IIdentityRegistry identity)
@@ -201,11 +199,6 @@ internal static class IdentityEndpoints
         if (!keyResult.TryGetValue(out var key, out var error))
         {
             return error.ToHttpResult();
-        }
-
-        if (key is null)
-        {
-            return new NotFoundError($"AccessKey {accessKeyId}").ToHttpResult();
         }
 
         if (!caller.IsAdmin && key.UserId != caller.UserId)

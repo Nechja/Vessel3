@@ -65,7 +65,7 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
+        var entry = ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("k")).Value;
         Assert.Equal(blob.Sha, entry.BlobSha);
         Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
@@ -87,7 +87,7 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
+        var entry = ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("k")).Value;
         Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
     }
@@ -133,10 +133,10 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        Assert.NotNull(((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value);
-        Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry?>.Success { Value: not null });
+        Assert.NotNull(((Result<PutEntry>.Success)restored.Index.GetCurrentPut("a")).Value);
+        Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry>.Success);
         Assert.Equal("AAAAAAAA"u8.ToArray(),
-            await ReadBlob(pool, ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value!.BlobSha));
+            await ReadBlob(pool, ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("a")).Value.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
     }
 }

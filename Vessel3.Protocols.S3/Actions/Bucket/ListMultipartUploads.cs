@@ -6,15 +6,9 @@ internal sealed class ListMultipartUploads(IBucketRegistry registry, IMultipartS
 
     public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
-        var existsRes = registry.Exists(bucket);
-        if (!existsRes.TryGetValue(out var exists, out var err))
+        if (registry.EnsureExists(bucket).TryGetError(out var err))
         {
             return http.Map(err);
-        }
-
-        if (!exists)
-        {
-            return http.Map(new NoSuchBucketError(bucket));
         }
 
         ctx.Response.ContentType = "application/xml";

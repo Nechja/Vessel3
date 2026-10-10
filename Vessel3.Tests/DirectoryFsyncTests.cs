@@ -82,6 +82,23 @@ public class DirectoryFsyncTests : IDisposable
     }
 
     [Fact]
+    public async Task BlobPool_ExistingPrefixSecondWrite_FsyncsShardDirectory()
+    {
+        var rec = Recorder();
+        var pool = new BlobPool(new BlobPoolOptions(root), rec);
+
+        var res1 = await pool.Write(new MemoryStream(Encoding.UTF8.GetBytes("first-content")), null, ChecksumIntent.None, TestContext.Current.CancellationToken);
+        _ = ((Result<StoredBlob>.Success)res1).Value.Sha;
+
+        rec.DirSyncs.Clear();
+
+        var res2 = await pool.Write(new MemoryStream(Encoding.UTF8.GetBytes("second-content")), null, ChecksumIntent.None, TestContext.Current.CancellationToken);
+        var sha2 = ((Result<StoredBlob>.Success)res2).Value.Sha;
+
+        Assert.Contains(Full(root, sha2[..2], sha2[2..4]), rec.DirSyncs);
+    }
+
+    [Fact]
     public void Create_NewBucket_FsyncsBucketsRoot()
     {
         var rec = Recorder();

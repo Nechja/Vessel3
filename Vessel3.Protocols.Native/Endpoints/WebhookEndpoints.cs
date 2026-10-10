@@ -74,9 +74,7 @@ internal static class WebhookEndpoints
             return error.ToHttpResult();
         }
 
-        return hook is not null
-            ? Results.Json(ToDto(hook), NativeJsonContext.Default.WebhookDto)
-            : Results.NotFound();
+        return Results.Json(ToDto(hook), NativeJsonContext.Default.WebhookDto);
     }
 
     private static async Task<IResult> CreateWebhook(HttpContext context, IWebhookStore store)

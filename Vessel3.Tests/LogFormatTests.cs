@@ -58,7 +58,7 @@ public class LogFormatTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            var current = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
+            var current = ((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.NotNull(current);
             Assert.Equal("first".Length, current.Size);
         }
@@ -101,10 +101,10 @@ public class LogFormatTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            var kept = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
+            var kept = ((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.NotNull(kept);
             Assert.Equal("first".Length, kept.Size);
-            Assert.Null(((Result<PutEntry?>.Success)b.Index.GetCurrentPut("j")).Value);
+            Assert.IsType<Result<PutEntry>.Failure>(b.Index.GetCurrentPut("j"));
         }
     }
 }

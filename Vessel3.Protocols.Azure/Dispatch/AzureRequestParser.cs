@@ -84,8 +84,8 @@ internal static class AzureRequestParser
 
         var method = req.Method;
         var query = req.Query;
-        var comp = query.TryGetValue("comp", out var cVal) && cVal.Count > 0 ? cVal[0] ?? "" : "";
-        var restype = query.TryGetValue("restype", out var rVal) && rVal.Count > 0 ? rVal[0] ?? "" : "";
+        var comp = query.TryGetValue("comp", out var compValues) && compValues.Count > 0 ? compValues[0] ?? "" : "";
+        var restype = query.TryGetValue("restype", out var restypeValues) && restypeValues.Count > 0 ? restypeValues[0] ?? "" : "";
 
         var op = ResolveOperation(method, container, blob, restype, comp, req.Headers);
 

@@ -23,6 +23,13 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public BucketAccess Access => configs.Access;
     public CorsConfig? Cors => configs.Cors;
 
+    public Result<PutEntry> GetCurrentPut(string key) => Index.GetCurrentPut(key);
+    public Result<PutEntry> GetVersion(string key, string versionId) => Index.GetVersion(key, versionId);
+    public (IReadOnlyList<VersionListEntry> Entries, bool IsTruncated) ListCurrent(string? prefix, KeyBound? from, int limit) => Index.ListCurrent(prefix, from, limit);
+    public (IReadOnlyList<AllVersionsEntry> Entries, bool IsTruncated) ListAllVersions(string? prefix, string? keyMarker, int limit) => Index.ListAllVersions(prefix, keyMarker, limit);
+    public ObjectLockStatus GetObjectLockStatus(string key, string versionId) => Index.GetObjectLockStatus(key, versionId);
+    public long VersionCount() => Index.VersionCount();
+
     public void Open()
     {
         var indexPath = Path.Combine(path, "index.db");
@@ -168,7 +175,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     private Result<(IReadOnlyList<VersionEvent> Events, DeleteOutcome Outcome)> EvaluateHardDelete(string key, string versionId, bool bypassGovernance)
     {
-        var (ret, hold) = Index.GetLock(key, versionId);
+        var (ret, hold) = Index.GetObjectLockStatus(key, versionId);
         if (hold) return new AccessDeniedError($"legal hold on {key}@{versionId}");
         if (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow)
         {
@@ -205,7 +212,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             case VersioningStatus.Unversioned:
             default:
             {
-                if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old })
+                if (!Index.GetCurrentPut(key).TryGetValue(out var old, out _))
                     return ([], new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false));
 
                 if (old.LegalHoldOn)
@@ -312,7 +319,10 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             {
                 foreach (var item in batch)
                 {
-                    item.Complete(ex);
+                    if (!item.IsCompleted)
+                    {
+                        item.Complete(ex);
+                    }
                 }
             }
         }
@@ -432,12 +442,15 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         public RequestTrace? Trace { get; } = RequestTrace.Current;
         public Exception? Error { get; private set; }
         public bool PromotedToLeader { get; set; }
+        public bool IsCompleted { get; private set; }
         public abstract string? Key { get; }
 
         public void Wait() => signal.Wait();
 
         public void Complete(Exception? error = null)
         {
+            if (IsCompleted) return;
+            IsCompleted = true;
             if (error is not null) Error = error;
             signal.Set();
         }
@@ -643,7 +656,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 return false;
             }
 
-            if (bucket.Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } cur }
+            if (!bucket.Index.GetCurrentPut(key).TryGetValue(out var cur, out _)
                 || cur.VersionId != expectedCurrentVersionId
                 || cur.At != expectedAt)
             {
@@ -651,7 +664,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 return false;
             }
 
-            var (ret, hold) = bucket.Index.GetLock(key, cur.VersionId);
+            var (ret, hold) = bucket.Index.GetObjectLockStatus(key, cur.VersionId);
             if (hold || (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow))
             {
                 Result = false;
@@ -740,13 +753,13 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 return false;
             }
 
-            if (bucket.Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
+            if (!bucket.Index.GetVersion(key, versionId).TryGetValue(out _, out var err))
             {
-                Result = new NoSuchVersionError(key, versionId);
+                Result = err;
                 return false;
             }
 
-            var (current, _) = bucket.Index.GetLock(key, versionId);
+            var (current, _) = bucket.Index.GetObjectLockStatus(key, versionId);
             if (current is not null)
             {
                 var lowering = next.RetainUntilDate < current.RetainUntilDate
@@ -789,9 +802,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 return false;
             }
 
-            if (bucket.Index.GetVersion(key, versionId) is not Result<PutEntry?>.Success { Value: { } })
+            if (!bucket.Index.GetVersion(key, versionId).TryGetValue(out _, out var err))
             {
-                Result = new NoSuchVersionError(key, versionId);
+                Result = err;
                 return false;
             }
 

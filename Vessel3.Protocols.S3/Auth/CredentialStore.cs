@@ -39,14 +39,14 @@ internal sealed class CredentialStore(Credential? root, IIdentityRegistry? ident
             return null;
         }
 
-        if (identity.GetAccessKey(accessKey) is not Result<AccessKey?>.Success { Value: { } key }
+        if (!identity.GetAccessKey(accessKey).TryGetValue(out var key, out _)
             || key.IsRevoked
             || (key.ExpiresAt is not null && key.ExpiresAt <= clock.GetUtcNow()))
         {
             return null;
         }
 
-        if (identity.GetUser(key.UserId) is not Result<User?>.Success { Value: { } user }
+        if (!identity.GetUser(key.UserId).TryGetValue(out var user, out _)
             || user.Status is not UserStatus.Active)
         {
             return null;

@@ -134,10 +134,10 @@ public sealed class ServerLogBufferTests : IAsyncDisposable
         var serverUrl = app.Urls.First();
         using IVesselClient client = new VesselClient(serverUrl);
 
-        var createResult = await client.CreateBucketAsync("test-log-bucket");
+        var createResult = await client.CreateBucket("test-log-bucket");
         Assert.True(createResult is Result.OkResult);
 
-        var logsResult = await client.GetServerLogsAsync(limit: 50);
+        var logsResult = await client.GetServerLogs(limit: 50);
         Assert.True(logsResult.TryGetValue(out var logs, out _));
         Assert.NotNull(logs);
         Assert.NotEmpty(logs);
@@ -147,10 +147,10 @@ public sealed class ServerLogBufferTests : IAsyncDisposable
         Assert.Equal("Information", createBucketLog.Level);
         Assert.Equal(200, createBucketLog.StatusCode);
 
-        var clearResult = await client.ClearServerLogsAsync();
+        var clearResult = await client.ClearServerLogs();
         Assert.True(clearResult is Result.OkResult);
 
-        var logsAfterClear = await client.GetServerLogsAsync(limit: 50);
+        var logsAfterClear = await client.GetServerLogs(limit: 50);
         Assert.True(logsAfterClear.TryGetValue(out var clearedLogs, out _));
         Assert.NotNull(clearedLogs);
         Assert.True(clearedLogs.Count <= 1);

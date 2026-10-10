@@ -26,6 +26,7 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : Delete(bucket);
 
     Result<bool> Exists(string bucket);
+    Result EnsureExists(string bucket);
     IEnumerable<BucketInfo> List(string? ownerId = null);
     IEnumerable<BucketInfo> List(CallerIdentity caller) =>
         List(caller.IsAdmin ? null : caller.UserId);
@@ -41,8 +42,8 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
     Result AuthorizeAccess(string bucket, CallerIdentity? caller, BucketCapability capability) =>
         Result.Ok;
 
-    Result<PutEntry?> GetCurrentPut(string bucket, string key);
-    Result<PutEntry?> GetVersion(string bucket, string key, string versionId);
+    Result<PutEntry> GetCurrentPut(string bucket, string key);
+    Result<PutEntry> GetVersion(string bucket, string key, string versionId);
     Result<PutEntry> AppendPut(string bucket, string key, PutRequest req);
     Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance);
     Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance);
@@ -57,12 +58,12 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
     Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags);
     VersionKind? GetCurrentKind(string bucket, string key);
     VersionKind? GetVersionKind(string bucket, string key, string versionId);
-    Result<ObjectLockConfig?> GetObjectLock(string bucket);
+    Result<ObjectLockConfig> GetObjectLock(string bucket);
     Result SetObjectLock(string bucket, ObjectLockConfig cfg);
     Result SetObjectLock(string bucket, ObjectLockConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetObjectLock(bucket, cfg);
 
-    Result<LifecycleConfig?> GetLifecycle(string bucket);
+    Result<LifecycleConfig> GetLifecycle(string bucket);
     Result SetLifecycle(string bucket, LifecycleConfig cfg);
     Result SetLifecycle(string bucket, LifecycleConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetLifecycle(bucket, cfg);
@@ -71,7 +72,7 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
     Result RemoveLifecycle(string bucket, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : RemoveLifecycle(bucket);
 
-    Result<WebsiteConfig?> GetWebsite(string bucket);
+    Result<WebsiteConfig> GetWebsite(string bucket);
     Result SetWebsite(string bucket, WebsiteConfig cfg);
     Result SetWebsite(string bucket, WebsiteConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetWebsite(bucket, cfg);
@@ -85,7 +86,7 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
     Result SetAccess(string bucket, BucketAccess access, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetAccess(bucket, access);
 
-    Result<CorsConfig?> GetCors(string bucket);
+    Result<CorsConfig> GetCors(string bucket);
     Result SetCors(string bucket, CorsConfig cfg);
     Result SetCors(string bucket, CorsConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetCors(bucket, cfg);
@@ -195,6 +196,14 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             ? Directory.Exists(Path.Combine(bucketsRoot, bucket))
             : new InvalidBucketNameError(bucket);
 
+    public Result EnsureExists(string bucket)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        return Directory.Exists(Path.Combine(bucketsRoot, bucket))
+            ? Result.Ok
+            : new NoSuchBucketError(bucket);
+    }
+
     public IEnumerable<BucketInfo> List(string? ownerId = null)
     {
         if (!Directory.Exists(bucketsRoot)) yield break;
@@ -213,10 +222,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         List(caller.IsAdmin ? null : caller.UserId);
 
     public Result<string?> GetOwner(string bucket) =>
-        OnBucketRaw(bucket, b => b.GetOwner());
+        WithBucketValue(bucket, b => b.GetOwner());
 
     public Result<string?> GetOwner(string bucket, CallerIdentity caller) =>
-        OnBucket(bucket, b =>
+        WithBucket(bucket, b =>
             BucketPolicy.Authorize(caller, b, BucketCapability.Read) is Result.Failure f
                 ? f.Error
                 : (Result<string?>)b.GetOwner());
@@ -224,7 +233,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     public Result SetOwner(string bucket, string newOwnerId) =>
         string.IsNullOrWhiteSpace(newOwnerId)
             ? new InvalidArgumentError("OwnerId cannot be empty.")
-            : OnBucket(bucket, b =>
+            : WithBucket(bucket, b =>
             {
                 b.SetOwner(newOwnerId);
                 return Result.Ok;
@@ -233,92 +242,100 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     public Result SetOwner(string bucket, string newOwnerId, CallerIdentity caller) =>
         string.IsNullOrWhiteSpace(newOwnerId)
             ? new InvalidArgumentError("OwnerId cannot be empty.")
-            : OnBucket(bucket, b =>
+            : WithBucket(bucket, b =>
                 BucketPolicy.Authorize(caller, b, BucketCapability.Admin) is Result.Failure f
                     ? f.Error
                     : SetOwner(bucket, newOwnerId));
 
     public Result AuthorizeAccess(string bucket, CallerIdentity? caller, BucketCapability capability) =>
-        OnBucket(bucket, b => BucketPolicy.Authorize(caller, b, capability));
+        WithBucket(bucket, b => BucketPolicy.Authorize(caller, b, capability));
 
-    public Result<PutEntry?> GetCurrentPut(string bucket, string key) =>
-        OnKey(bucket, key, b => b.Index.GetCurrentPut(key));
+    public Result<PutEntry> GetCurrentPut(string bucket, string key) =>
+        WithKey(bucket, key, b => b.GetCurrentPut(key));
 
-    public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) =>
-        OnKey(bucket, key, b => b.Index.GetVersion(key, versionId));
+    public Result<PutEntry> GetVersion(string bucket, string key, string versionId) =>
+        WithKey(bucket, key, b => b.GetVersion(key, versionId));
 
     public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) =>
-        OnKey<PutEntry>(bucket, key, b => b.AppendPut(key, req));
+        WithKey<PutEntry>(bucket, key, b => b.AppendPut(key, req));
 
     public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) =>
-        OnKey<DeleteOutcome>(bucket, key, b => b.AppendDelete(key, bypassGovernance));
+        WithKey<DeleteOutcome>(bucket, key, b => b.AppendDelete(key, bypassGovernance));
 
     public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) =>
-        OnKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
+        WithKey<DeleteOutcome>(bucket, key, b => b.HardDeleteVersion(key, versionId, bypassGovernance));
 
     public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) =>
-        OnBucket<IReadOnlyList<Result<DeleteOutcome>>>(bucket,
+        WithBucket<IReadOnlyList<Result<DeleteOutcome>>>(bucket,
             b => new Result<IReadOnlyList<Result<DeleteOutcome>>>.Success(b.AppendDeleteBatch(items)));
 
-    public Result<ObjectLockConfig?> GetObjectLock(string bucket) =>
-        OnBucketRaw<ObjectLockConfig?>(bucket, b => b.ObjectLock);
+    public Result<ObjectLockConfig> GetObjectLock(string bucket) =>
+        WithBucket<ObjectLockConfig>(bucket, b => b.ObjectLock is { } cfg
+            ? cfg
+            : new ObjectLockConfigurationNotFoundErrorResult(bucket));
 
     public Result SetObjectLock(string bucket, ObjectLockConfig cfg) =>
-        OnBucket(bucket, b => b.SetObjectLock(cfg));
+        WithBucket(bucket, b => b.SetObjectLock(cfg));
 
     public Result SetObjectLock(string bucket, ObjectLockConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetObjectLock(bucket, cfg);
 
-    public Result<LifecycleConfig?> GetLifecycle(string bucket) =>
-        OnBucketRaw<LifecycleConfig?>(bucket, b => b.Lifecycle);
+    public Result<LifecycleConfig> GetLifecycle(string bucket) =>
+        WithBucket<LifecycleConfig>(bucket, b => b.Lifecycle is { } cfg
+            ? cfg
+            : new NoSuchLifecycleConfigurationError(bucket));
 
     public Result SetLifecycle(string bucket, LifecycleConfig cfg) =>
-        OnBucket(bucket, b => b.SetLifecycle(cfg));
+        WithBucket(bucket, b => b.SetLifecycle(cfg));
 
     public Result SetLifecycle(string bucket, LifecycleConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetLifecycle(bucket, cfg);
 
     public Result RemoveLifecycle(string bucket) =>
-        OnBucket(bucket, b => b.RemoveLifecycle());
+        WithBucket(bucket, b => b.RemoveLifecycle());
 
     public Result RemoveLifecycle(string bucket, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : RemoveLifecycle(bucket);
 
-    public Result<WebsiteConfig?> GetWebsite(string bucket) =>
-        OnBucketRaw<WebsiteConfig?>(bucket, b => b.Website);
+    public Result<WebsiteConfig> GetWebsite(string bucket) =>
+        WithBucket<WebsiteConfig>(bucket, b => b.Website is { } cfg
+            ? cfg
+            : new NoSuchWebsiteConfigurationError(bucket));
 
     public Result SetWebsite(string bucket, WebsiteConfig cfg) =>
-        OnBucket(bucket, b => b.SetWebsite(cfg));
+        WithBucket(bucket, b => b.SetWebsite(cfg));
 
     public Result SetWebsite(string bucket, WebsiteConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetWebsite(bucket, cfg);
 
     public Result RemoveWebsite(string bucket) =>
-        OnBucket(bucket, b => b.RemoveWebsite());
+        WithBucket(bucket, b => b.RemoveWebsite());
 
     public Result RemoveWebsite(string bucket, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : RemoveWebsite(bucket);
 
     public Result<BucketAccess> GetAccess(string bucket) =>
-        OnBucketRaw(bucket, b => b.Access);
+        WithBucketValue(bucket, b => b.Access);
 
     public Result SetAccess(string bucket, BucketAccess access) =>
-        OnBucket(bucket, b => b.SetAccess(access));
+        WithBucket(bucket, b => b.SetAccess(access));
 
     public Result SetAccess(string bucket, BucketAccess access, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetAccess(bucket, access);
 
-    public Result<CorsConfig?> GetCors(string bucket) =>
-        OnBucketRaw<CorsConfig?>(bucket, b => b.Cors);
+    public Result<CorsConfig> GetCors(string bucket) =>
+        WithBucket<CorsConfig>(bucket, b => b.Cors is { } cfg
+            ? cfg
+            : new NoSuchCORSConfigurationError(bucket));
 
     public Result SetCors(string bucket, CorsConfig cfg) =>
-        OnBucket(bucket, b => b.SetCors(cfg));
+        WithBucket(bucket, b => b.SetCors(cfg));
 
     public Result SetCors(string bucket, CorsConfig cfg, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetCors(bucket, cfg);
 
     public Result RemoveCors(string bucket) =>
-        OnBucket(bucket, b => b.RemoveCors());
+        WithBucket(bucket, b => b.RemoveCors());
 
     public Result RemoveCors(string bucket, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : RemoveCors(bucket);
@@ -330,54 +347,54 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     }
 
     public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
-        OnKey(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));
+        WithKey(bucket, key, b => b.PutRetention(key, versionId, retention, bypassGovernance));
 
     public Result<Retention?> GetRetention(string bucket, string key, string versionId) =>
-        OnKey<Retention?>(bucket, key, b =>
+        WithKey<Retention?>(bucket, key, b =>
         {
-            var (r, _) = b.Index.GetLock(key, versionId);
+            var (r, _) = b.GetObjectLockStatus(key, versionId);
             return r;
         });
 
     public Result PutLegalHold(string bucket, string key, string versionId, bool on) =>
-        OnKey(bucket, key, b => b.PutLegalHold(key, versionId, on));
+        WithKey(bucket, key, b => b.PutLegalHold(key, versionId, on));
 
     public Result<bool> GetLegalHold(string bucket, string key, string versionId) =>
-        OnKey<bool>(bucket, key, b =>
+        WithKey<bool>(bucket, key, b =>
         {
-            var (_, h) = b.Index.GetLock(key, versionId);
+            var (_, h) = b.GetObjectLockStatus(key, versionId);
             return h;
         });
 
     public Result<CurrentPage> ListCurrent(string bucket, string? prefix, KeyBound? from, int limit) =>
-        OnBucketRaw(bucket, b =>
+        WithBucketValue(bucket, b =>
         {
-            var (entries, truncated) = b.Index.ListCurrent(prefix, from, limit);
+            var (entries, truncated) = b.ListCurrent(prefix, from, limit);
             return new CurrentPage(entries, truncated);
         });
 
-    private Result<T> OnBucketRaw<T>(string bucket, Func<Bucket, T> body)
+    private Result<T> WithBucketValue<T>(string bucket, Func<Bucket, T> body)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
         return body(b);
     }
 
-    private Result<T> OnBucket<T>(string bucket, Func<Bucket, Result<T>> body)
+    private Result<T> WithBucket<T>(string bucket, Func<Bucket, Result<T>> body)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
         return body(b);
     }
 
-    private Result OnBucket(string bucket, Func<Bucket, Result> body)
+    private Result WithBucket(string bucket, Func<Bucket, Result> body)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
         return body(b);
     }
 
-    private Result<T> OnKey<T>(string bucket, string key, Func<Bucket, Result<T>> body)
+    private Result<T> WithKey<T>(string bucket, string key, Func<Bucket, Result<T>> body)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (string.IsNullOrEmpty(key)) return new InvalidPathError($"{bucket}/{key}");
@@ -385,7 +402,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         return body(b);
     }
 
-    private Result OnKey(string bucket, string key, Func<Bucket, Result> body)
+    private Result WithKey(string bucket, string key, Func<Bucket, Result> body)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
         if (string.IsNullOrEmpty(key)) return new InvalidPathError($"{bucket}/{key}");
@@ -393,35 +410,30 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         return body(b);
     }
 
-    public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit)
-    {
-        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
-        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
-        var (entries, truncated) = b.Index.ListAllVersions(prefix, keyMarker, limit);
-        return new VersionsPage(entries, truncated);
-    }
+    public Result<VersionsPage> ListAllVersions(string bucket, string? prefix, string? keyMarker, int limit) =>
+        WithBucketValue(bucket, b =>
+        {
+            var (entries, truncated) = b.ListAllVersions(prefix, keyMarker, limit);
+            return new VersionsPage(entries, truncated);
+        });
 
-    public Result<VersioningStatus> GetVersioning(string bucket)
-    {
-        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
-        if (Open(bucket) is not { } b) return new NoSuchBucketError(bucket);
-        return b.Versioning;
-    }
+    public Result<VersioningStatus> GetVersioning(string bucket) =>
+        WithBucketValue(bucket, b => b.Versioning);
 
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
-        OnKey<PutTaggingOutcome>(bucket, key, b =>
+        WithKey<PutTaggingOutcome>(bucket, key, b =>
         {
             var resolved = versionId;
             if (resolved is null)
             {
-                if (b.Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } cur })
-                    return new NoSuchKeyError(key);
+                if (!b.GetCurrentPut(key).TryGetValue(out var cur, out var err))
+                    return err;
                 resolved = cur.VersionId;
             }
             else
             {
-                if (b.Index.GetVersion(key, resolved) is not Result<PutEntry?>.Success { Value: not null })
-                    return new NoSuchKeyError(key);
+                if (!b.GetVersion(key, resolved).TryGetValue(out _, out var err))
+                    return err;
             }
             return b.AppendPutTagging(key, resolved, tags);
         });
@@ -433,7 +445,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         !IsValidName(bucket) || string.IsNullOrEmpty(key) ? null : Open(bucket)?.Index.GetVersionKind(key, versionId);
 
     public Result SetVersioning(string bucket, VersioningStatus status) =>
-        OnBucket(bucket, b => b.SetVersioning(status));
+        WithBucket(bucket, b => b.SetVersioning(status));
 
     public Result SetVersioning(string bucket, VersioningStatus status, CallerIdentity caller) =>
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : SetVersioning(bucket, status);

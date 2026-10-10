@@ -64,7 +64,7 @@ if (config.Oidc is not null)
 try
 {
     var client = host.Services.GetRequiredService<IVesselClient>();
-    var whoResult = await client.WhoAmIAsync();
+    var whoResult = await client.WhoAmI();
     if (whoResult.TryGetValue(out var caller, out _))
     {
         auth.Caller = caller;

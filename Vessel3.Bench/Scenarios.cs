@@ -409,7 +409,7 @@ internal static class Scenarios
 
     public static async Task<LatencySummary> NativePut(VesselClient vessel, BenchOptions opts)
     {
-        await vessel.CreateBucketAsync(opts.Bucket);
+        await vessel.CreateBucket(opts.Bucket);
         var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
         var buffers = new byte[opts.Concurrency][];
         for (var i = 0; i < opts.Concurrency; i++)
@@ -426,14 +426,14 @@ internal static class Scenarios
                 BitConverter.TryWriteBytes(payload.AsSpan(0, 8), ++counters[wid]);
             var key = $"native/w{wid}/{Guid.NewGuid():N}";
             using var ms = new MemoryStream(payload);
-            await vessel.PutObjectAsync(opts.Bucket, key, ms, ct: ct);
+            await vessel.PutObject(opts.Bucket, key, ms, ct: ct);
             return payload.Length;
         });
     }
 
     public static async Task<LatencySummary> NativeGet(VesselClient vessel, BenchOptions opts)
     {
-        await vessel.CreateBucketAsync(opts.Bucket);
+        await vessel.CreateBucket(opts.Bucket);
         var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
         var payload = new byte[size];
         Random.Shared.NextBytes(payload);
@@ -442,13 +442,13 @@ internal static class Scenarios
         {
             keys[i] = $"seed/native/{i:D5}";
             using var ms = new MemoryStream(payload);
-            await vessel.PutObjectAsync(opts.Bucket, keys[i], ms);
+            await vessel.PutObject(opts.Bucket, keys[i], ms);
         }
 
         return await RunWorkload(opts, async (wid, ct) =>
         {
             var key = keys[Random.Shared.Next(keys.Length)];
-            var res = await vessel.GetObjectAsync(opts.Bucket, key, ct: ct);
+            var res = await vessel.GetObject(opts.Bucket, key, ct: ct);
             if (res.TryGetValue(out var dl, out _))
             {
                 using (dl)
@@ -463,19 +463,19 @@ internal static class Scenarios
 
     public static async Task<LatencySummary> NativeList(VesselClient vessel, BenchOptions opts)
     {
-        await vessel.CreateBucketAsync(opts.Bucket);
+        await vessel.CreateBucket(opts.Bucket);
         var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
         var payload = new byte[size];
         Random.Shared.NextBytes(payload);
         for (var i = 0; i < 100; i++)
         {
             using var ms = new MemoryStream(payload);
-            await vessel.PutObjectAsync(opts.Bucket, $"seed/list/{i:D5}", ms);
+            await vessel.PutObject(opts.Bucket, $"seed/list/{i:D5}", ms);
         }
 
         return await RunWorkload(opts, async (wid, ct) =>
         {
-            var res = await vessel.ListObjectsAsync(opts.Bucket, prefix: "seed/list/", limit: 100, ct: ct);
+            var res = await vessel.ListObjects(opts.Bucket, prefix: "seed/list/", limit: 100, ct: ct);
             if (res.TryGetValue(out var page, out _))
                 return page.Objects.Count;
             return 0L;

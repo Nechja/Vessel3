@@ -42,6 +42,10 @@ internal sealed record BucketNotEmptyError(string Bucket)
     : Error("BucketNotEmpty", $"Bucket {Bucket} is not empty")
 { public override int Status => 409; }
 
+internal sealed record BucketAlreadyExistsError(string Bucket)
+    : Error("BucketAlreadyExists", $"The requested bucket name is not available: {Bucket}")
+{ public override int Status => 409; }
+
 internal sealed record IncompleteBodyError(long Declared, long Received)
     : Error("IncompleteBody", $"You did not provide the number of bytes specified by the request: declared {Declared}, received {Received}")
 { public override int Status => 400; }
@@ -176,6 +180,12 @@ public abstract record Result
         error = null; return false;
     }
 
+    public Result Bind(Func<Result> bind) =>
+        this is Failure f ? f : bind();
+
+    public Result<TOut> Bind<TOut>(Func<Result<TOut>> bind) =>
+        this is Failure f ? f.Error : bind();
+
     public sealed record OkResult : Result
     {
         public override TOut Match<TOut>(Func<TOut> onSuccess, Func<Error, TOut> onFailure) => onSuccess();
@@ -199,6 +209,21 @@ public abstract record Result<T>
         if (this is Success s) { value = s.Value; error = null; return true; }
         value = default; error = ((Failure)this).Error; return false;
     }
+
+    public bool TryGetError([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Error? error)
+    {
+        if (this is Failure f) { error = f.Error; return true; }
+        error = null; return false;
+    }
+
+    public Result<TOut> Map<TOut>(Func<T, TOut> map) =>
+        this is Success s ? new Result<TOut>.Success(map(s.Value)) : new Result<TOut>.Failure(((Failure)this).Error);
+
+    public Result<TOut> Bind<TOut>(Func<T, Result<TOut>> bind) =>
+        this is Success s ? bind(s.Value) : new Result<TOut>.Failure(((Failure)this).Error);
+
+    public Result Bind(Func<T, Result> bind) =>
+        this is Success s ? bind(s.Value) : new Result.Failure(((Failure)this).Error);
 
     public sealed record Success(T Value) : Result<T>
     {

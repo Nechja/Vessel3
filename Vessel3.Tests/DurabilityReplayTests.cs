@@ -41,9 +41,9 @@ public class DurabilityReplayTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            var current = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value!;
+            var current = ((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.Equal(v2, current.VersionId);
-            var old = ((Result<PutEntry?>.Success)b.Index.GetVersion("k", v1)).Value!;
+            var old = ((Result<PutEntry>.Success)b.Index.GetVersion("k", v1)).Value;
             Assert.Equal("one".Length, old.Size);
         }
     }
@@ -65,9 +65,9 @@ public class DurabilityReplayTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            var current = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value;
+            var current = ((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value;
             Assert.NotNull(current);
-            Assert.Equal("null", current!.VersionId);
+            Assert.Equal("null", current.VersionId);
             Assert.Equal("second".Length, current.Size);
         }
     }
@@ -96,9 +96,9 @@ public class DurabilityReplayTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            var k2 = ((Result<PutEntry?>.Success)b.Index.GetVersion("k2", "abc")).Value;
+            var k2 = ((Result<PutEntry>.Success)b.Index.GetVersion("k2", "abc")).Value;
             Assert.NotNull(k2);
-            Assert.Equal(6, k2!.Size);
+            Assert.Equal(6, k2.Size);
         }
     }
 }

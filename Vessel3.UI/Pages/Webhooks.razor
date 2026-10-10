@@ -426,7 +426,7 @@
         errorMessage = "";
         try
         {
-            var res = await Client.ListWebhooksAsync();
+            var res = await Client.ListWebhooks();
             if (res.TryGetValue(out var list, out var err))
             {
                 webhooks = list.OrderBy(w => w.Name, StringComparer.Ordinal).ToList();
@@ -494,7 +494,7 @@
                 resources,
                 newActive);
 
-            var res = await Client.CreateWebhookAsync(req);
+            var res = await Client.CreateWebhook(req);
             if (res.TryGetValue(out var created, out var err))
             {
                 Toast.Success($"Webhook '{created.Name}' created");
@@ -566,7 +566,7 @@
                 resources,
                 editActive);
 
-            var res = await Client.UpdateWebhookAsync(editingWebhook.Id, req);
+            var res = await Client.UpdateWebhook(editingWebhook.Id, req);
             if (res.TryGetValue(out var updated, out var err))
             {
                 Toast.Success($"Webhook '{updated.Name}' updated");
@@ -593,7 +593,7 @@
         armedDeleteId = null;
         try
         {
-            var res = await Client.DeleteWebhookAsync(id);
+            var res = await Client.DeleteWebhook(id);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete webhook: {err.Message}");
@@ -614,7 +614,7 @@
         isTesting = true;
         try
         {
-            var res = await Client.TestWebhookAsync(id);
+            var res = await Client.TestWebhook(id);
             if (res.TryGetValue(out var test, out var err))
             {
                 testResult = test;
@@ -648,7 +648,7 @@
     {
         try
         {
-            var res = await Client.ExportWebhooksYamlAsync();
+            var res = await Client.ExportWebhooksYaml();
             if (res.TryGetValue(out var yaml, out var err))
             {
                 exportedYaml = yaml;

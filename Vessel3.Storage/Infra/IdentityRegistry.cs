@@ -70,7 +70,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         return user;
     }
 
-    public Result<User?> GetUser(string userId)
+    public Result<User> GetUser(string userId)
     {
         lock (gate)
         {
@@ -79,11 +79,11 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             cmd.CommandText = "SELECT id, username, role, status, created_at FROM users WHERE id = @id;";
             cmd.Parameters.AddWithValue("@id", userId);
             using var reader = cmd.ExecuteReader();
-            return reader.Read() ? ReadUser(reader) : (User?)null;
+            return reader.Read() ? ReadUser(reader) : new NotFoundError($"User {userId}");
         }
     }
 
-    public Result<User?> FindUserByUsername(string username)
+    public Result<User> FindUserByUsername(string username)
     {
         lock (gate)
         {
@@ -92,7 +92,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             cmd.CommandText = "SELECT id, username, role, status, created_at FROM users WHERE username = @username;";
             cmd.Parameters.AddWithValue("@username", username);
             using var reader = cmd.ExecuteReader();
-            return reader.Read() ? ReadUser(reader) : (User?)null;
+            return reader.Read() ? ReadUser(reader) : new NotFoundError($"User with username '{username}'");
         }
     }
 
@@ -189,7 +189,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         }
     }
 
-    public Result<AccessKey?> GetAccessKey(string accessKeyId)
+    public Result<AccessKey> GetAccessKey(string accessKeyId)
     {
         lock (gate)
         {
@@ -201,7 +201,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
                 """;
             cmd.Parameters.AddWithValue("@id", accessKeyId);
             using var reader = cmd.ExecuteReader();
-            return reader.Read() ? ReadAccessKey(reader) : (AccessKey?)null;
+            return reader.Read() ? ReadAccessKey(reader) : new InvalidAccessKeyIdError(accessKeyId);
         }
     }
 

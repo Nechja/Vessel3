@@ -2,7 +2,10 @@ using System.Globalization;
 
 namespace Vessel3.Server.S3.Key;
 
-internal sealed class HeadObject(IObjectStore objects, IHttpResultMapper http, IPreconditionEvaluator pre) : IS3KeyAction
+internal sealed class HeadObject(
+    IObjectStore objects,
+    IHttpResultMapper http,
+    IPreconditionEvaluator preconditions) : IS3KeyAction
 {
     public S3KeyRoute Route => new(HttpMethods.Head, S3KeySubresource.None);
 
@@ -13,7 +16,7 @@ internal sealed class HeadObject(IObjectStore objects, IHttpResultMapper http, I
 
         var res = ctx.Response;
         var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
-        var precond = pre.Evaluate(readPre, stat.Etag, stat.LastModified);
+        var precond = preconditions.Evaluate(readPre, stat.Etag, stat.LastModified);
         if (precond is Precondition.NotModified)
         {
             return Task.FromResult<IResult>(Results.StatusCode(304));
@@ -29,9 +32,9 @@ internal sealed class HeadObject(IObjectStore objects, IHttpResultMapper http, I
         res.Headers.ETag = $"\"{stat.Etag}\"";
         ChecksumHeaders.Emit(res.Headers, stat.Checksums, fallbackSha256Hex: stat.Sha256);
         res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
-        foreach (var (k, v) in stat.Metadata)
+        foreach (var (metaKey, metaValue) in stat.Metadata)
         {
-            res.Headers[$"x-amz-meta-{k}"] = v;
+            res.Headers[$"{S3Headers.UserMetaPrefix}{metaKey}"] = metaValue;
         }
 
         S3HeaderCodec.EmitSystemHeaders(res.Headers, stat.SystemHeaders);

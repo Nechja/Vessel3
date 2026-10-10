@@ -45,7 +45,7 @@ public class AtomicOverwriteTests : IDisposable
         {
             while (!stop.IsCancellationRequested)
             {
-                if (bucket.Index.GetCurrentPut("k") is Result<PutEntry?>.Success { Value: null })
+                if (bucket.Index.GetCurrentPut("k") is Result<PutEntry>.Failure)
                     Interlocked.Increment(ref seenAbsent);
             }
         })).ToArray();
@@ -79,7 +79,7 @@ public class AtomicOverwriteTests : IDisposable
         {
             while (!stop.IsCancellationRequested)
             {
-                if (bucket.Index.GetCurrentPut("k") is Result<PutEntry?>.Success { Value: null })
+                if (bucket.Index.GetCurrentPut("k") is Result<PutEntry>.Failure)
                     Interlocked.Increment(ref seenAbsent);
             }
         })).ToArray();

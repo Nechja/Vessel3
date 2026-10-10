@@ -1,13 +1,12 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Storage;
 
 namespace Vessel3.Protocols.Native.Headers;
 
 internal static class NativeHeaderCodec
 {
-    private const string VersionIdHeader = "X-Vessel-Version-Id";
-    private const string MetaHeaderPrefix = "X-Vessel-Meta-";
 
     public static void ApplyObjectHeaders(IHeaderDictionary headers, StoredObject obj, string? versionId)
     {
@@ -38,14 +37,14 @@ internal static class NativeHeaderCodec
 
         if (versionId is not null)
         {
-            headers[VersionIdHeader] = versionId;
+            headers[VesselHeaders.VersionId] = versionId;
         }
 
         if (metadata is null) return;
 
-        foreach (var (k, v) in metadata)
+        foreach (var (key, value) in metadata)
         {
-            headers[$"{MetaHeaderPrefix}{k}"] = v;
+            headers[$"{VesselHeaders.MetaPrefix}{key}"] = value;
         }
     }
 
@@ -54,10 +53,10 @@ internal static class NativeHeaderCodec
         Dictionary<string, string>? metadata = null;
         foreach (var header in headers)
         {
-            if (!header.Key.StartsWith(MetaHeaderPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!header.Key.StartsWith(VesselHeaders.MetaPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
             metadata ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var metaKey = header.Key[MetaHeaderPrefix.Length..];
+            var metaKey = header.Key[VesselHeaders.MetaPrefix.Length..];
             metadata[metaKey] = header.Value.ToString();
         }
 

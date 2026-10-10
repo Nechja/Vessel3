@@ -38,7 +38,7 @@ public class PutTaggingEventTests
             using var reopened = new Bucket("test", dir, sync, durable);
             reopened.Open();
             var got = reopened.Index.GetVersion("k.txt", versionId);
-            var entry = ((Result<PutEntry?>.Success)got).Value!;
+            var entry = ((Result<PutEntry>.Success)got).Value;
             Assert.NotNull(entry.Tags);
             Assert.Equal("prod", entry.Tags!["env"]);
         }
@@ -68,7 +68,7 @@ public class PutTaggingEventTests
             b.AppendPutTagging("k.txt", put.VersionId, new Dictionary<string, string>());
 
             var got = b.Index.GetVersion("k.txt", put.VersionId);
-            var entry = ((Result<PutEntry?>.Success)got).Value!;
+            var entry = ((Result<PutEntry>.Success)got).Value;
             Assert.Empty(entry.Tags!);
         }
         finally

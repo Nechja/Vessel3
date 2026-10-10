@@ -98,7 +98,7 @@
         gcBusy = true;
         try
         {
-            var res = await Client.RunGcAsync(gcBlobAgeSec, gcUploadAgeSec);
+            var res = await Client.RunGc(gcBlobAgeSec, gcUploadAgeSec);
             if (!res.TryGetValue(out var report, out var err))
             {
                 Toast.Error($"GC failed: {err.Message}");
@@ -123,7 +123,7 @@
         sweepBusy = true;
         try
         {
-            var res = await Client.RunSweepAsync(string.IsNullOrWhiteSpace(sweepNow) ? null : sweepNow);
+            var res = await Client.RunSweep(string.IsNullOrWhiteSpace(sweepNow) ? null : sweepNow);
             if (!res.TryGetValue(out var report, out var err))
             {
                 Toast.Error($"Sweep failed: {err.Message}");

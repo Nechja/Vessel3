@@ -8,6 +8,7 @@ using Microsoft.Data.Sqlite;
 namespace Vessel3.Storage;
 
 internal enum VersionKind { Put = 0, DeleteMarker = 1 }
+internal readonly record struct ObjectLockStatus(Retention? Retention, bool LegalHoldOn);
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
@@ -249,7 +250,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         HotCache.Evict(key);
     }
 
-    public Result<PutEntry?> GetVersion(string key, string versionId)
+    public Result<PutEntry> GetVersion(string key, string versionId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -281,7 +282,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Retention: ReadRetention(r, 12, 13),
                 LegalHoldOn: ReadLegalHold(r, 14),
                 SystemHeaders: ReadSystemHeaders(r, 15))
-            : (PutEntry?)null;
+            : new NoSuchVersionError(key, versionId);
     }
 
     public string? LatestVersionId(string key)
@@ -304,6 +305,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         if (HotCache.TryGet(key, out var cached))
             return cached?.VersionId;
 
+        var expectedVersion = HotCache.GetVersion(key);
+
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
         cmd.CommandText = """
@@ -315,14 +318,16 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         using var r = cmd.ExecuteReader();
         var vid = r.Read() && (VersionKind)r.GetInt32(0) is VersionKind.Put ? r.GetString(1) : null;
-        if (vid is null) HotCache.Set(key, null);
+        if (vid is null) HotCache.TryFill(key, null, expectedVersion);
         return vid;
     }
 
-    public Result<PutEntry?> GetCurrentPut(string key)
+    public Result<PutEntry> GetCurrentPut(string key)
     {
         if (HotCache.TryGet(key, out var cached))
-            return cached;
+            return cached is not null ? cached : new NoSuchKeyError(key);
+
+        var expectedVersion = HotCache.GetVersion(key);
 
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -338,8 +343,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         using var r = cmd.ExecuteReader();
         if (!r.Read() || (VersionKind)r.GetInt32(0) is not VersionKind.Put)
         {
-            HotCache.Set(key, null);
-            return (PutEntry?)null;
+            HotCache.TryFill(key, null, expectedVersion);
+            return new NoSuchKeyError(key);
         }
 
         var entry = new PutEntry(
@@ -359,7 +364,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             LegalHoldOn: ReadLegalHold(r, 15),
             SystemHeaders: ReadSystemHeaders(r, 16));
 
-        HotCache.Set(key, entry);
+        HotCache.TryFill(key, entry, expectedVersion);
         return entry;
     }
 
@@ -507,8 +512,9 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     {
         const int pageSize = 10000;
         long after = 0;
-        while (!ct.IsCancellationRequested)
+        while (true)
         {
+            ct.ThrowIfCancellationRequested();
             List<string> page = [];
             var rows = 0;
             using (var rh = ReadCmd())
@@ -568,7 +574,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         HotCache.UpdateLegalHold(key, versionId, on);
     }
 
-    public (Retention? Retention, bool LegalHoldOn) GetLock(string key, string versionId)
+    public ObjectLockStatus GetObjectLockStatus(string key, string versionId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -581,7 +587,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         using var r = cmd.ExecuteReader();
-        if (!r.Read()) return (null, false);
+        if (!r.Read()) return new ObjectLockStatus(null, false);
         Retention? ret = null;
         if (!r.IsDBNull(0) && !r.IsDBNull(1)
             && Enum.TryParse<RetentionMode>(r.GetString(0), out var mode))
@@ -589,6 +595,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             ret = new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)));
         }
         var hold = !r.IsDBNull(2) && r.GetInt64(2) is 1;
-        return (ret, hold);
+        return new ObjectLockStatus(ret, hold);
     }
 }

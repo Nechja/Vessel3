@@ -10,8 +10,6 @@ internal sealed class GetBucketWebsite(IBucketRegistry registry, IS3XmlWriter xm
         if (!registry.GetWebsite(bucket).TryGetValue(out var cfg, out var err))
             return http.Map(err);
 
-        if (cfg is null) return http.Map(new NoSuchWebsiteConfigurationError(bucket));
-
         ctx.Response.ContentType = "application/xml";
         await xml.WriteWebsiteConfiguration(ctx.Response.Body, cfg, ctx.RequestAborted);
         return Results.Empty;

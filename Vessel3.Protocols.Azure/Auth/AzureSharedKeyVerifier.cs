@@ -113,7 +113,7 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
             Base64.EncodeToUtf8(hash, expectedSigBytes, out _, out var bytesWritten);
 
             Span<byte> actualBytes = stackalloc byte[64];
-            var actualWritten = signature.Length <= 64 ? Encoding.UTF8.GetBytes(signature.AsSpan(), actualBytes) : 0;
+            var actualWritten = Encoding.UTF8.TryGetBytes(signature.AsSpan(), actualBytes, out var bytesEncoded) ? bytesEncoded : 0;
 
             if (actualWritten != bytesWritten ||
                 !CryptographicOperations.FixedTimeEquals(expectedSigBytes[..bytesWritten], actualBytes[..actualWritten]))
@@ -152,20 +152,20 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
             return (null, null);
         }
 
-        if (identity.GetAccessKey(account) is not Result<AccessKey?>.Success { Value: { } ak } || ak.IsRevoked)
+        if (!identity.GetAccessKey(account).TryGetValue(out var accessKey, out _) || accessKey.IsRevoked)
         {
             return (null, null);
         }
 
-        if (identity.GetUser(ak.UserId) is not Result<User?>.Success { Value: { } user } || user.Status is not UserStatus.Active)
+        if (!identity.GetUser(accessKey.UserId).TryGetValue(out var user, out _) || user.Status is not UserStatus.Active)
         {
             return (null, null);
         }
 
         byte[] bytes;
-        try { bytes = Convert.FromBase64String(ak.SecretKey); }
-        catch { bytes = Encoding.UTF8.GetBytes(ak.SecretKey); }
-        return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, ak.Id));
+        try { bytes = Convert.FromBase64String(accessKey.SecretKey); }
+        catch { bytes = Encoding.UTF8.GetBytes(accessKey.SecretKey); }
+        return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, accessKey.Id));
     }
 
     public static string BuildStringToSign(HttpRequest req, string account)

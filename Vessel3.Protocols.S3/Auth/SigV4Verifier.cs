@@ -69,13 +69,13 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
-        var ak = credParts[0];
+        var accessKeyId = credParts[0];
         var date = credParts[1];
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (credentials.Find(ak) is not { } cred)
-            return new InvalidAccessKeyIdError(ak);
+        if (credentials.Find(accessKeyId) is not { } cred)
+            return new InvalidAccessKeyIdError(accessKeyId);
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
         if (reg != region.Value)
@@ -127,13 +127,13 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
-        var ak = credParts[0];
+        var accessKeyId = credParts[0];
         var date = credParts[1];
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (credentials.Find(ak) is not { } cred)
-            return new InvalidAccessKeyIdError(ak);
+        if (credentials.Find(accessKeyId) is not { } cred)
+            return new InvalidAccessKeyIdError(accessKeyId);
 
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
@@ -244,8 +244,8 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         var needsEncode = false;
         for (var i = 0; i < path.Length; i++)
         {
-            var c = (byte)path[i];
-            if (!IsUnreserved(c) && c != (byte)'/')
+            var ch = path[i];
+            if (ch > 0x7F || (!IsUnreserved((byte)ch) && ch != '/'))
             {
                 needsEncode = true;
                 break;

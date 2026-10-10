@@ -83,6 +83,12 @@ internal sealed class PropfindAction(
 
     private Result<List<WebDavResourceEntry>> BuildBucketRootEntries(string basePrefix, string bucket, int depth)
     {
+        var exists = registry.EnsureExists(bucket);
+        if (exists.TryGetError(out var err))
+        {
+            return err;
+        }
+
         var bucketHref = $"{basePrefix}/{Uri.EscapeDataString(bucket)}/";
         List<WebDavResourceEntry> entries =
         [

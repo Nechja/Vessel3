@@ -15,7 +15,7 @@ internal sealed class NativeAuthMiddleware(
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
-        if (!ctx.Request.Path.StartsWithSegments("/v1"))
+        if (!ctx.Request.Path.StartsWithSegments(VesselRoutes.V1Prefix))
         {
             await next(ctx);
             return;
@@ -50,9 +50,9 @@ internal sealed class NativeAuthMiddleware(
     private async Task<Result<CallerIdentity?>> AuthenticateCaller(HttpContext ctx)
     {
         var authHeader = ctx.Request.Headers.Authorization.ToString();
-        if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        if (authHeader.StartsWith(VesselHeaders.BearerPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            var token = authHeader["Bearer ".Length..].Trim();
+            var token = authHeader[VesselHeaders.BearerPrefix.Length..].Trim();
             if (tokenAuthenticator is null)
                 return new HttpError("Unauthorized", "Bearer token authentication is not configured", 401);
 
@@ -65,9 +65,9 @@ internal sealed class NativeAuthMiddleware(
         string? key = null;
         string? secret = null;
 
-        if (authHeader.StartsWith("Vessel ", StringComparison.OrdinalIgnoreCase))
+        if (authHeader.StartsWith(VesselHeaders.VesselPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            var creds = authHeader["Vessel ".Length..].Trim();
+            var creds = authHeader[VesselHeaders.VesselPrefix.Length..].Trim();
             var colon = creds.IndexOf(':');
             if (colon > 0)
             {
@@ -75,7 +75,7 @@ internal sealed class NativeAuthMiddleware(
                 secret = creds[(colon + 1)..];
             }
         }
-        else if (ctx.Request.Headers.TryGetValue("X-Vessel-Key", out var k) && ctx.Request.Headers.TryGetValue("X-Vessel-Secret", out var s))
+        else if (ctx.Request.Headers.TryGetValue(VesselHeaders.AccessKey, out var k) && ctx.Request.Headers.TryGetValue(VesselHeaders.SecretKey, out var s))
         {
             key = k.ToString();
             secret = s.ToString();
@@ -94,11 +94,11 @@ internal sealed class NativeAuthMiddleware(
             var rootSecretBytes = Encoding.UTF8.GetBytes(options.RootSecretKey);
             var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
             return CryptographicOperations.FixedTimeEquals(rootSecretBytes, reqSecretBytes)
-                ? (CallerIdentity?)new CallerIdentity("usr_admin", "admin", UserRole.Admin, options.RootAccessKey)
+                ? (CallerIdentity?)CallerIdentity.System
                 : new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
         }
 
-        if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null)
+        if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
         {
             var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
             var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
@@ -136,7 +136,7 @@ internal sealed class NativeAuthMiddleware(
     private static async Task WriteError(HttpContext ctx, Error error)
     {
         ctx.Response.StatusCode = error.Status;
-        ctx.Response.ContentType = "application/json";
+        ctx.Response.ContentType = VesselMediaTypes.Json;
         await JsonSerializer.SerializeAsync(
             ctx.Response.Body,
             new ErrorDto(error.Code, error.Message),

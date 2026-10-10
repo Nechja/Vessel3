@@ -98,7 +98,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         var token = authHeader["Bearer ".Length..].Trim();
         if (tokenService.ValidateToken(token, out var userId, out var scopes))
         {
-            var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _) && user is not null
+            var caller = userId is not null && identity.GetUser(userId).TryGetValue(out var user, out _)
                 ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
                 : CallerIdentity.System;
 
@@ -173,7 +173,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             return CallerIdentity.System;
         }
 
-        if (!identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) || keyEntry is null)
+        if (!identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
             return new OciUnauthorizedError("Invalid credentials");
 
         var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);

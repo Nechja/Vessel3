@@ -9,8 +9,6 @@ internal sealed class GetObjectLockConfiguration(IBucketRegistry registry, IS3Xm
         if (!registry.GetObjectLock(bucket).TryGetValue(out var cfg, out var err))
             return http.Map(err);
 
-        if (cfg is null) return http.Map(new ObjectLockConfigurationNotFoundErrorResult(bucket));
-
         ctx.Response.ContentType = "application/xml";
         await xml.WriteObjectLockConfiguration(ctx.Response.Body, cfg, ctx.RequestAborted);
         return Results.Empty;

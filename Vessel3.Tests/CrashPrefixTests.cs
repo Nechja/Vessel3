@@ -258,7 +258,7 @@ public sealed class CrashPrefixTests(ITestOutputHelper output) : IDisposable
         public void Expire(string key)
         {
             Track(key);
-            var current = ((Result<PutEntry?>.Success)bucket.Index.GetCurrentPut(key)).Value!;
+            var current = ((Result<PutEntry>.Success)bucket.Index.GetCurrentPut(key)).Value;
             Record($"expire {key}", () =>
             {
                 Assert.True(bucket.ExpireCurrentVersion(key, current.VersionId, current.At));
@@ -316,7 +316,7 @@ public sealed class CrashPrefixTests(ITestOutputHelper output) : IDisposable
     }
 
     private static string? CurrentSha(Bucket bucket, string key) =>
-        bucket.Index.GetCurrentPut(key) is Result<PutEntry?>.Success { Value: { } put } ? put.BlobSha : null;
+        bucket.Index.GetCurrentPut(key) is Result<PutEntry>.Success { Value: var put } ? put.BlobSha : null;
 
     private static List<long> RecordEnds(string root)
     {

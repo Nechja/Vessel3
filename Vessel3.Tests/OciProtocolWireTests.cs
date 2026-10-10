@@ -382,16 +382,16 @@ public class OciProtocolWireTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Created, putRes.StatusCode);
 
         var vesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "drummer.jwt.token"));
-        var reposResult = await vesselClient.ListContainerReposAsync();
+        var reposResult = await vesselClient.ListContainerRepos();
         Assert.True(reposResult.TryGetValue(out var repos, out var reposErr), reposErr?.Message);
         Assert.Contains("rainier", repos);
 
-        var tagsResult = await vesselClient.ListContainerTagsAsync("rainier");
+        var tagsResult = await vesselClient.ListContainerTags("rainier");
         Assert.True(tagsResult.TryGetValue(out var tags, out var tagsErr), tagsErr?.Message);
         Assert.Contains("v1.0.0", tags);
 
         var badVesselClient = new VesselClient(client, new VesselClientOptions(app.Urls.First(), null, null, "invalid.jwt.token"));
-        var badResult = await badVesselClient.ListContainerReposAsync();
+        var badResult = await badVesselClient.ListContainerRepos();
         Assert.False(badResult.TryGetValue(out _, out var badErr));
         Assert.Equal(401, badErr.Status);
         Assert.Equal("UNAUTHORIZED", badErr.Code);

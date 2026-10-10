@@ -187,7 +187,7 @@
         errorMessage = null;
         try
         {
-            var res = await Client.ListObjectsAsync(Bucket, CurrentPrefix, delimiter: "/", marker: nextMarker, limit: 100);
+            var res = await Client.ListObjects(Bucket, CurrentPrefix, delimiter: "/", marker: nextMarker, limit: 100);
             if (!res.TryGetValue(out var page, out var err))
             {
                 errorMessage = err.Message;
@@ -256,7 +256,7 @@
         armedDeleteKey = null;
         try
         {
-            var res = await Client.DeleteObjectAsync(Bucket, key);
+            var res = await Client.DeleteObject(Bucket, key);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete {key}: {err.Message}");

@@ -129,7 +129,7 @@
     {
         try
         {
-            var res = await Client.ListBucketsAsync();
+            var res = await Client.ListBuckets();
             if (res.TryGetValue(out var list, out _))
             {
                 buckets = list.Select(b => b.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
@@ -202,7 +202,7 @@
         {
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
             var contentType = MimeHelper.GetMimeType(file.Name, file.ContentType);
-            var res = await Client.PutObjectAsync(bucket, key, stream, contentType);
+            var res = await Client.PutObject(bucket, key, stream, contentType);
             if (!res.TryGetValue(out _, out var err))
             {
                 job.State = UploadState.Failed;

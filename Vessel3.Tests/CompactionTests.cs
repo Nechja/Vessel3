@@ -90,9 +90,9 @@ public sealed class CompactionTests : IDisposable
         {
             var (live, _) = b.Index.ListCurrent(prefix: null, from: null, limit: 100);
             Assert.Equal(5, live.Count);
-            var late = ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("late")).Value!;
+            var late = ((Result<PutEntry>.Success)b.Index.GetCurrentPut("late")).Value;
             Assert.Equal(lateVersion, late.VersionId);
-            Assert.Null(((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k0")).Value);
+            Assert.IsType<Result<PutEntry>.Failure>(b.Index.GetCurrentPut("k0"));
         }
     }
 
@@ -145,7 +145,7 @@ public sealed class CompactionTests : IDisposable
         b.AppendPut("k", Req("two"));
         Assert.IsType<Result<CompactionOutcome>.Success>(b.Compact());
         Assert.Equal(0, b.LogBytes());
-        Assert.Equal("two".Length, ((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value!.Size);
+        Assert.Equal("two".Length, ((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value.Size);
     }
 
     [Fact]

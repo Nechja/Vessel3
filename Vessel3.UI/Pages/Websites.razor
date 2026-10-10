@@ -361,14 +361,14 @@
 
         try
         {
-            var res = await Client.ListBucketsAsync();
+            var res = await Client.ListBuckets();
             if (res.TryGetValue(out var buckets, out var err))
             {
                 allBuckets = buckets.OrderBy(b => b.Name).ToList();
 
                 foreach (var b in allBuckets)
                 {
-                    var webRes = await Client.GetBucketWebsiteAsync(b.Name);
+                    var webRes = await Client.GetBucketWebsite(b.Name);
                     if (webRes.TryGetValue(out var cfg, out _) && cfg is not null)
                     {
                         activeWebsites.Add(new SiteEntry(b.Name, cfg.Value));
@@ -425,7 +425,7 @@
     {
         try
         {
-            var res = await Client.DeleteBucketWebsiteAsync(bucket);
+            var res = await Client.DeleteBucketWebsite(bucket);
             if (!res.TryGetError(out var err))
             {
                 Toast.Success($"Disabled static website hosting for {bucket}");
@@ -595,7 +595,7 @@
             {
                 deployStatusText = $"Creating bucket '{targetBucket}'...";
                 StateHasChanged();
-                var createRes = await Client.CreateBucketAsync(targetBucket);
+                var createRes = await Client.CreateBucket(targetBucket);
                 if (createRes.TryGetError(out var createErr))
                 {
                     Toast.Error($"Failed to create bucket: {createErr.Message}");
@@ -608,12 +608,12 @@
             {
                 deployStatusText = "Cleaning existing objects in bucket...";
                 StateHasChanged();
-                var listRes = await Client.ListObjectsAsync(targetBucket, limit: 1000);
+                var listRes = await Client.ListObjects(targetBucket, limit: 1000);
                 if (listRes.TryGetValue(out var page, out _))
                 {
                     foreach (var obj in page.Objects)
                     {
-                        await Client.DeleteObjectAsync(targetBucket, obj.Key);
+                        await Client.DeleteObject(targetBucket, obj.Key);
                     }
                 }
             }
@@ -628,7 +628,7 @@
 
                 await using var stream = await file.OpenStream();
                 var mime = MimeHelper.GetMimeType(file.RelativePath);
-                var putRes = await Client.PutObjectAsync(targetBucket, file.RelativePath, stream, mime);
+                var putRes = await Client.PutObject(targetBucket, file.RelativePath, stream, mime);
                 if (!putRes.TryGetValue(out _, out var putErr))
                 {
                     Toast.Error($"Failed to upload {file.RelativePath}: {putErr.Message}");
@@ -642,7 +642,7 @@
             StateHasChanged();
 
             var webCfg = new BucketWebsiteDto(indexDocument, string.IsNullOrWhiteSpace(errorDocument) ? null : errorDocument);
-            var setWebRes = await Client.SetBucketWebsiteAsync(targetBucket, webCfg);
+            var setWebRes = await Client.SetBucketWebsite(targetBucket, webCfg);
             if (setWebRes.TryGetError(out var setWebErr))
             {
                 Toast.Error($"Files uploaded, but failed to set website config: {setWebErr.Message}");
@@ -654,7 +654,7 @@
             {
                 deployStatusText = "Enabling public read access...";
                 StateHasChanged();
-                await Client.SetBucketAccessAsync(targetBucket, new BucketAccessDto(PublicRead: true, ReadOnly: false));
+                await Client.SetBucketAccess(targetBucket, new BucketAccessDto(PublicRead: true, ReadOnly: false));
             }
 
             deployProgressPercent = 100;
