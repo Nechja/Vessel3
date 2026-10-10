@@ -46,7 +46,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (context.Request.Headers.TryGetValue("X-Vessel-Key", out var vesselKey) &&
             context.Request.Headers.TryGetValue("X-Vessel-Secret", out var vesselSecret))
         {
-            if (await HandleCustomHeadersAuthAsync(context, vesselKey.ToString(), vesselSecret.ToString(), next))
+            if (await HandleCustomHeadersAuth(context, vesselKey.ToString(), vesselSecret.ToString(), next))
             {
                 return;
             }
@@ -60,20 +60,20 @@ internal sealed class ContainerRepoAuthMiddleware(
 
         if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleBearerAuthAsync(context, authHeader, next);
+            await HandleBearerAuth(context, authHeader, next);
             return;
         }
 
         if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleBasicAuthAsync(context, authHeader, isPing, next);
+            await HandleBasicAuth(context, authHeader, isPing, next);
             return;
         }
 
         await Challenge(context, isPing);
     }
 
-    private async Task<bool> HandleCustomHeadersAuthAsync(HttpContext context, string vesselKey, string vesselSecret, RequestDelegate next)
+    private async Task<bool> HandleCustomHeadersAuth(HttpContext context, string vesselKey, string vesselSecret, RequestDelegate next)
     {
         var authResult = AuthenticateBasic(vesselKey, vesselSecret);
         if (!authResult.TryGetValue(out var caller, out var error))
@@ -93,7 +93,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         return true;
     }
 
-    private async Task HandleBearerAuthAsync(HttpContext context, string authHeader, RequestDelegate next)
+    private async Task HandleBearerAuth(HttpContext context, string authHeader, RequestDelegate next)
     {
         var token = authHeader["Bearer ".Length..].Trim();
         if (tokenService.ValidateToken(token, out var userId, out var scopes))
@@ -135,7 +135,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         await WriteOciError(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Invalid or expired token");
     }
 
-    private async Task HandleBasicAuthAsync(HttpContext context, string authHeader, bool isPing, RequestDelegate next)
+    private async Task HandleBasicAuth(HttpContext context, string authHeader, bool isPing, RequestDelegate next)
     {
         var basicStr = authHeader["Basic ".Length..].Trim();
         if (!TryDecodeBasic(basicStr, out var key, out var secret))

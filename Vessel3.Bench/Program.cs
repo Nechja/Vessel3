@@ -1,7 +1,12 @@
 using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
 using Amazon.Runtime;
 using Amazon.S3;
+using Azure.Storage;
+using Azure.Storage.Blobs;
 using Vessel3.Bench;
+using Vessel3.Client;
 
 if (args.Length is 0 || args[0] is "-h" or "--help")
 {
@@ -22,6 +27,17 @@ var config = new AmazonS3Config
     UseHttp = endpoint.StartsWith("http://", StringComparison.Ordinal),
 };
 using var s3 = new AmazonS3Client(new BasicAWSCredentials(accessKey, secretKey), config);
+using var vessel = new VesselClient(endpoint, accessKey, secretKey);
+
+var azureEndpoint = Environment.GetEnvironmentVariable("VESSEL3_AZURE_ENDPOINT") ?? $"{endpoint.TrimEnd('/')}/devstoreaccount1";
+var azureAccount  = Environment.GetEnvironmentVariable("VESSEL3_AZURE_ACCOUNT")  ?? "devstoreaccount1";
+var azureKey      = Environment.GetEnvironmentVariable("VESSEL3_AZURE_KEY")      ?? "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
+var azure = new BlobServiceClient(new Uri(azureEndpoint), new StorageSharedKeyCredential(azureAccount, azureKey));
+
+using var webdavHandler = new SocketsHttpHandler { UseProxy = false };
+using var webdavHttp = new HttpClient(webdavHandler) { BaseAddress = new Uri(endpoint.TrimEnd('/') + "/") };
+var authBytes = Encoding.UTF8.GetBytes($"{accessKey}:{secretKey}");
+webdavHttp.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
 
 var scenario = args[0];
 var opts = ParseOptions(args[1..]);
@@ -37,17 +53,23 @@ if (scenario is "list-growth")
 
 var summary = scenario switch
 {
-    "wildcard"    => await Scenarios.Wildcard(opts),
-    "put-small"   => await Scenarios.PutSmall(s3, opts),
-    "put-large"   => await Scenarios.PutLarge(s3, opts),
-    "get"         => await Scenarios.Get(s3, opts),
-    "multipart"   => await Scenarios.Multipart(s3, opts),
-    "mixed"       => await Scenarios.Mixed(s3, opts),
-    "list"        => await Scenarios.List(s3, opts),
-    "bulk-delete" => await Scenarios.BulkDelete(s3, opts),
-    "loki"        => await Scenarios.Loki(s3, opts),
-    "loki-single" => await Scenarios.LokiSingleDelete(s3, opts),
-    _             => throw new ArgumentException($"unknown scenario: {scenario}"),
+    "wildcard"        => await Scenarios.Wildcard(opts),
+    "put-small"       => await Scenarios.PutSmall(s3, opts),
+    "put-large"       => await Scenarios.PutLarge(s3, opts),
+    "get"             => await Scenarios.Get(s3, opts),
+    "multipart"       => await Scenarios.Multipart(s3, opts),
+    "mixed"           => await Scenarios.Mixed(s3, opts),
+    "list"            => await Scenarios.List(s3, opts),
+    "bulk-delete"     => await Scenarios.BulkDelete(s3, opts),
+    "loki"            => await Scenarios.Loki(s3, opts),
+    "loki-single"     => await Scenarios.LokiSingleDelete(s3, opts),
+    "native-put"      => await Scenarios.NativePut(vessel, opts),
+    "native-get"      => await Scenarios.NativeGet(vessel, opts),
+    "native-list"     => await Scenarios.NativeList(vessel, opts),
+    "azure-put"       => await Scenarios.AzurePut(azure, opts),
+    "azure-get"       => await Scenarios.AzureGet(azure, opts),
+    "webdav-propfind" => await Scenarios.WebDavPropfind(webdavHttp, opts),
+    _                 => throw new ArgumentException($"unknown scenario: {scenario}"),
 };
 
 if (json) PrintJson(scenario, opts, summary);
@@ -194,6 +216,12 @@ static void PrintUsage()
     Console.WriteLine("  loki        40% GET / 40% 1.5 MB PUT / 20% LIST, bulk delete every 500 puts per worker");
     Console.WriteLine("  loki-single same mix, but deletes one key per request once 100 are pending (what Loki does)");
     Console.WriteLine("  list-growth seed in doubling steps up to --seed-keys (min 16000); 100-key LIST latency at each size");
+    Console.WriteLine("  native-put       VesselClient Native PUT (override with --object-size)");
+    Console.WriteLine("  native-get       VesselClient Native GET against pre-seeded bucket");
+    Console.WriteLine("  native-list      VesselClient Native prefix list against pre-seeded bucket");
+    Console.WriteLine("  azure-put        Azure Blob PUT block blob (override with --object-size)");
+    Console.WriteLine("  azure-get        Azure Blob GET against pre-seeded container");
+    Console.WriteLine("  webdav-propfind  WebDAV PROPFIND with Depth: 1 against collection");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");
@@ -204,7 +232,7 @@ static void PrintUsage()
     Console.WriteLine("  --seed-keys 100         default 100 (for get/mixed)");
     Console.WriteLine("  --json                  emit JSON instead of table");
     Console.WriteLine();
-    Console.WriteLine("Env: VESSEL3_ENDPOINT, VESSEL3_ACCESS_KEY, VESSEL3_SECRET_KEY, VESSEL3_REGION");
+    Console.WriteLine("Env: VESSEL3_ENDPOINT, VESSEL3_ACCESS_KEY, VESSEL3_SECRET_KEY, VESSEL3_REGION, VESSEL3_AZURE_ENDPOINT, VESSEL3_AZURE_ACCOUNT, VESSEL3_AZURE_KEY");
 }
 
 internal static class BenchJson

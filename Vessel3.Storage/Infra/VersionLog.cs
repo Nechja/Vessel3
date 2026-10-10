@@ -52,7 +52,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
             if (faulted) throw new IOException("Log is faulted; restart required");
 
             var seq = nextSeq;
-            var assigned = new List<VersionEvent>(ops.Count);
+            List<VersionEvent> assigned = new(ops.Count);
             foreach (var op in ops) assigned.Add(op.WithSeq(seq++));
 
             var payload = JsonSerializer.SerializeToUtf8Bytes(
@@ -91,7 +91,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
             try
             {
-                var kept = new List<VersionEvent>();
+                List<VersionEvent> kept = [];
                 using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
                     foreach (var (ev, _) in ReadRecords(fs))
@@ -274,7 +274,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
     {
         ops = [];
         recordSeq = 0;
-        var line = new List<byte>(512);
+        List<byte> line = new(512);
         while (true)
         {
             var b = fs.ReadByte();

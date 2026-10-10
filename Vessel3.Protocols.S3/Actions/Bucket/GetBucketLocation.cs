@@ -4,14 +4,15 @@ internal sealed class GetBucketLocation(IBucketRegistry registry, IS3XmlWriter x
 {
     public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.Location);
 
-    public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
-        registry.Exists(bucket).Match<Task<IResult>>(
-            async exists =>
-            {
-                if (!exists) return http.Map(new NoSuchBucketError(bucket));
-                ctx.Response.ContentType = "application/xml";
-                await xml.WriteLocationConstraint(ctx.Response.Body, region.Value, ctx.RequestAborted);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
+    public async Task<IResult> Invoke(string bucket, HttpContext ctx)
+    {
+        if (!registry.Exists(bucket).TryGetValue(out var exists, out var err))
+            return http.Map(err);
+
+        if (!exists) return http.Map(new NoSuchBucketError(bucket));
+
+        ctx.Response.ContentType = "application/xml";
+        await xml.WriteLocationConstraint(ctx.Response.Body, region.Value, ctx.RequestAborted);
+        return Results.Empty;
+    }
 }

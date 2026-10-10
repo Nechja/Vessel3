@@ -18,13 +18,14 @@ internal static class AzureHeaderCodec
 
         res.Headers["x-ms-request-id"] = requestId;
 
-        var clientVersion = req.Headers["x-ms-version"].ToString();
-        res.Headers["x-ms-version"] = !string.IsNullOrEmpty(clientVersion) ? clientVersion : DefaultApiVersion;
+        var clientVersion = req.Headers.TryGetValue("x-ms-version", out var v) && v.Count > 0 && v[0] is { Length: > 0 } sv
+            ? sv
+            : DefaultApiVersion;
+        res.Headers["x-ms-version"] = clientVersion;
 
-        var clientReqId = req.Headers["x-ms-client-request-id"].ToString();
-        if (!string.IsNullOrEmpty(clientReqId))
+        if (req.Headers.TryGetValue("x-ms-client-request-id", out var crId) && crId.Count > 0 && crId[0] is { Length: > 0 } reqIdStr)
         {
-            res.Headers["x-ms-client-request-id"] = clientReqId;
+            res.Headers["x-ms-client-request-id"] = reqIdStr;
         }
 
         res.Headers["Date"] = AzureXmlDefaults.ToRfc1123(DateTimeOffset.UtcNow);
@@ -33,7 +34,7 @@ internal static class AzureHeaderCodec
 
     public static Dictionary<string, string> ExtractUserMetadata(IHeaderDictionary headers)
     {
-        var meta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> meta = new(StringComparer.OrdinalIgnoreCase);
         const string prefix = "x-ms-meta-";
         foreach (var (key, value) in headers)
         {

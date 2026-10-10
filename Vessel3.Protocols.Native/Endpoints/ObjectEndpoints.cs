@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -33,9 +34,9 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"].ToString());
-        var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"].ToString());
-        var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"].ToString());
+        var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"]);
+        var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"]);
+        var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"]);
         var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0 ? parsedLimit : 1000;
 
         var result = lister.List(new ListRequest(bucket, prefix, delimiter, marker, limit), continuationToken: null);
@@ -68,7 +69,7 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = await objects.Get(bucket, key, versionId, context.RequestAborted);
         if (!result.TryGetValue(out var storedObject, out var error))
         {
@@ -95,7 +96,7 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = objects.Stat(bucket, key, versionId);
         if (!result.TryGetValue(out var stat, out var error))
         {
@@ -133,7 +134,7 @@ internal static class ObjectEndpoints
             DeclaredSha256: null,
             DeclaredMd5Base64: null,
             Metadata: metadata,
-            Tags: new Dictionary<string, string>(),
+            Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
             Ct: context.RequestAborted,
             Protocol: "native",
@@ -161,7 +162,7 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = versionId is not null
             ? objects.DeleteVersion(bucket, key, versionId)
             : objects.Delete(bucket, key);

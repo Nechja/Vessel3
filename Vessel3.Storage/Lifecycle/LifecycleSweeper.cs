@@ -70,22 +70,25 @@ internal sealed class LifecycleSweeper(IBucketRegistry registry) : ILifecycleSwe
                     if (rule.ExpirationDays is { } days
                         && entry is AllVersionsEntry.Put put
                         && now - put.At >= TimeSpan.FromDays(days))
+                    {
                         puts.Add(put);
+                    }
                     else if (rule.ExpiredObjectDeleteMarker
                         && entry is AllVersionsEntry.Marker mk
                         && bucket.Index.CountVersions(mk.Key) is 1)
-                        markers.Add(mk);
-                }
-                else
-                {
-                    if (rule.NoncurrentDays is { } noncurrentDays
-                        && now - successorAt >= TimeSpan.FromDays(noncurrentDays)
-                        && seenNoncurrent.Add((entry.Key, entry.VersionId)))
                     {
-                        noncurrent.Add(entry);
+                        markers.Add(mk);
                     }
-                    successorAt = entry.At;
+                    continue;
                 }
+
+                if (rule.NoncurrentDays is { } noncurrentDays
+                    && now - successorAt >= TimeSpan.FromDays(noncurrentDays)
+                    && seenNoncurrent.Add((entry.Key, entry.VersionId)))
+                {
+                    noncurrent.Add(entry);
+                }
+                successorAt = entry.At;
             }
         }
 

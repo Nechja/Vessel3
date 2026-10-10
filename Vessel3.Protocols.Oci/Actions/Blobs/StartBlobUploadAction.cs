@@ -14,9 +14,7 @@ internal sealed class StartBlobUploadAction(
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
     {
         var repo = target.Repo ?? "";
-        var declaredDigest = ctx.Request.Query["digest"].ToString();
-
-        if (!string.IsNullOrEmpty(declaredDigest))
+        if (ctx.Request.Query.TryGetValue("digest", out var dVal) && dVal.Count > 0 && dVal[0] is { Length: > 0 } declaredDigest)
         {
             await SingleShotUpload(repo, declaredDigest, ctx);
             return;

@@ -60,27 +60,22 @@ internal sealed class PutManifestAction(
             if (root.TryGetProperty("config", out var config) && config.TryGetProperty("digest", out var cfgDigest) && cfgDigest.GetString() is { } cd)
                 list.Add(cd);
 
-            if (root.TryGetProperty("layers", out var layers) && layers.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var layer in layers.EnumerateArray())
-                {
-                    if (layer.TryGetProperty("digest", out var lDigest) && lDigest.GetString() is { } ld)
-                        list.Add(ld);
-                }
-            }
-
-            if (root.TryGetProperty("manifests", out var manifests) && manifests.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var m in manifests.EnumerateArray())
-                {
-                    if (m.TryGetProperty("digest", out var mDigest) && mDigest.GetString() is { } md)
-                        list.Add(md);
-                }
-            }
+            AppendDigests(root, "layers", list);
+            AppendDigests(root, "manifests", list);
         }
         catch
         {
         }
         return list;
+    }
+
+    private static void AppendDigests(JsonElement root, string propertyName, List<string> list)
+    {
+        if (!root.TryGetProperty(propertyName, out var array) || array.ValueKind != JsonValueKind.Array) return;
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.TryGetProperty("digest", out var digest) && digest.GetString() is { } d)
+                list.Add(d);
+        }
     }
 }

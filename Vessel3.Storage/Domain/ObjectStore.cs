@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace Vessel3.Storage;
 
 internal interface IObjectStore
@@ -59,7 +61,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
 
         return put is null
             ? new NoSuchKeyError(key)
-            : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? new Dictionary<string, string>());
+            : new Result<IReadOnlyDictionary<string, string>>.Success(put.Tags ?? FrozenDictionary<string, string>.Empty);
     }
 
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
@@ -73,7 +75,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
             : registry.GetVersionKind(bucket, key, versionId) == Storage.VersionKind.DeleteMarker;
 
     public Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId) =>
-        PutTagging(bucket, key, versionId, new Dictionary<string, string>());
+        PutTagging(bucket, key, versionId, FrozenDictionary<string, string>.Empty);
 
     public async Task<Result<StoredObject>> Get(string bucket, string key, string? versionId = null, CancellationToken ct = default)
     {
@@ -186,7 +188,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
             Md5: blob.Md5,
             Size: blob.Size,
             ContentType: resolved,
-            Metadata: req.Metadata ?? new Dictionary<string, string>(),
+            Metadata: req.Metadata ?? FrozenDictionary<string, string>.Empty,
             Tags: req.Tags,
             Crc32: toStore.Crc32,
             Crc32C: toStore.Crc32C,

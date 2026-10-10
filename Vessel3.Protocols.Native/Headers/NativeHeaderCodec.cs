@@ -66,4 +66,6 @@ internal static class NativeHeaderCodec
     }
 
     public static string? Nullify(string? s) => string.IsNullOrEmpty(s) ? null : s;
+    public static string? Nullify(Microsoft.Extensions.Primitives.StringValues sv) =>
+        sv.Count > 0 && sv[0] is { Length: > 0 } s ? s : null;
 }

@@ -387,7 +387,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             SELECT key, version_id, kind, md5, size, at_ms, parts_json
               FROM versions
             """;
-        var clauses = new List<string>();
+        List<string> clauses = [];
         if (prefix is not null) clauses.Add("key >= $lo");
         if (hi is not null) clauses.Add("key < $hi");
         if (keyMarker is not null) clauses.Add("key > $km");
@@ -406,7 +406,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         if (keyMarker is not null) cmd.Parameters.AddWithValue("$km", keyMarker);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
 
-        var results = new List<AllVersionsEntry>(limit);
+        List<AllVersionsEntry> results = new(limit);
         using var r = cmd.ExecuteReader();
         string? lastKey = null;
         var truncated = false;
@@ -435,7 +435,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                    MAX(seq)
               FROM versions
             """;
-        var clauses = new List<string>();
+        List<string> clauses = [];
         if (prefix is not null) clauses.Add("key >= $lo");
         if (hi is not null) clauses.Add("key < $hi");
         if (from is { } f) clauses.Add(f.Inclusive ? "key >= $from" : "key > $from");
@@ -455,7 +455,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         if (from is { } f) cmd.Parameters.AddWithValue("$from", f.Key);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
 
-        var results = new List<VersionListEntry>(limit);
+        List<VersionListEntry> results = new(limit);
         using var r = cmd.ExecuteReader();
         var truncated = false;
         while (r.Read())

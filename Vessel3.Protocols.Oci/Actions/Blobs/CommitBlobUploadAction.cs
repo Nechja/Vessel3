@@ -15,9 +15,7 @@ internal sealed class CommitBlobUploadAction(
     {
         var repo = target.Repo ?? "";
         var uploadId = target.UploadId ?? "";
-        var declaredDigest = ctx.Request.Query["digest"].ToString();
-
-        if (string.IsNullOrEmpty(declaredDigest))
+        if (!ctx.Request.Query.TryGetValue("digest", out var dVal) || dVal.Count == 0 || dVal[0] is not { Length: > 0 } declaredDigest)
         {
             await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, "Missing digest query parameter on upload commit");
             return;

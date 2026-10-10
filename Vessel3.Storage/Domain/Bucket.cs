@@ -206,7 +206,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             default:
             {
                 if (Index.GetCurrentPut(key) is not Result<PutEntry?>.Success { Value: { } old })
-                    return (Array.Empty<VersionEvent>(), new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false));
+                    return ([], new DeleteOutcome(string.Empty, IsDeleteMarker: false, Found: false));
 
                 if (old.LegalHoldOn)
                     return new AccessDeniedError($"legal hold on {key}");
@@ -339,8 +339,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         lock (writeGate)
         {
             var seenKeys = new HashSet<string>(StringComparer.Ordinal);
-            var subBatchItems = new List<(WriteWorkItem Item, int EventCount)>();
-            var subBatchEvents = new List<VersionEvent>();
+            List<(WriteWorkItem Item, int EventCount)> subBatchItems = [];
+            List<VersionEvent> subBatchEvents = [];
 
             void FlushSubBatch()
             {

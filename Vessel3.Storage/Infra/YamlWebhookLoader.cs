@@ -8,7 +8,7 @@ internal static class YamlWebhookLoader
     public static Result<IReadOnlyList<Webhook>> LoadFromYaml(string yamlContent, TimeProvider? clock = null)
     {
         clock ??= TimeProvider.System;
-        var list = new List<Webhook>();
+        List<Webhook> list = [];
         if (string.IsNullOrWhiteSpace(yamlContent))
             return list;
 
@@ -41,7 +41,6 @@ internal static class YamlWebhookLoader
 
             if (!inWebhooks) continue;
 
-            // Check if starting a new webhook item: "- "
             if (trimmed.StartsWith("- ", StringComparison.Ordinal) && !line.StartsWith("      ", StringComparison.Ordinal) && !line.StartsWith("\t\t", StringComparison.Ordinal))
             {
                 FlushCurrent();
@@ -53,7 +52,6 @@ internal static class YamlWebhookLoader
                 continue;
             }
 
-            // Check if item in a list property (events or resources)
             if (trimmed.StartsWith("- ", StringComparison.Ordinal) && builder.ListProperty is not null)
             {
                 var itemVal = StripQuotes(trimmed[2..].Trim());
@@ -62,7 +60,6 @@ internal static class YamlWebhookLoader
                 continue;
             }
 
-            // Normal key-value property
             builder.ParseKeyValue(trimmed);
         }
 

@@ -265,7 +265,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             return [];
         }
 
-        var results = new List<T>(items.GetArrayLength());
+        List<T> results = new(items.GetArrayLength());
         foreach (var item in items.EnumerateArray())
         {
             var parsed = JsonSerializer.Deserialize(item.GetRawText(), typeInfo);

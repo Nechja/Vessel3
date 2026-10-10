@@ -11,10 +11,8 @@ internal sealed class CatalogAction(IContainerRepoCatalog catalog) : IOciAction
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
     {
-        var nStr = ctx.Request.Query["n"].ToString();
-        var limit = int.TryParse(nStr, out var parsedLimit) ? parsedLimit : 100;
-        var last = ctx.Request.Query["last"].ToString();
-        if (string.IsNullOrEmpty(last)) last = null;
+        var limit = ctx.Request.Query.TryGetValue("n", out var nVal) && int.TryParse(nVal, out var parsedLimit) ? parsedLimit : 100;
+        var last = ctx.Request.Query.TryGetValue("last", out var lastVal) && lastVal.Count > 0 && lastVal[0] is { Length: > 0 } l ? l : null;
 
         var listResult = catalog.ListRepos(limit, last);
         if (!listResult.TryGetValue(out var repos, out var err))

@@ -4,12 +4,12 @@ internal sealed class GetObjectTagging(IObjectStore objects, IS3XmlWriter xml, I
 {
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.Tagging);
 
-    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx) =>
-        Task.FromResult(objects.GetTagging(bucket, key, ctx.VersionId()).Match<IResult>(
-            tags =>
-            {
-                ctx.Response.ContentType = "application/xml";
-                return Results.Stream(async stream => await xml.WriteTagging(stream, tags, ctx.RequestAborted), "application/xml");
-            },
-            http.Map));
+    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    {
+        if (!objects.GetTagging(bucket, key, ctx.VersionId()).TryGetValue(out var tags, out var err))
+            return Task.FromResult(http.Map(err));
+
+        ctx.Response.ContentType = "application/xml";
+        return Task.FromResult<IResult>(Results.Stream(async stream => await xml.WriteTagging(stream, tags, ctx.RequestAborted), "application/xml"));
+    }
 }

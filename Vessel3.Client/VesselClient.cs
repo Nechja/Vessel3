@@ -125,7 +125,7 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         int limit = 1000,
         CancellationToken ct = default)
     {
-        var q = new List<string>();
+        List<string> q = [];
         if (!string.IsNullOrEmpty(prefix)) q.Add($"prefix={Uri.EscapeDataString(prefix)}");
         if (!string.IsNullOrEmpty(delimiter)) q.Add($"delimiter={Uri.EscapeDataString(delimiter)}");
         if (!string.IsNullOrEmpty(marker)) q.Add($"marker={Uri.EscapeDataString(marker)}");
@@ -415,7 +415,7 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var path = "v1/events/stream";
-        var queryParams = new List<string>(2);
+        List<string> queryParams = new(2);
         if (!string.IsNullOrWhiteSpace(topicFilter))
         {
             queryParams.Add($"topics={Uri.EscapeDataString(topicFilter)}");
@@ -549,20 +549,22 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         try
         {
             var bytes = await res.Content.ReadAsByteArrayAsync(ct);
-            if (bytes.Length > 0)
+            if (bytes.Length == 0)
             {
-                var errDto = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.ErrorDto);
-                if (errDto.Error is { Length: > 0 } code)
-                {
-                    return new HttpError(code, errDto.Message ?? string.Empty, (int)res.StatusCode);
-                }
+                return new HttpError("HttpError", $"HTTP {(int)res.StatusCode} {res.ReasonPhrase}", (int)res.StatusCode);
+            }
 
-                var ociErr = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.OciErrorsDto);
-                if (ociErr.Errors is { Count: > 0 } errors)
-                {
-                    var first = errors[0];
-                    return new HttpError(first.Code ?? "OciError", first.Message ?? string.Empty, (int)res.StatusCode);
-                }
+            var errDto = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.ErrorDto);
+            if (errDto.Error is { Length: > 0 } code)
+            {
+                return new HttpError(code, errDto.Message ?? string.Empty, (int)res.StatusCode);
+            }
+
+            var ociErr = JsonSerializer.Deserialize(bytes, VesselJsonContext.Default.OciErrorsDto);
+            if (ociErr.Errors is { Count: > 0 } errors)
+            {
+                var first = errors[0];
+                return new HttpError(first.Code ?? "OciError", first.Message ?? string.Empty, (int)res.StatusCode);
             }
         }
         catch

@@ -80,7 +80,7 @@ internal sealed class SqliteWebhookStore : IWebhookStore
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = "SELECT id, name, url, secret, event_filters, resource_filters, active, created_at, last_triggered_at, last_status_code, last_error, is_static FROM webhooks ORDER BY created_at ASC;";
             using var reader = cmd.ExecuteReader();
-            var list = new List<Webhook>();
+            List<Webhook> list = [];
             while (reader.Read())
             {
                 list.Add(ReadWebhook(reader));

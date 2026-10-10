@@ -9,8 +9,9 @@ internal static class AzureRequestParser
     public static bool IsAzureRequest(HttpRequest req) =>
         req.Headers.ContainsKey("x-ms-version") ||
         req.Headers.ContainsKey("x-ms-date") ||
-        req.Headers.Authorization.ToString().StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) ||
-        req.Headers.Authorization.ToString().StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase) ||
+        (req.Headers.TryGetValue("Authorization", out var authHdr) && authHdr.Count > 0 &&
+         (authHdr[0]?.StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) is true ||
+          authHdr[0]?.StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase) is true)) ||
         (req.Query.ContainsKey("sig") && (req.Query.ContainsKey("se") || req.Query.ContainsKey("sp") || req.Query.ContainsKey("sv"))) ||
         (req.Path.Value ?? "/").StartsWith($"/{DevStoreAccount}", StringComparison.OrdinalIgnoreCase) ||
         (req.Path.Value ?? "/").StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase);
@@ -52,8 +53,8 @@ internal static class AzureRequestParser
 
         var method = req.Method;
         var query = req.Query;
-        var comp = query["comp"].ToString();
-        var restype = query["restype"].ToString();
+        var comp = query.TryGetValue("comp", out var cVal) && cVal.Count > 0 ? cVal[0] ?? "" : "";
+        var restype = query.TryGetValue("restype", out var rVal) && rVal.Count > 0 ? rVal[0] ?? "" : "";
 
         var op = ResolveOperation(method, container, blob, restype, comp, req.Headers);
 
@@ -62,7 +63,9 @@ internal static class AzureRequestParser
 
     private static string? ExtractAccountFromAuthHeader(HttpRequest req)
     {
-        var auth = req.Headers.Authorization.ToString();
+        if (!req.Headers.TryGetValue("Authorization", out var authVal) || authVal.Count == 0 || authVal[0] is not { Length: > 0 } auth)
+            return null;
+
         const string sharedKeyPrefix = "SharedKey ";
         const string sharedKeyLitePrefix = "SharedKeyLite ";
 

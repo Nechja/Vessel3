@@ -81,32 +81,37 @@ internal sealed class NativeAuthMiddleware(
             secret = s.ToString();
         }
 
-        if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(secret))
+        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(secret))
         {
-            if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null)
-            {
-                var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-                var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-                if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
-                    return new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
+            return options.IsUnauthenticated
+                ? (CallerIdentity?)CallerIdentity.System
+                : (CallerIdentity?)null;
+        }
 
-                var authenticated = registry.AuthenticateAccessKey(key);
-                return !authenticated.TryGetValue(out var caller, out var err)
-                    ? new HttpError("InvalidCredentials", err.Message, 401)
-                    : (CallerIdentity?)caller;
-            }
+        if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _) && keyEntry is not null)
+        {
+            var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
+            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
+            if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
+                return new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
 
-            return options.RootAccessKey is not null && options.RootSecretKey is not null &&
-                string.Equals(key, options.RootAccessKey, StringComparison.Ordinal)
-                ? !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret))
-                    ? new HttpError("InvalidCredentials", "Invalid access key or secret", 401)
-                    : (CallerIdentity?)CallerIdentity.System
+            var authenticated = registry.AuthenticateAccessKey(key);
+            return !authenticated.TryGetValue(out var caller, out var err)
+                ? new HttpError("InvalidCredentials", err.Message, 401)
+                : (CallerIdentity?)caller;
+        }
+
+        if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
+            string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
+        {
+            var rootSecretBytes = Encoding.UTF8.GetBytes(options.RootSecretKey);
+            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
+            return CryptographicOperations.FixedTimeEquals(rootSecretBytes, reqSecretBytes)
+                ? (CallerIdentity?)CallerIdentity.System
                 : new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
         }
 
-        return options.IsUnauthenticated
-            ? (CallerIdentity?)CallerIdentity.System
-            : (CallerIdentity?)null;
+        return new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
     }
 
     private bool IsAnonymousAllowed(HttpContext ctx)

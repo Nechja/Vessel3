@@ -201,8 +201,10 @@ public class RequestTelemetryTests
         {
             RequestTrace.Current!.Action = "PutObject";
             RequestTrace.Current.Bucket = "skycam";
-            await Task.Delay(35, TestContext.Current.CancellationToken);
-            RequestTrace.Current.Add(Stage.Body, Stopwatch.Frequency * 35 / 1000);
+            using (RequestTrace.Time(Stage.Body))
+            {
+                await Task.Delay(35, TestContext.Current.CancellationToken);
+            }
             ctx.Response.StatusCode = 200;
         });
 

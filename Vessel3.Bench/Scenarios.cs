@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using Amazon.S3;
 using Amazon.S3.Model;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Vessel3.Client;
 
 namespace Vessel3.Bench;
 
@@ -397,11 +400,163 @@ internal static class Scenarios
                 try { await op(wid, ct); }
                 catch (OperationCanceledException) { return; }
                 catch (Exception) when (ct.IsCancellationRequested) { return; }
-                catch (AmazonS3Exception) { }
+                catch (Exception) { }
             }
         }
 
         await Task.WhenAll(Enumerable.Range(0, concurrency).Select(Worker));
+    }
+
+    public static async Task<LatencySummary> NativePut(VesselClient vessel, BenchOptions opts)
+    {
+        await vessel.CreateBucketAsync(opts.Bucket);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
+        var buffers = new byte[opts.Concurrency][];
+        for (var i = 0; i < opts.Concurrency; i++)
+        {
+            buffers[i] = new byte[size];
+            Random.Shared.NextBytes(buffers[i]);
+        }
+        var counters = new long[opts.Concurrency];
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var payload = buffers[wid];
+            if (payload.Length >= 8)
+                BitConverter.TryWriteBytes(payload.AsSpan(0, 8), ++counters[wid]);
+            var key = $"native/w{wid}/{Guid.NewGuid():N}";
+            using var ms = new MemoryStream(payload);
+            await vessel.PutObjectAsync(opts.Bucket, key, ms, ct: ct);
+            return payload.Length;
+        });
+    }
+
+    public static async Task<LatencySummary> NativeGet(VesselClient vessel, BenchOptions opts)
+    {
+        await vessel.CreateBucketAsync(opts.Bucket);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        var keys = new string[opts.SeedKeys];
+        for (var i = 0; i < opts.SeedKeys; i++)
+        {
+            keys[i] = $"seed/native/{i:D5}";
+            using var ms = new MemoryStream(payload);
+            await vessel.PutObjectAsync(opts.Bucket, keys[i], ms);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var key = keys[Random.Shared.Next(keys.Length)];
+            var res = await vessel.GetObjectAsync(opts.Bucket, key, ct: ct);
+            if (res.TryGetValue(out var dl, out _))
+            {
+                using (dl)
+                {
+                    await dl.Content.CopyToAsync(Stream.Null, ct);
+                    return dl.ContentLength > 0 ? dl.ContentLength : size;
+                }
+            }
+            return 0L;
+        });
+    }
+
+    public static async Task<LatencySummary> NativeList(VesselClient vessel, BenchOptions opts)
+    {
+        await vessel.CreateBucketAsync(opts.Bucket);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        for (var i = 0; i < 100; i++)
+        {
+            using var ms = new MemoryStream(payload);
+            await vessel.PutObjectAsync(opts.Bucket, $"seed/list/{i:D5}", ms);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var res = await vessel.ListObjectsAsync(opts.Bucket, prefix: "seed/list/", limit: 100, ct: ct);
+            if (res.TryGetValue(out var page, out _))
+                return page.Objects.Count;
+            return 0L;
+        });
+    }
+
+    public static async Task<LatencySummary> AzurePut(BlobServiceClient azure, BenchOptions opts)
+    {
+        var container = azure.GetBlobContainerClient(opts.Bucket);
+        await container.CreateIfNotExistsAsync(PublicAccessType.None);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
+        var buffers = new byte[opts.Concurrency][];
+        for (var i = 0; i < opts.Concurrency; i++)
+        {
+            buffers[i] = new byte[size];
+            Random.Shared.NextBytes(buffers[i]);
+        }
+        var counters = new long[opts.Concurrency];
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var payload = buffers[wid];
+            if (payload.Length >= 8)
+                BitConverter.TryWriteBytes(payload.AsSpan(0, 8), ++counters[wid]);
+            var key = $"azure/w{wid}/{Guid.NewGuid():N}";
+            var blob = container.GetBlobClient(key);
+            using var ms = new MemoryStream(payload);
+            await blob.UploadAsync(ms, cancellationToken: ct);
+            return payload.Length;
+        });
+    }
+
+    public static async Task<LatencySummary> AzureGet(BlobServiceClient azure, BenchOptions opts)
+    {
+        var container = azure.GetBlobContainerClient(opts.Bucket);
+        await container.CreateIfNotExistsAsync(PublicAccessType.None);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        var keys = new string[opts.SeedKeys];
+        for (var i = 0; i < opts.SeedKeys; i++)
+        {
+            keys[i] = $"seed/azure/{i:D5}";
+            var blob = container.GetBlobClient(keys[i]);
+            using var ms = new MemoryStream(payload);
+            await blob.UploadAsync(ms);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var key = keys[Random.Shared.Next(keys.Length)];
+            var blob = container.GetBlobClient(key);
+            var dl = await blob.DownloadStreamingAsync(cancellationToken: ct);
+            await dl.Value.Content.CopyToAsync(Stream.Null, ct);
+            return dl.Value.Details.ContentLength;
+        });
+    }
+
+    public static async Task<LatencySummary> WebDavPropfind(HttpClient http, BenchOptions opts)
+    {
+        using (var mkcol = new HttpRequestMessage(new HttpMethod("MKCOL"), $"dav/{opts.Bucket}/"))
+        {
+            await http.SendAsync(mkcol);
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            using var put = new HttpRequestMessage(HttpMethod.Put, $"dav/{opts.Bucket}/file_{i:D3}.txt");
+            put.Content = new ByteArrayContent("webdav bench payload"u8.ToArray());
+            await http.SendAsync(put);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            using var req = new HttpRequestMessage(new HttpMethod("PROPFIND"), $"dav/{opts.Bucket}/");
+            req.Headers.TryAddWithoutValidation("Depth", "1");
+            using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            var stream = await res.Content.ReadAsStreamAsync(ct);
+            await stream.CopyToAsync(Stream.Null, ct);
+            return res.Content.Headers.ContentLength ?? 0L;
+        });
     }
 
     public static async Task EnsureBucket(AmazonS3Client s3, BenchOptions opts)

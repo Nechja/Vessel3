@@ -53,9 +53,7 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
 
     public Result<CallerIdentity> Verify(HttpRequest req, string? pathAccount)
     {
-        var auth = req.Headers.Authorization.ToString();
-
-        if (string.IsNullOrEmpty(auth))
+        if (!req.Headers.TryGetValue("Authorization", out var authVal) || authVal.Count == 0 || authVal[0] is not { Length: > 0 } auth)
         {
             return isUnauthenticatedMode
                 ? CallerIdentity.System
@@ -160,18 +158,21 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         var method = req.Method;
         var headers = req.Headers;
 
-        var contentEncoding = headers.ContentEncoding.ToString();
-        var contentLanguage = headers.ContentLanguage.ToString();
-        var contentLength = req.ContentLength is > 0 ? req.ContentLength.Value.ToString(CultureInfo.InvariantCulture) : "";
-        var contentMd5 = headers["Content-MD5"].ToString();
-        var contentType = headers.ContentType.ToString();
+        static string GetHeader(IHeaderDictionary hdrs, string key) =>
+            hdrs.TryGetValue(key, out var val) && val.Count > 0 && val[0] is { Length: > 0 } s ? s : "";
 
-        var date = headers["x-ms-date"].Count > 0 ? "" : headers.Date.ToString();
-        var ifModifiedSince = headers.IfModifiedSince.ToString();
-        var ifMatch = headers.IfMatch.ToString();
-        var ifNoneMatch = headers.IfNoneMatch.ToString();
-        var ifUnmodifiedSince = headers.IfUnmodifiedSince.ToString();
-        var range = headers.Range.ToString();
+        var contentEncoding = GetHeader(headers, "Content-Encoding");
+        var contentLanguage = GetHeader(headers, "Content-Language");
+        var contentLength = req.ContentLength is > 0 ? req.ContentLength.Value.ToString(CultureInfo.InvariantCulture) : "";
+        var contentMd5 = GetHeader(headers, "Content-MD5");
+        var contentType = GetHeader(headers, "Content-Type");
+
+        var date = headers.ContainsKey("x-ms-date") ? "" : GetHeader(headers, "Date");
+        var ifModifiedSince = GetHeader(headers, "If-Modified-Since");
+        var ifMatch = GetHeader(headers, "If-Match");
+        var ifNoneMatch = GetHeader(headers, "If-None-Match");
+        var ifUnmodifiedSince = GetHeader(headers, "If-Unmodified-Since");
+        var range = GetHeader(headers, "Range");
 
         var canonicalHeaders = BuildCanonicalizedHeaders(headers);
         var canonicalResource = BuildCanonicalizedResource(req, account);

@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
@@ -25,10 +26,11 @@ internal sealed class GetBlobAction(
             return new AzureErrorResult(err, errorXml);
         }
 
-        var range = ctx.Request.Headers.Range.ToString();
-        if (string.IsNullOrEmpty(range) && ctx.Request.Headers.TryGetValue("x-ms-range", out var msRange) && !string.IsNullOrEmpty(msRange))
+        var hasRange = ctx.Request.Headers.TryGetValue("Range", out var rangeVal) && !string.IsNullOrEmpty(rangeVal);
+        if (!hasRange && ctx.Request.Headers.TryGetValue("x-ms-range", out var msRange) && !string.IsNullOrEmpty(msRange))
         {
             ctx.Request.Headers.Range = msRange;
+            hasRange = true;
         }
 
         var res = ctx.Response;
@@ -40,6 +42,34 @@ internal sealed class GetBlobAction(
         AzureHeaderCodec.ApplyUserMetadata(res.Headers, obj.Metadata);
 
         var etagHeader = obj.Etag.StartsWith('"') ? obj.Etag : $"\"{obj.Etag}\"";
+
+        if (!hasRange)
+        {
+            res.ContentType = obj.ContentType;
+            res.ContentLength = obj.Size;
+            res.Headers.ETag = etagHeader;
+            res.Headers.LastModified = AzureXmlDefaults.ToRfc1123(obj.LastModified);
+            res.Headers.AcceptRanges = "bytes";
+
+            await using (obj.Body)
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(80 * 1024);
+                try
+                {
+                    int bytesRead;
+                    while ((bytesRead = await obj.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), ctx.RequestAborted)) > 0)
+                    {
+                        await res.Body.WriteAsync(buffer.AsMemory(0, bytesRead), ctx.RequestAborted);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
+            }
+
+            return Results.Empty;
+        }
 
         return Results.Stream(
             obj.Body,

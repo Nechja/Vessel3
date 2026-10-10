@@ -5,14 +5,15 @@ internal sealed class GetBucketCors(IBucketRegistry registry, IS3XmlWriter xml, 
 {
     public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.Cors);
 
-    public Task<IResult> Invoke(string bucket, HttpContext ctx) =>
-        registry.GetCors(bucket).Match<Task<IResult>>(
-            async cfg =>
-            {
-                if (cfg is null) return http.Map(new NoSuchCORSConfigurationError(bucket));
-                ctx.Response.ContentType = "application/xml";
-                await xml.WriteCorsConfiguration(ctx.Response.Body, cfg, ctx.RequestAborted);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
+    public async Task<IResult> Invoke(string bucket, HttpContext ctx)
+    {
+        if (!registry.GetCors(bucket).TryGetValue(out var cfg, out var err))
+            return http.Map(err);
+
+        if (cfg is null) return http.Map(new NoSuchCORSConfigurationError(bucket));
+
+        ctx.Response.ContentType = "application/xml";
+        await xml.WriteCorsConfiguration(ctx.Response.Body, cfg, ctx.RequestAborted);
+        return Results.Empty;
+    }
 }

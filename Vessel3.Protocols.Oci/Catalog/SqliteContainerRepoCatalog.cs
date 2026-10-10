@@ -116,7 +116,7 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             }
             cmd.Parameters.AddWithValue("@limit", clampedLimit);
 
-            var list = new List<string>();
+            List<string> list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -151,7 +151,7 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             cmd.Parameters.AddWithValue("@repoId", repoId);
             cmd.Parameters.AddWithValue("@limit", clampedLimit);
 
-            var list = new List<string>();
+            List<string> list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -477,13 +477,11 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             selectCmd.CommandText = "SELECT id, temp_path FROM upload_sessions WHERE expires_at <= @cutoff;";
             selectCmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O", CultureInfo.InvariantCulture));
 
-            var toDelete = new List<(string Id, string Path)>();
-            using (var reader = selectCmd.ExecuteReader())
+            List<(string Id, string Path)> toDelete = [];
+            using var reader = selectCmd.ExecuteReader();
+            while (reader.Read())
             {
-                while (reader.Read())
-                {
-                    toDelete.Add((reader.GetString(0), reader.GetString(1)));
-                }
+                toDelete.Add((reader.GetString(0), reader.GetString(1)));
             }
 
             foreach (var item in toDelete)

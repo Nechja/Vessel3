@@ -28,8 +28,7 @@ internal sealed class CreateContainerAction(
             return Task.FromResult<IResult>(new AzureErrorResult(err, errorXml));
         }
 
-        var publicAccess = ctx.Request.Headers["x-ms-blob-public-access"].ToString();
-        if (!string.IsNullOrEmpty(publicAccess) &&
+        if (ctx.Request.Headers.TryGetValue("x-ms-blob-public-access", out var pa) && pa.Count > 0 && pa[0] is { Length: > 0 } publicAccess &&
             (string.Equals(publicAccess, "container", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(publicAccess, "blob", StringComparison.OrdinalIgnoreCase)))
         {

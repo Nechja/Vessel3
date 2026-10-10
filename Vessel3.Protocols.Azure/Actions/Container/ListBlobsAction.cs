@@ -21,25 +21,25 @@ internal sealed class ListBlobsAction(
         }
 
         var req = ctx.Request;
-        var prefix = req.Query["prefix"].ToString();
-        var delimiter = req.Query["delimiter"].ToString();
-        var marker = req.Query["marker"].ToString();
-        var maxResultsStr = req.Query["maxresults"].ToString();
+        var prefix = QueryParam(req.Query, "prefix");
+        var delimiter = QueryParam(req.Query, "delimiter");
+        var marker = QueryParam(req.Query, "marker");
+        var maxResultsStr = QueryParam(req.Query, "maxresults");
 
         var maxKeys = 5000;
-        if (!string.IsNullOrEmpty(maxResultsStr) && int.TryParse(maxResultsStr, CultureInfo.InvariantCulture, out var parsedMax) && parsedMax > 0)
+        if (maxResultsStr is not null && int.TryParse(maxResultsStr, CultureInfo.InvariantCulture, out var parsedMax) && parsedMax > 0)
         {
             maxKeys = Math.Min(parsedMax, 5000);
         }
 
         var listReq = new ListRequest(
             Bucket: target.Container,
-            Prefix: string.IsNullOrEmpty(prefix) ? null : prefix,
-            Delimiter: string.IsNullOrEmpty(delimiter) ? null : delimiter,
+            Prefix: prefix,
+            Delimiter: delimiter,
             StartAfter: null,
             MaxKeys: maxKeys);
 
-        var listResult = lister.List(listReq, string.IsNullOrEmpty(marker) ? null : marker);
+        var listResult = lister.List(listReq, marker);
         if (!listResult.TryGetValue(out var page, out var err))
         {
             return new AzureErrorResult(err, errorXml);
@@ -52,13 +52,16 @@ internal sealed class ListBlobsAction(
             ctx.Response.Body,
             serviceEndpoint,
             target.Container,
-            string.IsNullOrEmpty(prefix) ? null : prefix,
-            string.IsNullOrEmpty(marker) ? null : marker,
+            prefix,
+            marker,
             maxKeys,
-            string.IsNullOrEmpty(delimiter) ? null : delimiter,
+            delimiter,
             page,
             ctx.RequestAborted);
 
         return Results.Empty;
     }
+
+    private static string? QueryParam(IQueryCollection q, string k) =>
+        q.TryGetValue(k, out var v) && v.Count > 0 && v[0] is { Length: > 0 } s ? s : null;
 }

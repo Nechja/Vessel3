@@ -43,7 +43,7 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
 
         var stored = stagedChunks.ToDictionary(c => ParsePartNumber(c.Token), c => c);
 
-        var ordered = new List<MultipartPart>(clientParts.Count);
+        List<MultipartPart> ordered = new(clientParts.Count);
         var prevNumber = 0;
         foreach (var p in clientParts)
         {
@@ -85,9 +85,10 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
         var wireEtag = $"{composite}-{ordered.Count}";
         var commitResult = await stager.Commit(uploadId, ordered, composite, objectSums, ct);
 
-        return commitResult.Match<Result<CompleteUploadOutcome>>(
-            outcome => new CompleteUploadOutcome(wireEtag, outcome.VersionId, outcome.TotalSize, objectSums),
-            err => err);
+        if (!commitResult.TryGetValue(out var outcome, out var commitErr))
+            return commitErr;
+
+        return new CompleteUploadOutcome(wireEtag, outcome.VersionId, outcome.TotalSize, objectSums);
     }
 
     public Result Abort(string uploadId) => stager.AbortSession(uploadId);
@@ -95,17 +96,20 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
     public IEnumerable<InProgressUpload> ListUploads(string bucket) =>
         stager.ListSessions(bucket).Select(s => new InProgressUpload(s.SessionId, s.Bucket, s.Key, s.CreatedAt));
 
-    public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId) =>
-        stager.ListChunks(uploadId).Match<Result<IReadOnlyList<ListedPart>>>(
-            chunks => chunks
-                .Select(c => new ListedPart(
-                    ParsePartNumber(c.Token),
-                    c.Md5,
-                    c.Size,
-                    c.StagedAt == default ? DateTimeOffset.UtcNow : c.StagedAt))
-                .OrderBy(p => p.Number)
-                .ToList(),
-            err => err);
+    public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId)
+    {
+        if (!stager.ListChunks(uploadId).TryGetValue(out var chunks, out var listErr))
+            return listErr;
+
+        return chunks
+            .Select(c => new ListedPart(
+                ParsePartNumber(c.Token),
+                c.Md5,
+                c.Size,
+                c.StagedAt == default ? DateTimeOffset.UtcNow : c.StagedAt))
+            .OrderBy(p => p.Number)
+            .ToList();
+    }
 
     public IEnumerable<string> EnumerateInFlightPartShas() => stager.EnumerateInFlightChunkShas();
 

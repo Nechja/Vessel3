@@ -26,7 +26,7 @@ internal sealed class TokenAction(
             return;
         }
 
-        var scope = ctx.Request.Query["scope"].ToString();
+        var scope = ctx.Request.Query.TryGetValue("scope", out var sVal) && sVal.Count > 0 && sVal[0] is { Length: > 0 } s ? s : "";
         var grantedScopes = ResolveScopes(scope, canWrite);
         var ttl = TimeSpan.FromHours(1);
         var token = tokenService.CreateToken(userId, grantedScopes, ttl);
@@ -77,17 +77,16 @@ internal sealed class TokenAction(
 
     private static List<string> ResolveScopes(string scope, bool canWrite)
     {
-        var granted = new List<string>();
+        List<string> granted = [];
         if (string.IsNullOrEmpty(scope)) return granted;
 
         var parts = scope.Split(':');
         if (parts.Length < 3 || parts[0] != "repository") return granted;
 
         var repoName = parts[1];
-        var allowedActions = parts[2]
+        List<string> allowedActions = [.. parts[2]
             .Split(',')
-            .Where(a => a == "pull" || (a == "push" && canWrite) || (a == "*" && canWrite))
-            .ToList();
+            .Where(a => a == "pull" || (a == "push" && canWrite) || (a == "*" && canWrite))];
 
         if (allowedActions.Count > 0)
         {
