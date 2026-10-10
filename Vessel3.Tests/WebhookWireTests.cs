@@ -187,12 +187,10 @@ public sealed class WebhookWireTests : IAsyncDisposable
         Assert.Equal("Naomi Static Hook", hook.Name);
         Assert.True(hook.IsStatic);
 
-        // Modifying static webhook should fail
         var updateRes = await client.UpdateWebhookAsync(hook.Id, new UpdateWebhookDto(
             "naomi-mod", "http://127.0.0.1:9999/naomi", null, ["*"]));
         Assert.False(updateRes.TryGetValue(out _, out _));
 
-        // Deleting static webhook should fail
         var delRes = await client.DeleteWebhookAsync(hook.Id);
         Assert.True(delRes.TryGetError(out _));
     }
@@ -213,19 +211,16 @@ public sealed class WebhookWireTests : IAsyncDisposable
             Active: true));
         Assert.True(createRes.TryGetValue(out var createdHook, out _));
 
-        // Also test the ping endpoint
         var pingRes = await client.TestWebhookAsync(createdHook.Id);
         Assert.True(pingRes.TryGetValue(out var testVal, out var pingErr), $"TestWebhookAsync returned failure: {pingErr?.Code}: {pingErr?.Message}");
         Assert.True(testVal.Success, $"TestWebhook failed: StatusCode={testVal.StatusCode}, Error={testVal.ErrorMessage}, Body={testVal.ResponseBody}");
         Assert.Equal(200, testVal.StatusCode);
 
-        // Drain the ping message from queue
         Assert.True(queue.TryDequeue(out var pingMsg));
         Assert.Contains("webhook.ping", pingMsg.Body, StringComparison.Ordinal);
         Assert.NotNull(pingMsg.Signature);
         AssertVerifyHmac(pingMsg.Body, secret, pingMsg.Signature);
 
-        // Now push a container manifest to /v2/drummer/manifests/latest
         var vesselUrl = vesselApp.Urls.First();
         using var ociHttp = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri(vesselUrl) };
 
@@ -261,7 +256,6 @@ public sealed class WebhookWireTests : IAsyncDisposable
         var manifestRes = await ociHttp.SendAsync(manifestReq);
         Assert.Equal(HttpStatusCode.Created, manifestRes.StatusCode);
 
-        // Wait for webhook background delivery
         ReceivedWebhook? delivered = null;
         for (var i = 0; i < 50; i++)
         {
@@ -279,7 +273,6 @@ public sealed class WebhookWireTests : IAsyncDisposable
         Assert.NotNull(delivered.Signature);
         AssertVerifyHmac(delivered.Body, secret, delivered.Signature);
 
-        // Now delete manifest and verify container.image.deleted event
         var delManifestRes = await ociHttp.DeleteAsync("/v2/drummer/manifests/latest");
         Assert.True(delManifestRes.IsSuccessStatusCode);
 

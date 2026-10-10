@@ -46,9 +46,12 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.ListUsers();
-        return result.Match(
-            users => Results.Json<List<UserDto>>([.. users.Select(user => new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt))], NativeJsonContext.Default.ListUserDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var users, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json<List<UserDto>>([.. users.Select(user => new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt))], NativeJsonContext.Default.ListUserDto);
     }
 
     private static async Task<IResult> CreateUser(HttpContext context, IIdentityRegistry identity)
@@ -68,9 +71,12 @@ internal static class IdentityEndpoints
 
         var role = Enum.TryParse<UserRole>(body.Role, ignoreCase: true, out var parsedRole) ? parsedRole : UserRole.Member;
         var result = identity.CreateUser(body.Username, role);
-        return result.Match(
-            user => Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto, statusCode: 201),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var user, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto, statusCode: 201);
     }
 
     private static IResult GetUser(string userId, HttpContext context, IIdentityRegistry identity)
@@ -83,11 +89,14 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.GetUser(userId);
-        return result.Match(
-            user => user is not null
-                ? Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto)
-                : new NotFoundError($"User {userId}").ToHttpResult(),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var user, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return user is not null
+            ? Results.Json(new UserDto(user.Id, user.Username, user.Role.ToString(), user.Status.ToString(), user.CreatedAt), NativeJsonContext.Default.UserDto)
+            : new NotFoundError($"User {userId}").ToHttpResult();
     }
 
     private static IResult DeleteUser(string userId, HttpContext context, IIdentityRegistry identity)
@@ -100,7 +109,7 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.DeleteUser(userId);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     private static async Task<IResult> UpdateUserRole(string userId, HttpContext context, IIdentityRegistry identity)
@@ -119,7 +128,7 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.UpdateUserRole(userId, role);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     private static async Task<IResult> UpdateUserStatus(string userId, HttpContext context, IIdentityRegistry identity)
@@ -138,7 +147,7 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.UpdateUserStatus(userId, status);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     private static IResult ListAccessKeys(string userId, HttpContext context, IIdentityRegistry identity)
@@ -151,9 +160,12 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.ListAccessKeys(userId);
-        return result.Match(
-            keys => Results.Json<List<AccessKeyDto>>([.. keys.Select(key => new AccessKeyDto(key.Id, key.SecretKey, key.UserId, key.Description, key.CreatedAt, key.ExpiresAt, key.IsRevoked))], NativeJsonContext.Default.ListAccessKeyDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var keys, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json<List<AccessKeyDto>>([.. keys.Select(key => new AccessKeyDto(key.Id, key.SecretKey, key.UserId, key.Description, key.CreatedAt, key.ExpiresAt, key.IsRevoked))], NativeJsonContext.Default.ListAccessKeyDto);
     }
 
     private static async Task<IResult> CreateAccessKey(string userId, HttpContext context, IIdentityRegistry identity)
@@ -168,9 +180,12 @@ internal static class IdentityEndpoints
         var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.CreateAccessKeyRequest);
         var ttl = body.TtlSeconds.HasValue ? TimeSpan.FromSeconds(body.TtlSeconds.Value) : (TimeSpan?)null;
         var result = identity.CreateAccessKey(userId, body.Description, ttl);
-        return result.Match(
-            key => Results.Json(new AccessKeyDto(key.Id, key.SecretKey, key.UserId, key.Description, key.CreatedAt, key.ExpiresAt, key.IsRevoked), NativeJsonContext.Default.AccessKeyDto, statusCode: 201),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var key, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(new AccessKeyDto(key.Id, key.SecretKey, key.UserId, key.Description, key.CreatedAt, key.ExpiresAt, key.IsRevoked), NativeJsonContext.Default.AccessKeyDto, statusCode: 201);
     }
 
     private static IResult RevokeAccessKey(string accessKeyId, HttpContext context, IIdentityRegistry identity)
@@ -199,6 +214,6 @@ internal static class IdentityEndpoints
         }
 
         var result = identity.RevokeAccessKey(accessKeyId);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var revokeErr) ? revokeErr.ToHttpResult() : Results.NoContent();
     }
 }
