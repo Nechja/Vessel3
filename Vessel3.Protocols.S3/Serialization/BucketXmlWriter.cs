@@ -9,30 +9,36 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
 {
     public async Task WriteListBuckets(Stream output, IEnumerable<BucketInfo> buckets, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ListAllMyBucketsResult", S3XmlDefaults.S3Namespace);
-
-        await w.WriteStartElementAsync(null, "Owner", null);
-        await w.WriteElementStringAsync(null, "ID", null, "vessel3");
-        await w.WriteElementStringAsync(null, "DisplayName", null, "vessel3");
-        await w.WriteEndElementAsync();
-
-        await w.WriteStartElementAsync(null, "Buckets", null);
-        foreach (var b in buckets)
+        var bucketList = buckets as IReadOnlyCollection<BucketInfo> ?? [.. buckets];
+        using var ms = new MemoryStream(Math.Max(512, bucketList.Count * 128));
+        using (var w = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
-            ct.ThrowIfCancellationRequested();
-            await w.WriteStartElementAsync(null, "Bucket", null);
-            await w.WriteElementStringAsync(null, "Name", null, b.Name);
-            await w.WriteElementStringAsync(null, "CreationDate", null,
-                b.CreatedAt.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-            await w.WriteEndElementAsync();
-        }
-        await w.WriteEndElementAsync();
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "ListAllMyBucketsResult", S3XmlDefaults.S3Namespace);
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+            w.WriteStartElement(null, "Owner", null);
+            w.WriteElementString(null, "ID", null, "vessel3");
+            w.WriteElementString(null, "DisplayName", null, "vessel3");
+            w.WriteEndElement();
+
+            w.WriteStartElement(null, "Buckets", null);
+            foreach (var b in bucketList)
+            {
+                ct.ThrowIfCancellationRequested();
+                w.WriteStartElement(null, "Bucket", null);
+                w.WriteElementString(null, "Name", null, b.Name);
+                w.WriteElementString(null, "CreationDate", null,
+                    b.CreatedAt.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+                w.WriteEndElement();
+            }
+            w.WriteEndElement();
+
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
+        }
+
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 
     public Task WriteLocationConstraint(Stream output, string region, CancellationToken ct)
@@ -63,49 +69,54 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
     public async Task WriteCorsConfiguration(Stream output, CorsConfig cfg, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "CORSConfiguration", S3XmlDefaults.S3Namespace);
-
-        foreach (var rule in cfg.Rules)
+        using var ms = new MemoryStream(512);
+        using (var w = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
-            await w.WriteStartElementAsync(null, "CORSRule", null);
-            if (!string.IsNullOrEmpty(rule.Id))
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "CORSConfiguration", S3XmlDefaults.S3Namespace);
+
+            foreach (var rule in cfg.Rules)
             {
-                await w.WriteElementStringAsync(null, "ID", null, rule.Id);
-            }
-            foreach (var origin in rule.AllowedOrigins)
-            {
-                await w.WriteElementStringAsync(null, "AllowedOrigin", null, origin);
-            }
-            foreach (var method in rule.AllowedMethods)
-            {
-                await w.WriteElementStringAsync(null, "AllowedMethod", null, method);
-            }
-            if (rule.AllowedHeaders is not null)
-            {
-                foreach (var header in rule.AllowedHeaders)
+                w.WriteStartElement(null, "CORSRule", null);
+                if (!string.IsNullOrEmpty(rule.Id))
                 {
-                    await w.WriteElementStringAsync(null, "AllowedHeader", null, header);
+                    w.WriteElementString(null, "ID", null, rule.Id);
                 }
-            }
-            if (rule.MaxAgeSeconds.HasValue)
-            {
-                await w.WriteElementStringAsync(null, "MaxAgeSeconds", null, rule.MaxAgeSeconds.Value.ToString(CultureInfo.InvariantCulture));
-            }
-            if (rule.ExposeHeaders is not null)
-            {
-                foreach (var expose in rule.ExposeHeaders)
+                foreach (var origin in rule.AllowedOrigins)
                 {
-                    await w.WriteElementStringAsync(null, "ExposeHeader", null, expose);
+                    w.WriteElementString(null, "AllowedOrigin", null, origin);
                 }
+                foreach (var method in rule.AllowedMethods)
+                {
+                    w.WriteElementString(null, "AllowedMethod", null, method);
+                }
+                if (rule.AllowedHeaders is not null)
+                {
+                    foreach (var header in rule.AllowedHeaders)
+                    {
+                        w.WriteElementString(null, "AllowedHeader", null, header);
+                    }
+                }
+                if (rule.MaxAgeSeconds.HasValue)
+                {
+                    w.WriteElementString(null, "MaxAgeSeconds", null, rule.MaxAgeSeconds.Value.ToString(CultureInfo.InvariantCulture));
+                }
+                if (rule.ExposeHeaders is not null)
+                {
+                    foreach (var expose in rule.ExposeHeaders)
+                    {
+                        w.WriteElementString(null, "ExposeHeader", null, expose);
+                    }
+                }
+                w.WriteEndElement();
             }
-            await w.WriteEndElementAsync();
+
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 
     public Task WriteAccessControlPolicy(Stream output, string ownerId, bool publicRead, CancellationToken ct)
@@ -137,62 +148,73 @@ internal sealed class BucketXmlWriter : IBucketXmlWriter
     public async Task WriteLifecycleConfiguration(Stream output, LifecycleConfig cfg, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "LifecycleConfiguration", S3XmlDefaults.S3Namespace);
-        foreach (var rule in cfg.Rules)
+        using var ms = new MemoryStream(512);
+        using (var w = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
-            await w.WriteStartElementAsync(null, "Rule", null);
-            if (!string.IsNullOrEmpty(rule.Id))
-                await w.WriteElementStringAsync(null, "ID", null, rule.Id);
-            await w.WriteStartElementAsync(null, "Filter", null);
-            await w.WriteElementStringAsync(null, "Prefix", null, rule.Prefix);
-            await w.WriteEndElementAsync();
-            await w.WriteElementStringAsync(null, "Status", null, rule.Enabled ? "Enabled" : "Disabled");
-            if (rule.ExpirationDays is not null || rule.ExpiredObjectDeleteMarker)
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "LifecycleConfiguration", S3XmlDefaults.S3Namespace);
+            foreach (var rule in cfg.Rules)
             {
-                await w.WriteStartElementAsync(null, "Expiration", null);
-                if (rule.ExpirationDays is { } d)
-                    await w.WriteElementStringAsync(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
-                if (rule.ExpiredObjectDeleteMarker)
-                    await w.WriteElementStringAsync(null, "ExpiredObjectDeleteMarker", null, "true");
-                await w.WriteEndElementAsync();
+                w.WriteStartElement(null, "Rule", null);
+                if (!string.IsNullOrEmpty(rule.Id))
+                    w.WriteElementString(null, "ID", null, rule.Id);
+                w.WriteStartElement(null, "Filter", null);
+                w.WriteElementString(null, "Prefix", null, rule.Prefix);
+                w.WriteEndElement();
+                w.WriteElementString(null, "Status", null, rule.Enabled ? "Enabled" : "Disabled");
+                if (rule.ExpirationDays is not null || rule.ExpiredObjectDeleteMarker)
+                {
+                    w.WriteStartElement(null, "Expiration", null);
+                    if (rule.ExpirationDays is { } d)
+                        w.WriteElementString(null, "Days", null, d.ToString(CultureInfo.InvariantCulture));
+                    if (rule.ExpiredObjectDeleteMarker)
+                        w.WriteElementString(null, "ExpiredObjectDeleteMarker", null, "true");
+                    w.WriteEndElement();
+                }
+                if (rule.NoncurrentDays is { } nd)
+                {
+                    w.WriteStartElement(null, "NoncurrentVersionExpiration", null);
+                    w.WriteElementString(null, "NoncurrentDays", null, nd.ToString(CultureInfo.InvariantCulture));
+                    w.WriteEndElement();
+                }
+                w.WriteEndElement();
             }
-            if (rule.NoncurrentDays is { } nd)
-            {
-                await w.WriteStartElementAsync(null, "NoncurrentVersionExpiration", null);
-                await w.WriteElementStringAsync(null, "NoncurrentDays", null, nd.ToString(CultureInfo.InvariantCulture));
-                await w.WriteEndElementAsync();
-            }
-            await w.WriteEndElementAsync();
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
         }
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 
     public async Task WriteListMultipartUploads(Stream output, string bucket, IEnumerable<InProgressUpload> uploads, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, S3XmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "ListMultipartUploadsResult", S3XmlDefaults.S3Namespace);
-        await w.WriteElementStringAsync(null, "Bucket", null, bucket);
-        await w.WriteElementStringAsync(null, "IsTruncated", null, "false");
-
-        foreach (var u in uploads)
+        var uploadList = uploads as IReadOnlyCollection<InProgressUpload> ?? [.. uploads];
+        using var ms = new MemoryStream(Math.Max(512, uploadList.Count * 256));
+        using (var w = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
-            ct.ThrowIfCancellationRequested();
-            await w.WriteStartElementAsync(null, "Upload", null);
-            await w.WriteElementStringAsync(null, "Key", null, u.Key);
-            await w.WriteElementStringAsync(null, "UploadId", null, u.UploadId);
-            await w.WriteElementStringAsync(null, "Initiated", null,
-                u.Initiated.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
-            await w.WriteElementStringAsync(null, "StorageClass", null, "STANDARD");
-            await w.WriteEndElementAsync();
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "ListMultipartUploadsResult", S3XmlDefaults.S3Namespace);
+            w.WriteElementString(null, "Bucket", null, bucket);
+            w.WriteElementString(null, "IsTruncated", null, "false");
+
+            foreach (var u in uploadList)
+            {
+                ct.ThrowIfCancellationRequested();
+                w.WriteStartElement(null, "Upload", null);
+                w.WriteElementString(null, "Key", null, u.Key);
+                w.WriteElementString(null, "UploadId", null, u.UploadId);
+                w.WriteElementString(null, "Initiated", null,
+                    u.Initiated.UtcDateTime.ToString(S3XmlDefaults.Iso8601Ms, CultureInfo.InvariantCulture));
+                w.WriteElementString(null, "StorageClass", null, "STANDARD");
+                w.WriteEndElement();
+            }
+
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
         }
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 }

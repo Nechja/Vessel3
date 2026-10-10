@@ -83,11 +83,6 @@ internal sealed class PropfindAction(
 
     private Result<List<WebDavResourceEntry>> BuildBucketRootEntries(string basePrefix, string bucket, int depth)
     {
-        if (!registry.Exists(bucket).TryGetValue(out var exists, out var err) || !exists)
-        {
-            return err ?? new NoSuchBucketError(bucket);
-        }
-
         var bucketHref = $"{basePrefix}/{Uri.EscapeDataString(bucket)}/";
         List<WebDavResourceEntry> entries =
         [
@@ -119,11 +114,6 @@ internal sealed class PropfindAction(
 
     private Result<List<WebDavResourceEntry>> BuildSubpathEntries(string basePrefix, string bucket, string path, int depth)
     {
-        if (!registry.Exists(bucket).TryGetValue(out var exists, out var err) || !exists)
-        {
-            return err ?? new NoSuchBucketError(bucket);
-        }
-
         var bucketHref = $"{basePrefix}/{Uri.EscapeDataString(bucket)}/";
         var cleanPath = path.TrimStart('/');
 
@@ -225,8 +215,10 @@ internal sealed class PropfindAction(
             return;
         }
 
-        foreach (var entry in page.Entries)
+        entries.EnsureCapacity(entries.Count + page.Entries.Count);
+        for (var i = 0; i < page.Entries.Count; i++)
         {
+            var entry = page.Entries[i];
             if (string.Equals(entry.Key, prefix, StringComparison.Ordinal))
             {
                 continue;
@@ -237,10 +229,16 @@ internal sealed class PropfindAction(
     }
 
     private static void AppendPageEntries(
-        IEnumerable<ListEntry> pageEntries,
+        IReadOnlyList<ListEntry> pageEntries,
         string bucketHref,
-        List<WebDavResourceEntry> entries) =>
-        entries.AddRange(pageEntries.Select(e => CreateEntryFromList(e, bucketHref)));
+        List<WebDavResourceEntry> entries)
+    {
+        entries.EnsureCapacity(entries.Count + pageEntries.Count);
+        for (var i = 0; i < pageEntries.Count; i++)
+        {
+            entries.Add(CreateEntryFromList(pageEntries[i], bucketHref));
+        }
+    }
 
     private static WebDavResourceEntry CreateEntryFromList(ListEntry entry, string bucketHref) => entry switch
     {
@@ -278,9 +276,26 @@ internal sealed class PropfindAction(
 
     private static string EncodePath(string path)
     {
+        if (!NeedsPathEscaping(path))
+        {
+            return path;
+        }
+
         var trailing = path.EndsWith('/');
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var encoded = string.Join('/', segments.Select(Uri.EscapeDataString));
         return trailing ? encoded + "/" : encoded;
+    }
+
+    private static bool NeedsPathEscaping(string path)
+    {
+        foreach (var c in path)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('/' or '-' or '_' or '.' or '~'))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

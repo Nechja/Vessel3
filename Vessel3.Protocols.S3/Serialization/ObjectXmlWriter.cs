@@ -9,7 +9,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 {
     public async Task WriteListObjects(Stream output, S3ListObjectsRequest request, ListPage page, CancellationToken ct)
     {
-        using var ms = new MemoryStream();
+        using var ms = new MemoryStream(Math.Max(512, page.Entries.Count * 256));
         using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
@@ -60,7 +60,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct)
     {
-        using var ms = new MemoryStream();
+        using var ms = new MemoryStream(Math.Max(512, entries.Count * 256));
         using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
@@ -118,7 +118,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct)
     {
-        using var ms = new MemoryStream();
+        using var ms = new MemoryStream(Math.Max(512, parts.Count * 256));
         using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
@@ -166,7 +166,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
     {
-        using var ms = new MemoryStream();
+        using var ms = new MemoryStream(512);
         using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
@@ -205,7 +205,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
     public async Task WriteObjectAttributes(Stream output, ObjectAttributesRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        using var ms = new MemoryStream();
+        using var ms = new MemoryStream(512);
         using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();

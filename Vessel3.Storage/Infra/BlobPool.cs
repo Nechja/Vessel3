@@ -25,6 +25,10 @@ internal interface IBlobPool
 
 internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog) : IBlobPool
 {
+    private readonly bool isSingleVolume = registry.Volumes.Count == 1;
+    private readonly IVolumeStorage? singleVolumeStorage = registry.Volumes.Count == 1 ? registry.GetStorage(registry.Volumes[0].Id) : null;
+    private readonly StorageVolume? singleVolume = registry.Volumes.Count == 1 ? registry.Volumes[0] : null;
+
     public BlobPool(BlobPoolOptions options, IFileSync fileSync)
         : this(new VolumeRegistry([new StorageVolume("default", options.Root, "default", VolumeCapabilities.Ingest)], fileSync), NullBlobLocationCatalog.Instance)
     {
@@ -32,19 +36,26 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
-        var targetVolume = registry.DefaultIngestVolume;
-        var storage = registry.GetStorage(targetVolume.Id);
+        var targetVolume = singleVolume ?? registry.DefaultIngestVolume;
+        var storage = singleVolumeStorage ?? registry.GetStorage(targetVolume.Id);
         var writeResult = await storage.WriteStagedBlob(source, declaredSize, intent, ct);
 
         if (!writeResult.TryGetValue(out var stored, out var err))
             return err;
 
-        catalog.RecordLocation(stored.Sha, targetVolume.Id);
+        if (!isSingleVolume)
+            catalog.RecordLocation(stored.Sha, targetVolume.Id);
+
         return stored;
     }
 
     public async Task<Result<Stream>> Open(string sha, CancellationToken ct = default)
     {
+        if (singleVolumeStorage is not null)
+        {
+            return await singleVolumeStorage.OpenBlob(sha, ct);
+        }
+
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null)
         {
@@ -69,6 +80,11 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<bool> Exists(string sha, CancellationToken ct = default)
     {
+        if (singleVolumeStorage is not null)
+        {
+            return await singleVolumeStorage.BlobExists(sha, ct);
+        }
+
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null)
         {
@@ -92,6 +108,12 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<Result<bool>> Delete(string sha, CancellationToken ct = default)
     {
+        if (singleVolumeStorage is not null && singleVolume?.IsWritable is true)
+        {
+            var delRes = await singleVolumeStorage.DeleteBlob(sha, ct);
+            return delRes is Result<bool>.Success { Value: true };
+        }
+
         var deletedAny = false;
         foreach (var vol in registry.WritableVolumes)
         {
@@ -106,6 +128,11 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public IEnumerable<string> EnumerateShards()
     {
+        if (singleVolumeStorage is not null)
+        {
+            return singleVolumeStorage.EnumerateShards();
+        }
+
         HashSet<string> shards = new(StringComparer.Ordinal);
         foreach (var vol in registry.Volumes)
         {
@@ -118,6 +145,11 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public IEnumerable<string> Enumerate(string shard)
     {
+        if (singleVolumeStorage is not null)
+        {
+            return singleVolumeStorage.Enumerate(shard);
+        }
+
         HashSet<string> shas = new(StringComparer.Ordinal);
         foreach (var vol in registry.Volumes)
         {
@@ -130,6 +162,10 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public DateTime? GetLastWriteUtc(string sha)
     {
+        if (singleVolumeStorage is not null)
+        {
+            return singleVolumeStorage.GetLastWriteUtc(sha);
+        }
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null)
         {

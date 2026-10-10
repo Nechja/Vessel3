@@ -534,6 +534,31 @@ internal static class Scenarios
         });
     }
 
+    public static async Task<LatencySummary> AzureList(BlobServiceClient azure, BenchOptions opts)
+    {
+        var container = azure.GetBlobContainerClient(opts.Bucket);
+        await container.CreateIfNotExistsAsync(PublicAccessType.None);
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 1024;
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        for (var i = 0; i < 100; i++)
+        {
+            var blob = container.GetBlobClient($"seed/list/{i:D5}");
+            using var ms = new MemoryStream(payload);
+            await blob.UploadAsync(ms);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var count = 0L;
+            await foreach (var item in container.GetBlobsAsync(traits: BlobTraits.None, states: BlobStates.None, prefix: "seed/list/", cancellationToken: ct))
+            {
+                count++;
+            }
+            return count;
+        });
+    }
+
     public static async Task<LatencySummary> WebDavPropfind(HttpClient http, BenchOptions opts)
     {
         using (var mkcol = new HttpRequestMessage(new HttpMethod("MKCOL"), $"dav/{opts.Bucket}/"))
@@ -556,6 +581,36 @@ internal static class Scenarios
             var stream = await res.Content.ReadAsStreamAsync(ct);
             await stream.CopyToAsync(Stream.Null, ct);
             return res.Content.Headers.ContentLength ?? 0L;
+        });
+    }
+
+    public static async Task<LatencySummary> WebDavGet(HttpClient http, BenchOptions opts)
+    {
+        using (var mkcol = new HttpRequestMessage(new HttpMethod("MKCOL"), $"dav/{opts.Bucket}/"))
+        {
+            await http.SendAsync(mkcol);
+        }
+
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        var keys = new string[opts.SeedKeys];
+        for (var i = 0; i < opts.SeedKeys; i++)
+        {
+            keys[i] = $"seed_{i:D5}.bin";
+            using var put = new HttpRequestMessage(HttpMethod.Put, $"dav/{opts.Bucket}/{keys[i]}");
+            put.Content = new ByteArrayContent(payload);
+            await http.SendAsync(put);
+        }
+
+        return await RunWorkload(opts, async (wid, ct) =>
+        {
+            var key = keys[Random.Shared.Next(keys.Length)];
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"dav/{opts.Bucket}/{key}");
+            using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            var stream = await res.Content.ReadAsStreamAsync(ct);
+            await stream.CopyToAsync(Stream.Null, ct);
+            return res.Content.Headers.ContentLength ?? size;
         });
     }
 

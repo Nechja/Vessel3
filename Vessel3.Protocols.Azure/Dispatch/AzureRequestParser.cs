@@ -5,16 +5,35 @@ namespace Vessel3.Protocols.Azure.Dispatch;
 internal static class AzureRequestParser
 {
     public const string DevStoreAccount = "devstoreaccount1";
+    private const string DevStorePathPrefix = "/" + DevStoreAccount;
 
-    public static bool IsAzureRequest(HttpRequest req) =>
-        req.Headers.ContainsKey("x-ms-version") ||
-        req.Headers.ContainsKey("x-ms-date") ||
-        (req.Headers.TryGetValue("Authorization", out var authHdr) && authHdr.Count > 0 &&
-         (authHdr[0]?.StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) is true ||
-          authHdr[0]?.StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase) is true)) ||
-        (req.Query.ContainsKey("sig") && (req.Query.ContainsKey("se") || req.Query.ContainsKey("sp") || req.Query.ContainsKey("sv"))) ||
-        (req.Path.Value ?? "/").StartsWith($"/{DevStoreAccount}", StringComparison.OrdinalIgnoreCase) ||
-        (req.Path.Value ?? "/").StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase);
+    public static bool IsAzureRequest(HttpRequest req)
+    {
+        var headers = req.Headers;
+        if (headers.ContainsKey("x-ms-version") || headers.ContainsKey("x-ms-date"))
+        {
+            return true;
+        }
+
+        if (headers.TryGetValue("Authorization", out var authHdr) && authHdr.Count > 0 &&
+            authHdr[0] is { Length: > 0 } authStr &&
+            (authStr.StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) ||
+             authStr.StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var query = req.Query;
+        if (query.ContainsKey("sig") && (query.ContainsKey("se") || query.ContainsKey("sp") || query.ContainsKey("sv")))
+        {
+            return true;
+        }
+
+        var path = req.Path.Value;
+        return path is not null &&
+            (path.StartsWith(DevStorePathPrefix, StringComparison.OrdinalIgnoreCase) ||
+             path.StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase));
+    }
 
     public static AzureRequestTarget Parse(HttpRequest req)
     {
@@ -42,13 +61,25 @@ internal static class AzureRequestParser
 
         if (idx < segments.Length)
         {
-            container = Uri.UnescapeDataString(segments[idx]);
+            container = segments[idx].Contains('%') ? Uri.UnescapeDataString(segments[idx]) : segments[idx];
             idx++;
         }
 
         if (idx < segments.Length)
         {
-            blob = string.Join('/', segments[idx..].Select(Uri.UnescapeDataString));
+            var remaining = segments[idx..];
+            var needsUnescape = false;
+            foreach (var seg in remaining)
+            {
+                if (seg.Contains('%'))
+                {
+                    needsUnescape = true;
+                    break;
+                }
+            }
+            blob = needsUnescape
+                ? string.Join('/', remaining.Select(Uri.UnescapeDataString))
+                : string.Join('/', remaining);
         }
 
         var method = req.Method;

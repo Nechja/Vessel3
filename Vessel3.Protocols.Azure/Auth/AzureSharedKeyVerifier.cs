@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Buffers.Text;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -98,18 +100,31 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         }
 
         var stringToSign = BuildStringToSign(req, accountToUse);
-        using var hmac = new HMACSHA256(keyBytes);
-        var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(stringToSign));
-        var expectedSig = Convert.ToBase64String(computedHash);
-
-        var expectedBytes = Encoding.UTF8.GetBytes(expectedSig);
-        var actualBytes = Encoding.UTF8.GetBytes(signature);
-
-        if (expectedBytes.Length != actualBytes.Length ||
-            !CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+        Span<byte> hash = stackalloc byte[32];
+        var utf8ByteCount = Encoding.UTF8.GetByteCount(stringToSign);
+        byte[]? rented = null;
+        Span<byte> utf8Bytes = utf8ByteCount <= 1024 ? stackalloc byte[1024] : (rented = ArrayPool<byte>.Shared.Rent(utf8ByteCount));
+        try
         {
-            var detail = $"The MAC signature found in the HTTP request '{signature}' is not the same as any computed signature. Server used following string to sign: '{stringToSign}'.";
-            return new AzureAuthenticationError(detail);
+            var written = Encoding.UTF8.GetBytes(stringToSign, utf8Bytes);
+            HMACSHA256.HashData(keyBytes, utf8Bytes[..written], hash);
+
+            Span<byte> expectedSigBytes = stackalloc byte[64];
+            Base64.EncodeToUtf8(hash, expectedSigBytes, out _, out var bytesWritten);
+
+            Span<byte> actualBytes = stackalloc byte[64];
+            var actualWritten = signature.Length <= 64 ? Encoding.UTF8.GetBytes(signature.AsSpan(), actualBytes) : 0;
+
+            if (actualWritten != bytesWritten ||
+                !CryptographicOperations.FixedTimeEquals(expectedSigBytes[..bytesWritten], actualBytes[..actualWritten]))
+            {
+                var detail = $"The MAC signature found in the HTTP request '{signature}' is not the same as any computed signature. Server used following string to sign: '{stringToSign}'.";
+                return new AzureAuthenticationError(detail);
+            }
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
         }
 
         return caller;
@@ -201,15 +216,15 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         var msHeaders = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var (k, v) in headers)
         {
+            if (!k.StartsWith("x-ms-", StringComparison.OrdinalIgnoreCase)) continue;
             var lower = k.ToLowerInvariant();
-            if (lower.StartsWith("x-ms-", StringComparison.Ordinal))
-            {
-                var val = v.ToString().Trim();
-                msHeaders[lower] = msHeaders.TryGetValue(lower, out var existing) ? $"{existing},{val}" : val;
-            }
+            var val = v.ToString().Trim();
+            msHeaders[lower] = msHeaders.TryGetValue(lower, out var existing) ? $"{existing},{val}" : val;
         }
 
-        var sb = new StringBuilder();
+        if (msHeaders.Count == 0) return string.Empty;
+
+        var sb = new StringBuilder(msHeaders.Count * 64);
         foreach (var (k, v) in msHeaders)
         {
             sb.Append(k).Append(':').Append(v).Append('\n');
@@ -219,35 +234,35 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
 
     private static string BuildCanonicalizedResource(HttpRequest req, string account)
     {
-        var sb = new StringBuilder();
-        sb.Append('/').Append(account);
-
         var rawPath = req.Path.Value ?? "/";
-        sb.Append(rawPath);
-
-        if (req.Query.Count > 0)
+        if (req.Query.Count == 0)
         {
-            var sortedParams = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
-            foreach (var (k, v) in req.Query)
-            {
-                if (string.IsNullOrEmpty(k)) continue;
-                var lowerK = k.ToLowerInvariant();
-                if (!sortedParams.TryGetValue(lowerK, out var list))
-                {
-                    list = [];
-                    sortedParams[lowerK] = list;
-                }
-                foreach (var val in v)
-                {
-                    if (val is not null) list.Add(Uri.UnescapeDataString(val));
-                }
-            }
+            return $"/{account}{rawPath}";
+        }
 
-            foreach (var (k, v) in sortedParams)
+        var sb = new StringBuilder(64 + rawPath.Length);
+        sb.Append('/').Append(account).Append(rawPath);
+
+        var sortedParams = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (k, v) in req.Query)
+        {
+            if (string.IsNullOrEmpty(k)) continue;
+            var lowerK = k.ToLowerInvariant();
+            if (!sortedParams.TryGetValue(lowerK, out var list))
             {
-                v.Sort(StringComparer.Ordinal);
-                sb.Append('\n').Append(k).Append(':').Append(string.Join(',', v));
+                list = [];
+                sortedParams[lowerK] = list;
             }
+            foreach (var val in v)
+            {
+                if (val is not null) list.Add(Uri.UnescapeDataString(val));
+            }
+        }
+
+        foreach (var (k, v) in sortedParams)
+        {
+            v.Sort(StringComparer.Ordinal);
+            sb.Append('\n').Append(k).Append(':').Append(string.Join(',', v));
         }
 
         return sb.ToString();

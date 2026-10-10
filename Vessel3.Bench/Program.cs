@@ -68,7 +68,9 @@ var summary = scenario switch
     "native-list"     => await Scenarios.NativeList(vessel, opts),
     "azure-put"       => await Scenarios.AzurePut(azure, opts),
     "azure-get"       => await Scenarios.AzureGet(azure, opts),
+    "azure-list"      => await Scenarios.AzureList(azure, opts),
     "webdav-propfind" => await Scenarios.WebDavPropfind(webdavHttp, opts),
+    "webdav-get"      => await Scenarios.WebDavGet(webdavHttp, opts),
     _                 => throw new ArgumentException($"unknown scenario: {scenario}"),
 };
 
@@ -221,7 +223,9 @@ static void PrintUsage()
     Console.WriteLine("  native-list      VesselClient Native prefix list against pre-seeded bucket");
     Console.WriteLine("  azure-put        Azure Blob PUT block blob (override with --object-size)");
     Console.WriteLine("  azure-get        Azure Blob GET against pre-seeded container");
+    Console.WriteLine("  azure-list       Azure Blob list blobs against pre-seeded container");
     Console.WriteLine("  webdav-propfind  WebDAV PROPFIND with Depth: 1 against collection");
+    Console.WriteLine("  webdav-get       WebDAV GET against pre-seeded collection");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");
