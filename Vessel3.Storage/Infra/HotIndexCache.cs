@@ -22,6 +22,17 @@ internal sealed class HotIndexCache(int maxCapacity = 50_000)
         public LinkedListNode<string>? ListNode;
     }
 
+    public int Count
+    {
+        get
+        {
+            lock (gate)
+            {
+                return lru.Count;
+            }
+        }
+    }
+
     public bool TryGet(string key, out PutEntry? entry)
     {
         if (entries.TryGetValue(key, out var node) && node.Current is { } current)
@@ -116,40 +127,60 @@ internal sealed class HotIndexCache(int maxCapacity = 50_000)
     {
         lock (gate)
         {
-            var newEntry = new CacheEntry(put: null, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
-            if (entries.TryGetValue(key, out var node))
-            {
-                node.Current = newEntry;
-                if (node.ListNode is not null)
-                {
-                    lru.Remove(node.ListNode);
-                    lru.AddLast(node.ListNode);
-                }
-                else
-                {
-                    node.ListNode = lru.AddLast(key);
-                }
-                return;
-            }
-
-            var newNode = new CacheNode
-            {
-                Current = newEntry,
-                ListNode = lru.AddLast(key)
-            };
-            entries[key] = newNode;
-            TrimExcess();
+            EvictCore(key);
         }
+    }
+
+    private void EvictCore(string key)
+    {
+        var newEntry = new CacheEntry(put: null, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+        if (entries.TryGetValue(key, out var node))
+        {
+            node.Current = newEntry;
+            if (node.ListNode is not null)
+            {
+                lru.Remove(node.ListNode);
+                lru.AddLast(node.ListNode);
+            }
+            else
+            {
+                node.ListNode = lru.AddLast(key);
+            }
+            return;
+        }
+
+        var newNode = new CacheNode
+        {
+            Current = newEntry,
+            ListNode = lru.AddLast(key)
+        };
+        entries[key] = newNode;
+        TrimExcess();
     }
 
     public void UpdateTags(string key, string versionId, IReadOnlyDictionary<string, string> tags)
     {
         lock (gate)
         {
-            if (!entries.TryGetValue(key, out var node) || node.Current is not { Put: { } put } curr || put.VersionId != versionId)
+            if (!entries.TryGetValue(key, out var node))
+            {
+                EvictCore(key);
                 return;
+            }
 
-            node.Current = new CacheEntry(put with { Tags = tags }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+            if (node.Current is { Put: { } put } && put.VersionId == versionId)
+            {
+                node.Current = new CacheEntry(put with { Tags = tags }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            if (node.Current is { Put: { } existingPut })
+            {
+                node.Current = new CacheEntry(existingPut, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            EvictCore(key);
         }
     }
 
@@ -157,10 +188,25 @@ internal sealed class HotIndexCache(int maxCapacity = 50_000)
     {
         lock (gate)
         {
-            if (!entries.TryGetValue(key, out var node) || node.Current is not { Put: { } put } curr || put.VersionId != versionId)
+            if (!entries.TryGetValue(key, out var node))
+            {
+                EvictCore(key);
                 return;
+            }
 
-            node.Current = new CacheEntry(put with { Retention = retention }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+            if (node.Current is { Put: { } put } && put.VersionId == versionId)
+            {
+                node.Current = new CacheEntry(put with { Retention = retention }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            if (node.Current is { Put: { } existingPut })
+            {
+                node.Current = new CacheEntry(existingPut, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            EvictCore(key);
         }
     }
 
@@ -168,10 +214,25 @@ internal sealed class HotIndexCache(int maxCapacity = 50_000)
     {
         lock (gate)
         {
-            if (!entries.TryGetValue(key, out var node) || node.Current is not { Put: { } put } curr || put.VersionId != versionId)
+            if (!entries.TryGetValue(key, out var node))
+            {
+                EvictCore(key);
                 return;
+            }
 
-            node.Current = new CacheEntry(put with { LegalHoldOn = legalHold }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+            if (node.Current is { Put: { } put } && put.VersionId == versionId)
+            {
+                node.Current = new CacheEntry(put with { LegalHoldOn = legalHold }, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            if (node.Current is { Put: { } existingPut })
+            {
+                node.Current = new CacheEntry(existingPut, isNegativeCache: false, version: Interlocked.Increment(ref versionSequence));
+                return;
+            }
+
+            EvictCore(key);
         }
     }
 

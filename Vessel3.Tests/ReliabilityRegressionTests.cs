@@ -1,4 +1,3 @@
-using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Protocols.Azure.Auth;
 using Xunit;
@@ -31,10 +30,7 @@ public class ReliabilityRegressionTests : IDisposable
             cache.Set("test-key", dummy);
         }
 
-        var lruField = typeof(HotIndexCache).GetField("lru", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        var lru = (LinkedList<string>)lruField.GetValue(cache)!;
-
-        Assert.Single(lru);
+        Assert.Equal(1, cache.Count);
     }
 
     [Fact]
@@ -55,6 +51,100 @@ public class ReliabilityRegressionTests : IDisposable
         Assert.True(cache.TryGet("foo", out var current));
         Assert.NotNull(current);
         Assert.Equal("v2", current.VersionId);
+    }
+
+    [Fact]
+    public void HotIndexCache_UncachedUpdateLegalHold_BumpsVersionSequence()
+    {
+        var cache = new HotIndexCache(maxCapacity: 100);
+        var initialVersion = cache.GetVersion("uncached-key");
+        Assert.Equal(0, initialVersion);
+
+        cache.UpdateLegalHold("uncached-key", "v1", true);
+
+        var bumpedVersion = cache.GetVersion("uncached-key");
+        Assert.True(bumpedVersion > initialVersion);
+
+        var staleEntry = new PutEntry("v1", DateTimeOffset.UtcNow, "sha", "md5", 10, "text/plain", new Dictionary<string, string>());
+        var filled = cache.TryFill("uncached-key", staleEntry, expectedVersion: initialVersion);
+        Assert.False(filled);
+    }
+
+    [Fact]
+    public void BucketIndex_UncommittedTransaction_DoesNotMutateHotCache()
+    {
+        var dbPath = Path.Combine(root, "uncommitted-test-index.db");
+        using var index = new BucketIndex(dbPath);
+        index.Open();
+
+        var entry = new PutEvent(
+            1, DateTimeOffset.UtcNow, "uncommitted-key", "v1", "blobsha1", "md5", 10, "text/plain",
+            new Dictionary<string, string>());
+
+        using (var tx = index.BeginTransaction())
+        {
+            index.Insert(entry);
+            Assert.False(index.HotCache.TryGet("uncommitted-key", out _));
+        }
+
+        Assert.False(index.HotCache.TryGet("uncommitted-key", out _));
+    }
+
+    [Fact]
+    public void BucketIndex_CommittedTransaction_MutatesHotCache()
+    {
+        var dbPath = Path.Combine(root, "committed-test-index.db");
+        using var index = new BucketIndex(dbPath);
+        index.Open();
+
+        var entry = new PutEvent(
+            1, DateTimeOffset.UtcNow, "committed-key", "v1", "blobsha1", "md5", 10, "text/plain",
+            new Dictionary<string, string>());
+
+        using (var tx = index.BeginTransaction())
+        {
+            index.Insert(entry);
+            Assert.False(index.HotCache.TryGet("committed-key", out _));
+            tx.Commit();
+        }
+
+        Assert.True(index.HotCache.TryGet("committed-key", out var cached));
+        Assert.NotNull(cached);
+        Assert.Equal("v1", cached.VersionId);
+    }
+
+    [Fact]
+    public void BucketIndex_MissingKey_ReturnsNoSuchKey()
+    {
+        var dbPath = Path.Combine(root, "missing-key-index.db");
+        using var index = new BucketIndex(dbPath);
+        index.Open();
+
+        var result = index.GetVersion("nonexistent-key", "some-version");
+        Assert.True(result.TryGetError(out var err));
+        Assert.IsType<NoSuchKeyError>(err);
+    }
+
+    [Fact]
+    public void BucketIndex_MissingVersionOnExistingKey_ReturnsNoSuchVersion()
+    {
+        var dbPath = Path.Combine(root, "missing-version-index.db");
+        using var index = new BucketIndex(dbPath);
+        index.Open();
+
+        var entry = new PutEvent(
+            1, DateTimeOffset.UtcNow, "existing-key", "v1", "blobsha1", "md5", 10, "text/plain",
+            new Dictionary<string, string>());
+
+        using (var tx = index.BeginTransaction())
+        {
+            index.Insert(entry);
+            tx.Commit();
+        }
+
+        var result = index.GetVersion("existing-key", "nonexistent-version");
+        Assert.True(result.TryGetError(out var err));
+        Assert.IsType<NoSuchVersionError>(err);
     }
 
     [Fact]

@@ -34,16 +34,36 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         writeConn = null;
     }
 
+    private BucketIndexTxScope? currentTxScope;
+
     public BucketIndexTxScope BeginTransaction()
     {
         var tx = writeConn!.BeginTransaction();
         currentTx = tx;
-        return new BucketIndexTxScope(this, tx);
+        var scope = new BucketIndexTxScope(this, tx);
+        currentTxScope = scope;
+        return scope;
     }
 
-    internal void ClearTransaction(SqliteTransaction tx)
+    internal void ClearTransaction(BucketIndexTxScope scope)
     {
-        if (ReferenceEquals(currentTx, tx)) currentTx = null;
+        if (ReferenceEquals(currentTxScope, scope))
+        {
+            currentTxScope = null;
+            currentTx = null;
+        }
+    }
+
+    private void ApplyCacheAction(Action action)
+    {
+        if (currentTxScope is not null)
+        {
+            currentTxScope.AddPostCommitAction(action);
+        }
+        else
+        {
+            action();
+        }
     }
 
     private SqliteCommand WriteCmd()
@@ -167,7 +187,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             ev.LegalHoldOn,
             ev.SystemHeaders);
 
-        HotCache.Set(ev.Key, entry);
+        ApplyCacheAction(() => HotCache.Set(ev.Key, entry));
     }
 
     public void UpdateTags(string key, string versionId, IReadOnlyDictionary<string, string> tags)
@@ -179,7 +199,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
         cmd.ExecuteNonQuery();
-        HotCache.UpdateTags(key, versionId, tags);
+        ApplyCacheAction(() => HotCache.UpdateTags(key, versionId, tags));
     }
 
     public VersionKind? GetVersionKind(string key, string versionId)
@@ -237,7 +257,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$kd", (int)VersionKind.DeleteMarker);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.ExecuteNonQuery();
-        HotCache.Set(ev.Key, null);
+        ApplyCacheAction(() => HotCache.Set(ev.Key, null));
     }
 
     public void Remove(string key, string versionId)
@@ -247,7 +267,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
-        HotCache.Evict(key);
+        ApplyCacheAction(() => HotCache.Evict(key));
     }
 
     public Result<PutEntry> GetVersion(string key, string versionId)
@@ -282,7 +302,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Retention: ReadRetention(r, 12, 13),
                 LegalHoldOn: ReadLegalHold(r, 14),
                 SystemHeaders: ReadSystemHeaders(r, 15))
-            : new NoSuchVersionError(key, versionId);
+            : CountVersions(key) > 0 ? new NoSuchVersionError(key, versionId) : new NoSuchKeyError(key);
     }
 
     public string? LatestVersionId(string key)
@@ -556,7 +576,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
-        HotCache.UpdateRetention(key, versionId, new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(retainUntilUnixSeconds)));
+        var retention = new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(retainUntilUnixSeconds));
+        ApplyCacheAction(() => HotCache.UpdateRetention(key, versionId, retention));
     }
 
     public void ApplyLegalHold(string key, string versionId, bool on)
@@ -571,7 +592,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
-        HotCache.UpdateLegalHold(key, versionId, on);
+        ApplyCacheAction(() => HotCache.UpdateLegalHold(key, versionId, on));
     }
 
     public ObjectLockStatus GetObjectLockStatus(string key, string versionId)

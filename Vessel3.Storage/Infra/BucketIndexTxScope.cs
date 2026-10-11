@@ -6,6 +6,7 @@ internal sealed class BucketIndexTxScope : IDisposable
 {
     private readonly BucketIndex owner;
     private readonly SqliteTransaction tx;
+    private readonly List<Action> postCommitActions = [];
     private bool committed;
 
     internal BucketIndexTxScope(BucketIndex owner, SqliteTransaction tx)
@@ -14,16 +15,22 @@ internal sealed class BucketIndexTxScope : IDisposable
         this.tx = tx;
     }
 
+    public void AddPostCommitAction(Action action) => postCommitActions.Add(action);
+
     public void Commit()
     {
         tx.Commit();
         committed = true;
+        foreach (var action in postCommitActions)
+        {
+            action();
+        }
     }
 
     public void Dispose()
     {
         if (!committed) tx.Rollback();
         tx.Dispose();
-        owner.ClearTransaction(tx);
+        owner.ClearTransaction(this);
     }
 }

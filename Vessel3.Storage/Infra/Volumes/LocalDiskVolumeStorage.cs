@@ -110,12 +110,10 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 ensuredDirs.TryAdd(finalDir, true);
             }
 
-            var isNewFile = false;
             try
             {
                 File.Move(tempPath, finalPath, overwrite: false);
                 moved = true;
-                isNewFile = true;
             }
             catch (IOException) when (File.Exists(finalPath))
             {
@@ -123,7 +121,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 TryDelete(tempPath);
             }
 
-            if (isNewFile && fileSync.SyncDirectory(finalDir) is Result.Failure ef)
+            if (fileSync.SyncDirectory(finalDir) is Result.Failure ef)
                 return ef.Error;
 
             return new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
