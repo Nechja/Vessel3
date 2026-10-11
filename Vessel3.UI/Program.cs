@@ -24,7 +24,11 @@ builder.Services.AddSingleton(auth);
 builder.Services.AddSingleton(notifications);
 builder.Services.AddSingleton(sp => new Login(sp.GetRequiredService<IJSRuntime>(), sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>(), config.Oidc));
 builder.Services.AddSingleton<ObjectUrls>();
-builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(origin + "/") });
+builder.Services.AddScoped(_ => new HttpClient
+{
+    BaseAddress = new Uri(origin + "/"),
+    Timeout = Timeout.InfiniteTimeSpan
+});
 builder.Services.AddTransient<IVesselClient>(sp =>
 {
     var a = sp.GetRequiredService<UiAuth>();

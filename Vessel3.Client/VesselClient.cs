@@ -12,7 +12,11 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
 
     public VesselClient(string baseUrl, string? accessKey = null, string? secretKey = null, string? bearerToken = null)
         : this(
-            new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/") },
+            new HttpClient(new SocketsHttpHandler { UseProxy = false })
+            {
+                BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/"),
+                Timeout = Timeout.InfiniteTimeSpan
+            },
             new VesselClientOptions(baseUrl, accessKey, secretKey, bearerToken),
             disposeHttpClient: true)
     {
@@ -195,10 +199,13 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         Stream content,
         string? contentType = null,
         IReadOnlyDictionary<string, string>? metadata = null,
+        IProgress<long>? progress = null,
         CancellationToken ct = default)
     {
+        var uploadStream = progress is not null ? new ProgressStream(content, progress) : content;
         using var req = CreateRequest(HttpMethod.Put, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/objects/{EscapeKey(key)}");
-        req.Content = new StreamContent(content, 81920);
+        req.Options.Set(new HttpRequestOptionsKey<bool>("WebAssemblyEnableStreamingRequest"), true);
+        req.Content = new StreamContent(uploadStream, 81920);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType ?? VesselMediaTypes.OctetStream);
 
         if (metadata is not null)

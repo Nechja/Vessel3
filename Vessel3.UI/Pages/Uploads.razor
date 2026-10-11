@@ -79,7 +79,15 @@
                                     }
                                     else if (job.State == UploadState.Uploading)
                                     {
-                                        <span class="badge badge-accent">uploading...</span>
+                                        <div class="stack" style="gap: var(--space-1); min-width: 180px;">
+                                            <div class="row" style="justify-content: space-between; font-size: var(--text-xs);">
+                                                <span class="mono faint">@Fmt.Bytes(job.TransferredBytes) / @Fmt.Bytes(job.Size)</span>
+                                                <span class="mono" style="font-weight: var(--weight-semibold);">@job.Percent%</span>
+                                            </div>
+                                            <div class="progress-track">
+                                                <div class="progress-fill" style="width: @(job.Percent)%"></div>
+                                            </div>
+                                        </div>
                                     }
                                     else if (job.State == UploadState.Failed)
                                     {
@@ -119,6 +127,8 @@
         public string Bucket { get; init; } = "";
         public string Key { get; init; } = "";
         public long Size { get; init; }
+        public long TransferredBytes { get; set; }
+        public int Percent => Size > 0 ? (int)Math.Clamp(Math.Round((double)TransferredBytes / Size * 100), 0, 100) : 0;
         public UploadState State { get; set; } = UploadState.Queued;
         public string? Error { get; set; }
     }
@@ -198,11 +208,23 @@
         job.State = UploadState.Uploading;
         StateHasChanged();
 
+        var lastUpdate = DateTime.UtcNow;
+        var progress = new Progress<long>(bytes =>
+        {
+            job.TransferredBytes = bytes;
+            var now = DateTime.UtcNow;
+            if ((now - lastUpdate).TotalMilliseconds >= 100 || bytes >= job.Size)
+            {
+                lastUpdate = now;
+                StateHasChanged();
+            }
+        });
+
         try
         {
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
             var contentType = MimeHelper.GetMimeType(file.Name, file.ContentType);
-            var res = await Client.PutObject(bucket, key, stream, contentType);
+            var res = await Client.PutObject(bucket, key, stream, contentType, progress: progress);
             if (!res.TryGetValue(out _, out var err))
             {
                 job.State = UploadState.Failed;
@@ -211,6 +233,7 @@
             }
             else
             {
+                job.TransferredBytes = job.Size;
                 job.State = UploadState.Done;
                 Toast.Success($"Uploaded {file.Name}");
             }
