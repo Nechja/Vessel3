@@ -301,7 +301,7 @@ using Vessel3.Client;
 using var client = new VesselClient("http://127.0.0.1:9000", "access-key", "secret-key");
 
 // 1. Create a webhook
-var createResult = await client.CreateWebhookAsync(new CreateWebhookDto(
+var createResult = await client.CreateWebhook(new CreateWebhookDto(
     Name: "ArgoCD Auto Sync",
     Url: "https://argo.example.com/events",
     Secret: "rainier-secret",
@@ -315,21 +315,21 @@ if (createResult.TryGetValue(out var webhook, out var err))
 }
 
 // 2. Test ping the webhook
-var testResult = await client.TestWebhookAsync(webhook.Id);
+var testResult = await client.TestWebhook(webhook.Id);
 if (testResult.TryGetValue(out var test, out _))
 {
     Console.WriteLine($"Test result: {test.StatusCode} in {test.LatencyMs}ms");
 }
 
 // 3. Export active webhooks as YAML
-var yamlResult = await client.ExportWebhooksYamlAsync();
+var yamlResult = await client.ExportWebhooksYaml();
 if (yamlResult.TryGetValue(out var yaml, out _))
 {
     Console.WriteLine(yaml);
 }
 
 // 4. Real-time event streaming (SSE)
-await foreach (var evt in client.StreamEventsAsync(topicFilter: "object.*, container.*", resourceFilter: "photos/*"))
+await foreach (var evt in client.StreamEvents(topicFilter: "object.*, container.*", resourceFilter: "photos/*"))
 {
     Console.WriteLine($"[{evt.Time:O}] {evt.Type} on {evt.Subject} by {evt.Actor}");
 }

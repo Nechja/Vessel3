@@ -1,3 +1,6 @@
+using System.Collections.Frozen;
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -17,6 +20,9 @@ internal static class ObjectEndpoints
         endpoints.MapMethods("/v1/buckets/{bucket}/objects/{**key}", ["HEAD"], HeadObject);
         endpoints.MapPut("/v1/buckets/{bucket}/objects/{**key}", PutObject);
         endpoints.MapDelete("/v1/buckets/{bucket}/objects/{**key}", DeleteObject);
+        endpoints.MapPost("/v1/buckets/{bucket}/uploads/{**key}", PostUpload);
+        endpoints.MapPut("/v1/buckets/{bucket}/uploads/{**key}", UploadPart);
+        endpoints.MapDelete("/v1/buckets/{bucket}/uploads/{**key}", AbortUpload);
         return endpoints;
     }
 
@@ -33,9 +39,9 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"].ToString());
-        var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"].ToString());
-        var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"].ToString());
+        var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"]);
+        var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"]);
+        var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"]);
         var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0 ? parsedLimit : 1000;
 
         var result = lister.List(new ListRequest(bucket, prefix, delimiter, marker, limit), continuationToken: null);
@@ -44,10 +50,15 @@ internal static class ObjectEndpoints
             return error.ToHttpResult();
         }
 
-        List<ObjectSummaryDto> objectsList = [.. page.Entries.OfType<ListEntry.Contents>()
-            .Select(contents => new ObjectSummaryDto(contents.Key, contents.Size, contents.Etag, contents.LastModified, null))];
-        List<string> prefixes = [.. page.Entries.OfType<ListEntry.CommonPrefix>()
-            .Select(prefixEntry => prefixEntry.Key)];
+        var objectsList = new List<ObjectSummaryDto>(page.Entries.Count);
+        var prefixes = new List<string>();
+        foreach (var entry in page.Entries)
+        {
+            if (entry is ListEntry.Contents contents)
+                objectsList.Add(new ObjectSummaryDto(contents.Key, contents.Size, contents.Etag, contents.LastModified, null));
+            else if (entry is ListEntry.CommonPrefix prefixEntry)
+                prefixes.Add(prefixEntry.Key);
+        }
         var nextMarker = page.NextContinuationToken ?? page.LastKey;
 
         var dto = new ObjectsPageDto(objectsList, prefixes, page.IsTruncated, nextMarker);
@@ -68,17 +79,37 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = await objects.Get(bucket, key, versionId, context.RequestAborted);
         if (!result.TryGetValue(out var storedObject, out var error))
         {
             return error.ToHttpResult();
         }
 
-        var currentVersionId = registry.GetCurrentPut(bucket, key).TryGetValue(out var currentPut, out _) ? currentPut?.VersionId : null;
-        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, storedObject, versionId, currentVersionId);
+        var res = context.Response;
+        NativeHeaderCodec.ApplyObjectHeaders(res.Headers, storedObject, versionId);
+        res.ContentType = storedObject.ContentType ?? "application/octet-stream";
+        res.ContentLength = storedObject.Size;
 
-        return Results.Stream(storedObject.Body, storedObject.ContentType ?? "application/octet-stream");
+        await using (storedObject.Body)
+        {
+            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(81920);
+            try
+            {
+                while (true)
+                {
+                    var read = await storedObject.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), context.RequestAborted);
+                    if (read == 0) break;
+                    await res.Body.WriteAsync(buffer.AsMemory(0, read), context.RequestAborted);
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        return Results.Empty;
     }
 
     private static IResult HeadObject(
@@ -95,16 +126,14 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = objects.Stat(bucket, key, versionId);
         if (!result.TryGetValue(out var stat, out var error))
         {
             return error.ToHttpResult();
         }
 
-        var currentVersionId = registry.GetCurrentPut(bucket, key).TryGetValue(out var currentPut, out _) ? currentPut?.VersionId : null;
-        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, stat, versionId, currentVersionId);
-
+        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, stat, versionId);
         return Results.Ok();
     }
 
@@ -133,7 +162,7 @@ internal static class ObjectEndpoints
             DeclaredSha256: null,
             DeclaredMd5Base64: null,
             Metadata: metadata,
-            Tags: new Dictionary<string, string>(),
+            Tags: FrozenDictionary<string, string>.Empty,
             DeclaredChecksums: ChecksumSet.Empty,
             Ct: context.RequestAborted,
             Protocol: "native",
@@ -141,10 +170,12 @@ internal static class ObjectEndpoints
             Host: context.Request.Host.Value);
 
         var result = await objects.Put(putRequest);
+        if (!result.TryGetValue(out var outcome, out var err))
+        {
+            return err.ToHttpResult();
+        }
 
-        return result.Match(
-            outcome => Results.Json(new PutObjectResultDto(outcome.Etag, outcome.VersionId, outcome.Size, outcome.Sha256), NativeJsonContext.Default.PutObjectResultDto),
-            NativeHttpResult.ToHttpResult);
+        return Results.Json(new PutObjectResultDto(outcome.Etag, outcome.VersionId, outcome.Size, outcome.Sha256), NativeJsonContext.Default.PutObjectResultDto);
     }
 
     private static IResult DeleteObject(
@@ -161,11 +192,215 @@ internal static class ObjectEndpoints
             return authFail.Error.ToHttpResult();
         }
 
-        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"].ToString());
+        var versionId = NativeHeaderCodec.Nullify(context.Request.Query["versionId"]);
         var result = versionId is not null
             ? objects.DeleteVersion(bucket, key, versionId)
             : objects.Delete(bucket, key);
 
-        return result.Match(_ => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out _, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> PostUpload(
+        string bucket,
+        string key,
+        HttpContext context,
+        IChunkStager stager,
+        IBucketRegistry registry)
+    {
+        if (context.Request.Query.TryGetValue("uploadId", out var uploadIdVal) && !string.IsNullOrEmpty(uploadIdVal))
+        {
+            return await CompleteUpload(bucket, key, uploadIdVal.ToString(), context, stager, registry);
+        }
+
+        return CreateUpload(bucket, key, context, stager, registry);
+    }
+
+    private static IResult CreateUpload(
+        string bucket,
+        string key,
+        HttpContext context,
+        IChunkStager stager,
+        IBucketRegistry registry)
+    {
+        RequestTrace.SetTarget("CreateUpload", bucket, key);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var metadata = NativeHeaderCodec.ExtractMetadata(context.Request.Headers);
+        var contentType = context.Request.ContentType;
+
+        var result = stager.CreateSession(bucket, key, contentType, metadata);
+        if (!result.TryGetValue(out var session, out var error))
+        {
+            return error.ToHttpResult();
+        }
+
+        return Results.Json(new CreateUploadResultDto(session.SessionId, bucket, key), NativeJsonContext.Default.CreateUploadResultDto);
+    }
+
+    private static async Task<IResult> UploadPart(
+        string bucket,
+        string key,
+        HttpContext context,
+        IChunkStager stager,
+        IBucketRegistry registry)
+    {
+        RequestTrace.SetTarget("UploadPart", bucket, key);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        if (!context.Request.Query.TryGetValue("uploadId", out var uploadIdVal) || string.IsNullOrEmpty(uploadIdVal))
+        {
+            return Results.BadRequest(new ErrorDto("missing_upload_id", "uploadId query parameter is required"));
+        }
+
+        if (!context.Request.Query.TryGetValue("partNumber", out var partVal) || !int.TryParse(partVal, CultureInfo.InvariantCulture, out var partNumber) || partNumber <= 0)
+        {
+            return Results.BadRequest(new ErrorDto("invalid_part_number", "partNumber query parameter must be a positive integer"));
+        }
+
+        var uploadId = uploadIdVal.ToString();
+        var sessionResult = stager.GetSession(uploadId);
+        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        {
+            return sessionErr.ToHttpResult();
+        }
+
+        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+        }
+
+        var stageResult = await stager.StageChunk(
+            uploadId,
+            partNumber.ToString(CultureInfo.InvariantCulture),
+            context.Request.Body,
+            context.Request.ContentLength,
+            DeclaredChecksums.Empty,
+            context.RequestAborted);
+
+        if (!stageResult.TryGetValue(out var chunk, out var stageErr))
+        {
+            return stageErr.ToHttpResult();
+        }
+
+        return Results.Json(new UploadPartDto(partNumber, chunk.Md5), NativeJsonContext.Default.UploadPartDto);
+    }
+
+    private static async Task<IResult> CompleteUpload(
+        string bucket,
+        string key,
+        string uploadId,
+        HttpContext context,
+        IChunkStager stager,
+        IBucketRegistry registry)
+    {
+        RequestTrace.SetTarget("CompleteUpload", bucket, key);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var sessionResult = stager.GetSession(uploadId);
+        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        {
+            return sessionErr.ToHttpResult();
+        }
+
+        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+        }
+
+        var reqDto = await JsonSerializer.DeserializeAsync(context.Request.Body, NativeJsonContext.Default.CompleteUploadRequestDto, context.RequestAborted);
+        if (reqDto.Parts is null || reqDto.Parts.Count == 0)
+        {
+            return Results.BadRequest(new ErrorDto("empty_parts", "At least one part is required to complete upload"));
+        }
+
+        var listResult = stager.ListChunks(uploadId);
+        if (!listResult.TryGetValue(out var stagedChunks, out var listErr))
+        {
+            return listErr.ToHttpResult();
+        }
+
+        var stagedMap = stagedChunks.ToDictionary(c => c.Token, StringComparer.Ordinal);
+        List<MultipartPart> ordered = new(reqDto.Parts.Count);
+        var prevPart = 0;
+
+        foreach (var part in reqDto.Parts.OrderBy(p => p.PartNumber))
+        {
+            if (part.PartNumber <= prevPart)
+            {
+                return Results.BadRequest(new ErrorDto("invalid_part_order", $"Duplicate or non-ascending part number: {part.PartNumber}"));
+            }
+
+            var token = part.PartNumber.ToString(CultureInfo.InvariantCulture);
+            if (!stagedMap.TryGetValue(token, out var chunk))
+            {
+                return Results.BadRequest(new ErrorDto("missing_part", $"Part {part.PartNumber} has not been uploaded"));
+            }
+
+            ordered.Add(new MultipartPart(part.PartNumber, chunk.BlobSha, chunk.Md5, chunk.Size, chunk.Crc32, chunk.Crc32C, chunk.Sha1));
+            prevPart = part.PartNumber;
+        }
+
+        var wireEtag = $"{Guid.NewGuid():N}";
+        var commitResult = await stager.Commit(uploadId, ordered, wireEtag, ChecksumSet.Empty, context.RequestAborted);
+        if (!commitResult.TryGetValue(out var outcome, out var commitErr))
+        {
+            return commitErr.ToHttpResult();
+        }
+
+        return Results.Json(new PutObjectResultDto(wireEtag, outcome.VersionId, outcome.TotalSize, Sha256: null), NativeJsonContext.Default.PutObjectResultDto);
+    }
+
+    private static IResult AbortUpload(
+        string bucket,
+        string key,
+        HttpContext context,
+        IChunkStager stager,
+        IBucketRegistry registry)
+    {
+        RequestTrace.SetTarget("AbortUpload", bucket, key);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Write) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        if (!context.Request.Query.TryGetValue("uploadId", out var uploadIdVal) || string.IsNullOrEmpty(uploadIdVal))
+        {
+            return Results.BadRequest(new ErrorDto("missing_upload_id", "uploadId query parameter is required"));
+        }
+
+        var uploadId = uploadIdVal.ToString();
+        var sessionResult = stager.GetSession(uploadId);
+        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        {
+            return sessionErr.ToHttpResult();
+        }
+
+        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+        }
+
+        var abortResult = stager.AbortSession(uploadId);
+        return abortResult.Match<IResult>(
+            () => Results.NoContent(),
+            err => err.ToHttpResult());
     }
 }

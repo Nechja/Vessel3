@@ -96,7 +96,9 @@ public class GcGateRaceTests : IDisposable
         await entered.Task;
 
         Assert.IsType<Result<DeleteOutcome>.Success>(registry.HardDeleteVersion("zulu-src", "k", seeded.VersionId, false));
-        Assert.DoesNotContain(seeded.Sha256, registry.AllReferencedBlobs());
+        var allBlobs = new List<string>();
+        await foreach (var b in registry.AllReferencedBlobs(ct)) allBlobs.Add(b);
+        Assert.DoesNotContain(seeded.Sha256, allBlobs);
 
         var report = await collector.Run(TimeSpan.Zero, TimeSpan.FromDays(7));
 
@@ -171,11 +173,12 @@ public class GcGateRaceTests : IDisposable
         public Result<bool> Create(string bucket, string? ownerId = null) => inner.Create(bucket, ownerId);
         public Result Delete(string bucket) => inner.Delete(bucket);
         public Result<bool> Exists(string bucket) => inner.Exists(bucket);
+        public Result EnsureExists(string bucket) => inner.EnsureExists(bucket);
         public IEnumerable<BucketInfo> List(string? ownerId = null) => inner.List(ownerId);
         public Result<string?> GetOwner(string bucket) => inner.GetOwner(bucket);
         public Result SetOwner(string bucket, string newOwnerId) => inner.SetOwner(bucket, newOwnerId);
-        public Result<PutEntry?> GetCurrentPut(string bucket, string key) => inner.GetCurrentPut(bucket, key);
-        public Result<PutEntry?> GetVersion(string bucket, string key, string versionId) => inner.GetVersion(bucket, key, versionId);
+        public Result<PutEntry> GetCurrentPut(string bucket, string key) => inner.GetCurrentPut(bucket, key);
+        public Result<PutEntry> GetVersion(string bucket, string key, string versionId) => inner.GetVersion(bucket, key, versionId);
         public Result<DeleteOutcome> AppendDelete(string bucket, string key, bool bypassGovernance) => inner.AppendDelete(bucket, key, bypassGovernance);
         public Result<DeleteOutcome> HardDeleteVersion(string bucket, string key, string versionId, bool bypassGovernance) => inner.HardDeleteVersion(bucket, key, versionId, bypassGovernance);
         public Result<IReadOnlyList<Result<DeleteOutcome>>> DeleteBatch(string bucket, IReadOnlyList<BatchDeleteItem> items) => inner.DeleteBatch(bucket, items);
@@ -186,17 +189,17 @@ public class GcGateRaceTests : IDisposable
         public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) => inner.PutTagging(bucket, key, versionId, tags);
         public VersionKind? GetCurrentKind(string bucket, string key) => inner.GetCurrentKind(bucket, key);
         public VersionKind? GetVersionKind(string bucket, string key, string versionId) => inner.GetVersionKind(bucket, key, versionId);
-        public Result<ObjectLockConfig?> GetObjectLock(string bucket) => inner.GetObjectLock(bucket);
+        public Result<ObjectLockConfig> GetObjectLock(string bucket) => inner.GetObjectLock(bucket);
         public Result SetObjectLock(string bucket, ObjectLockConfig cfg) => inner.SetObjectLock(bucket, cfg);
-        public Result<LifecycleConfig?> GetLifecycle(string bucket) => inner.GetLifecycle(bucket);
+        public Result<LifecycleConfig> GetLifecycle(string bucket) => inner.GetLifecycle(bucket);
         public Result SetLifecycle(string bucket, LifecycleConfig cfg) => inner.SetLifecycle(bucket, cfg);
         public Result RemoveLifecycle(string bucket) => inner.RemoveLifecycle(bucket);
-        public Result<WebsiteConfig?> GetWebsite(string bucket) => inner.GetWebsite(bucket);
+        public Result<WebsiteConfig> GetWebsite(string bucket) => inner.GetWebsite(bucket);
         public Result SetWebsite(string bucket, WebsiteConfig cfg) => inner.SetWebsite(bucket, cfg);
         public Result RemoveWebsite(string bucket) => inner.RemoveWebsite(bucket);
         public Result<BucketAccess> GetAccess(string bucket) => inner.GetAccess(bucket);
         public Result SetAccess(string bucket, BucketAccess access) => inner.SetAccess(bucket, access);
-        public Result<CorsConfig?> GetCors(string bucket) => inner.GetCors(bucket);
+        public Result<CorsConfig> GetCors(string bucket) => inner.GetCors(bucket);
         public Result SetCors(string bucket, CorsConfig cfg) => inner.SetCors(bucket, cfg);
         public Result RemoveCors(string bucket) => inner.RemoveCors(bucket);
         public IEnumerable<Bucket> OpenBuckets() => inner.OpenBuckets();
@@ -204,7 +207,7 @@ public class GcGateRaceTests : IDisposable
         public Result<Retention?> GetRetention(string bucket, string key, string versionId) => inner.GetRetention(bucket, key, versionId);
         public Result PutLegalHold(string bucket, string key, string versionId, bool on) => inner.PutLegalHold(bucket, key, versionId, on);
         public Result<bool> GetLegalHold(string bucket, string key, string versionId) => inner.GetLegalHold(bucket, key, versionId);
-        public IEnumerable<string> AllReferencedBlobs() => inner.AllReferencedBlobs();
+        public IAsyncEnumerable<string> AllReferencedBlobs(CancellationToken ct = default) => inner.AllReferencedBlobs(ct);
         public void Dispose() { }
     }
 }

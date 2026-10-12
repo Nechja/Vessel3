@@ -1,18 +1,22 @@
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
 namespace Vessel3.Storage;
 
 internal enum VersionKind { Put = 0, DeleteMarker = 1 }
+internal readonly record struct ObjectLockStatus(Retention? Retention, bool LegalHoldOn);
 
 internal sealed class BucketIndex(string dbPath) : IDisposable
 {
     private readonly SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
     private SqliteConnection? writeConn;
     private SqliteTransaction? currentTx;
+
+    internal HotIndexCache HotCache { get; } = new();
 
     public void Open()
     {
@@ -24,21 +28,42 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public void Dispose()
     {
+        HotCache.Clear();
         readers.Dispose();
         writeConn?.Dispose();
         writeConn = null;
     }
 
+    private BucketIndexTxScope? currentTxScope;
+
     public BucketIndexTxScope BeginTransaction()
     {
         var tx = writeConn!.BeginTransaction();
         currentTx = tx;
-        return new BucketIndexTxScope(this, tx);
+        var scope = new BucketIndexTxScope(this, tx);
+        currentTxScope = scope;
+        return scope;
     }
 
-    internal void ClearTransaction(SqliteTransaction tx)
+    internal void ClearTransaction(BucketIndexTxScope scope)
     {
-        if (ReferenceEquals(currentTx, tx)) currentTx = null;
+        if (ReferenceEquals(currentTxScope, scope))
+        {
+            currentTxScope = null;
+            currentTx = null;
+        }
+    }
+
+    private void ApplyCacheAction(Action action)
+    {
+        if (currentTxScope is not null)
+        {
+            currentTxScope.AddPostCommitAction(action);
+        }
+        else
+        {
+            action();
+        }
     }
 
     private SqliteCommand WriteCmd()
@@ -142,6 +167,27 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$lh", ev.LegalHoldOn ? 1 : 0);
         cmd.Parameters.AddWithValue("$sh", SerializeMetadata(ev.SystemHeaders ?? FrozenDictionary<string, string>.Empty));
         cmd.ExecuteNonQuery();
+
+        var entry = new PutEntry(
+            ev.VersionId,
+            DateTimeOffset.FromUnixTimeMilliseconds(ev.At.ToUnixTimeMilliseconds()),
+            ev.BlobSha,
+            ev.Md5,
+            ev.Size,
+            ev.ContentType,
+            ev.Metadata,
+            ev.Parts,
+            ev.Tags ?? FrozenDictionary<string, string>.Empty,
+            ev.Crc32,
+            ev.Crc32C,
+            ev.Sha1,
+            ev.RetentionMode is { } m && ev.RetainUntilUnixSeconds is { } u
+                ? new Retention(m, DateTimeOffset.FromUnixTimeSeconds(u))
+                : null,
+            ev.LegalHoldOn,
+            ev.SystemHeaders);
+
+        ApplyCacheAction(() => HotCache.Set(ev.Key, entry));
     }
 
     public void UpdateTags(string key, string versionId, IReadOnlyDictionary<string, string> tags)
@@ -153,6 +199,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.Parameters.AddWithValue("$kp", (int)VersionKind.Put);
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() => HotCache.UpdateTags(key, versionId, tags));
     }
 
     public VersionKind? GetVersionKind(string key, string versionId)
@@ -210,6 +257,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$kd", (int)VersionKind.DeleteMarker);
         cmd.Parameters.AddWithValue("$at", ev.At.ToUnixTimeMilliseconds());
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() => HotCache.Set(ev.Key, null));
     }
 
     public void Remove(string key, string versionId)
@@ -219,9 +267,10 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() => HotCache.Evict(key));
     }
 
-    public Result<PutEntry?> GetVersion(string key, string versionId)
+    public Result<PutEntry> GetVersion(string key, string versionId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -253,7 +302,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 Retention: ReadRetention(r, 12, 13),
                 LegalHoldOn: ReadLegalHold(r, 14),
                 SystemHeaders: ReadSystemHeaders(r, 15))
-            : (PutEntry?)null;
+            : CountVersions(key) > 0 ? new NoSuchVersionError(key, versionId) : new NoSuchKeyError(key);
     }
 
     public string? LatestVersionId(string key)
@@ -273,6 +322,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
 
     public string? GetCurrentPutVersionId(string key)
     {
+        if (HotCache.TryGet(key, out var cached))
+            return cached?.VersionId;
+
+        var expectedVersion = HotCache.GetVersion(key);
+
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
         cmd.CommandText = """
@@ -283,11 +337,18 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.Parameters.AddWithValue("$k", key);
         using var r = cmd.ExecuteReader();
-        return r.Read() && (VersionKind)r.GetInt32(0) is VersionKind.Put ? r.GetString(1) : null;
+        var vid = r.Read() && (VersionKind)r.GetInt32(0) is VersionKind.Put ? r.GetString(1) : null;
+        if (vid is null) HotCache.TryFill(key, null, expectedVersion);
+        return vid;
     }
 
-    public Result<PutEntry?> GetCurrentPut(string key)
+    public Result<PutEntry> GetCurrentPut(string key)
     {
+        if (HotCache.TryGet(key, out var cached))
+            return cached is not null ? cached : new NoSuchKeyError(key);
+
+        var expectedVersion = HotCache.GetVersion(key);
+
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
         cmd.CommandText = """
@@ -300,24 +361,31 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             """;
         cmd.Parameters.AddWithValue("$k", key);
         using var r = cmd.ExecuteReader();
-        return !r.Read() || (VersionKind)r.GetInt32(0) is not VersionKind.Put
-            ? (PutEntry?)null
-            : new PutEntry(
-                VersionId: r.GetString(1),
-                At: DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(6)),
-                BlobSha: r.GetString(2),
-                Md5: r.GetString(3),
-                Size: r.GetInt64(4),
-                ContentType: r.GetString(5),
-                Metadata: DeserializeMetadata(r.GetString(7)),
-                Parts: DeserializeParts(r.GetString(8)),
-                Tags: DeserializeMetadata(r.GetString(9)),
-                Crc32: NullIfEmpty(r.GetString(10)),
-                Crc32C: NullIfEmpty(r.GetString(11)),
-                Sha1: NullIfEmpty(r.GetString(12)),
-                Retention: ReadRetention(r, 13, 14),
-                LegalHoldOn: ReadLegalHold(r, 15),
-                SystemHeaders: ReadSystemHeaders(r, 16));
+        if (!r.Read() || (VersionKind)r.GetInt32(0) is not VersionKind.Put)
+        {
+            HotCache.TryFill(key, null, expectedVersion);
+            return new NoSuchKeyError(key);
+        }
+
+        var entry = new PutEntry(
+            VersionId: r.GetString(1),
+            At: DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(6)),
+            BlobSha: r.GetString(2),
+            Md5: r.GetString(3),
+            Size: r.GetInt64(4),
+            ContentType: r.GetString(5),
+            Metadata: DeserializeMetadata(r.GetString(7)),
+            Parts: DeserializeParts(r.GetString(8)),
+            Tags: DeserializeMetadata(r.GetString(9)),
+            Crc32: NullIfEmpty(r.GetString(10)),
+            Crc32C: NullIfEmpty(r.GetString(11)),
+            Sha1: NullIfEmpty(r.GetString(12)),
+            Retention: ReadRetention(r, 13, 14),
+            LegalHoldOn: ReadLegalHold(r, 15),
+            SystemHeaders: ReadSystemHeaders(r, 16));
+
+        HotCache.TryFill(key, entry, expectedVersion);
+        return entry;
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
@@ -344,7 +412,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             SELECT key, version_id, kind, md5, size, at_ms, parts_json
               FROM versions
             """;
-        var clauses = new List<string>();
+        List<string> clauses = [];
         if (prefix is not null) clauses.Add("key >= $lo");
         if (hi is not null) clauses.Add("key < $hi");
         if (keyMarker is not null) clauses.Add("key > $km");
@@ -363,7 +431,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         if (keyMarker is not null) cmd.Parameters.AddWithValue("$km", keyMarker);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
 
-        var results = new List<AllVersionsEntry>(limit);
+        List<AllVersionsEntry> results = new(limit);
         using var r = cmd.ExecuteReader();
         string? lastKey = null;
         var truncated = false;
@@ -387,16 +455,17 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
     internal static string ListCurrentSql(string? prefix, string? hi, KeyBound? from)
     {
         var sql = """
-            SELECT v1.key, v1.md5, v1.size, v1.at_ms,
-                   CASE WHEN v1.parts_json = '' THEN 0 ELSE json_array_length(v1.parts_json) END
-              FROM versions v1
-             WHERE v1.seq = (SELECT MAX(seq) FROM versions v2 WHERE v2.key = v1.key)
-               AND v1.kind = $kp
+            SELECT key, md5, size, at_ms,
+                   CASE WHEN parts_json = '' THEN 0 ELSE json_array_length(parts_json) END,
+                   MAX(seq)
+              FROM versions
             """;
-        if (prefix is not null) sql += " AND v1.key >= $lo ";
-        if (hi is not null) sql += " AND v1.key < $hi ";
-        if (from is { } f) sql += f.Inclusive ? " AND v1.key >= $from " : " AND v1.key > $from ";
-        return sql + " ORDER BY v1.key LIMIT $lim";
+        List<string> clauses = [];
+        if (prefix is not null) clauses.Add("key >= $lo");
+        if (hi is not null) clauses.Add("key < $hi");
+        if (from is { } f) clauses.Add(f.Inclusive ? "key >= $from" : "key > $from");
+        if (clauses.Count > 0) sql += " WHERE " + string.Join(" AND ", clauses);
+        return sql + " GROUP BY key HAVING kind = $kp ORDER BY key LIMIT $lim";
     }
 
     public (List<VersionListEntry> Entries, bool IsTruncated) ListCurrent(string? prefix, KeyBound? from, int limit)
@@ -411,7 +480,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         if (from is { } f) cmd.Parameters.AddWithValue("$from", f.Key);
         cmd.Parameters.AddWithValue("$lim", limit + 1);
 
-        var results = new List<VersionListEntry>(limit);
+        List<VersionListEntry> results = new(limit);
         using var r = cmd.ExecuteReader();
         var truncated = false;
         while (r.Read())
@@ -459,13 +528,14 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         return !r.Read();
     }
 
-    public IEnumerable<string> ReferencedBlobs()
+    public async IAsyncEnumerable<string> ReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
         const int pageSize = 10000;
         long after = 0;
         while (true)
         {
-            var page = new List<string>();
+            ct.ThrowIfCancellationRequested();
+            List<string> page = [];
             var rows = 0;
             using (var rh = ReadCmd())
             {
@@ -473,8 +543,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                 cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
                 cmd.Parameters.AddWithValue("@after", after);
                 cmd.Parameters.AddWithValue("@limit", pageSize);
-                using var r = cmd.ExecuteReader();
-                while (r.Read())
+                using var r = await cmd.ExecuteReaderAsync(ct);
+                while (await r.ReadAsync(ct))
                 {
                     rows++;
                     after = r.GetInt64(0);
@@ -484,7 +554,11 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
                             if (p.BlobSha.Length > 0) page.Add(p.BlobSha);
                 }
             }
-            foreach (var sha in page) yield return sha;
+            foreach (var sha in page)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return sha;
+            }
             if (rows < pageSize) yield break;
         }
     }
@@ -502,6 +576,8 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
+        var retention = new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(retainUntilUnixSeconds));
+        ApplyCacheAction(() => HotCache.UpdateRetention(key, versionId, retention));
     }
 
     public void ApplyLegalHold(string key, string versionId, bool on)
@@ -516,9 +592,10 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() => HotCache.UpdateLegalHold(key, versionId, on));
     }
 
-    public (Retention? Retention, bool LegalHoldOn) GetLock(string key, string versionId)
+    public ObjectLockStatus GetObjectLockStatus(string key, string versionId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
@@ -531,7 +608,7 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
         cmd.Parameters.AddWithValue("$k", key);
         cmd.Parameters.AddWithValue("$v", versionId);
         using var r = cmd.ExecuteReader();
-        if (!r.Read()) return (null, false);
+        if (!r.Read()) return new ObjectLockStatus(null, false);
         Retention? ret = null;
         if (!r.IsDBNull(0) && !r.IsDBNull(1)
             && Enum.TryParse<RetentionMode>(r.GetString(0), out var mode))
@@ -539,6 +616,6 @@ internal sealed class BucketIndex(string dbPath) : IDisposable
             ret = new Retention(mode, DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)));
         }
         var hold = !r.IsDBNull(2) && r.GetInt64(2) is 1;
-        return (ret, hold);
+        return new ObjectLockStatus(ret, hold);
     }
 }

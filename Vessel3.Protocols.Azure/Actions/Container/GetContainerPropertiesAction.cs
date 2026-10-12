@@ -19,15 +19,9 @@ internal sealed class GetContainerPropertiesAction(
             return Task.FromResult<IResult>(new AzureErrorResult(new InvalidResourceNameError("Container name is required"), errorXml));
         }
 
-        var existsResult = registry.Exists(target.Container);
-        if (!existsResult.TryGetValue(out var exists, out var err))
+        if (registry.EnsureExists(target.Container).TryGetError(out var err))
         {
             return Task.FromResult<IResult>(new AzureErrorResult(err, errorXml));
-        }
-
-        if (!exists)
-        {
-            return Task.FromResult<IResult>(new AzureErrorResult(new NoSuchBucketError(target.Container), errorXml));
         }
 
         var now = DateTimeOffset.UtcNow;

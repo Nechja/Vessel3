@@ -4,16 +4,17 @@ internal sealed class ListParts(IMultipartStore multipart, IS3XmlWriter xml, IHt
 {
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.UploadId);
 
-    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
         var uploadId = ctx.Request.Query["uploadId"].ToString();
-        return multipart.ListParts(uploadId).Match<Task<IResult>>(
-            async parts =>
-            {
-                ctx.Response.ContentType = "application/xml";
-                await xml.WriteListParts(ctx.Response.Body, bucket, key, uploadId, parts, ctx.RequestAborted);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
+        var res = multipart.ListParts(uploadId);
+        if (!res.TryGetValue(out var parts, out var err))
+        {
+            return http.Map(err);
+        }
+
+        ctx.Response.ContentType = "application/xml";
+        await xml.WriteListParts(ctx.Response.Body, bucket, key, uploadId, parts, ctx.RequestAborted);
+        return Results.Empty;
     }
 }

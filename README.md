@@ -101,14 +101,14 @@ using var client = new VesselClient(
     secretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 
 // List buckets
-var bucketsResult = await client.ListBucketsAsync();
+var bucketsResult = await client.ListBuckets();
 ```
 
 ### 4. Stream Live Events (C# SDK)
 
 ```csharp
 using var cts = new CancellationTokenSource();
-await foreach (var evt in client.StreamEventsAsync(
+await foreach (var evt in client.StreamEvents(
     topicFilter: "s3.*",
     resourceFilter: "my-bucket/*",
     cancellationToken: cts.Token))

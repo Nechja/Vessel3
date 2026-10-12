@@ -60,9 +60,9 @@ public class PowerLossTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        var current = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
+        var current = ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("k")).Value;
         Assert.Equal(v2, current.VersionId);
-        Assert.NotNull(((Result<PutEntry?>.Success)restored.Index.GetVersion("k", v1)).Value);
+        Assert.NotNull(((Result<PutEntry>.Success)restored.Index.GetVersion("k", v1)).Value);
     }
 
     [Fact]
@@ -87,8 +87,8 @@ public class PowerLossTests : IDisposable
         using (var b = new Bucket("b", root, sync, durable))
         {
             b.Open();
-            Assert.NotNull(((Result<PutEntry?>.Success)b.Index.GetCurrentPut("k")).Value);
-            Assert.False(b.Index.GetCurrentPut("never-flushed") is Result<PutEntry?>.Success { Value: not null });
+            Assert.NotNull(((Result<PutEntry>.Success)b.Index.GetCurrentPut("k")).Value);
+            Assert.False(b.Index.GetCurrentPut("never-flushed") is Result<PutEntry>.Success);
         }
 
         Assert.True(LogSize(root) < corruptedSize);

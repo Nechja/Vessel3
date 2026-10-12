@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Primitives;
+
 namespace Vessel3.Server.S3;
 
 internal interface IS3SubresourceResolver
@@ -67,7 +69,7 @@ internal sealed class S3SubresourceResolver : IS3SubresourceResolver
                 continue;
             }
 
-            if (rule.RequiresValue && string.IsNullOrEmpty(value.ToString()))
+            if (rule.RequiresValue && StringValues.IsNullOrEmpty(value))
             {
                 continue;
             }

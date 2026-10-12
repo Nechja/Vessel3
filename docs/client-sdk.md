@@ -55,7 +55,7 @@ using var oidcClient = new VesselClient(
 Every client method returns a `Result` or `Result<T>`. Results never throw HTTP exceptions on failure:
 
 ```csharp
-var result = await client.WhoAmIAsync();
+var result = await client.WhoAmI();
 
 if (result.TryGetValue(out var caller, out var error))
 {
@@ -75,16 +75,16 @@ else
 
 ```csharp
 // 1. Create a bucket
-var createResult = await client.CreateBucketAsync("documents");
+var createResult = await client.CreateBucket("documents");
 
 // 2. Configure bucket access (e.g. enable public read)
-await client.SetBucketAccessAsync("documents", new BucketAccessDto(PublicRead: true, ReadOnly: false));
+await client.SetBucketAccess("documents", new BucketAccessDto(PublicRead: true, ReadOnly: false));
 
 // 3. Enable bucket versioning
-await client.SetBucketVersioningAsync("documents", "Enabled");
+await client.SetBucketVersioning("documents", "Enabled");
 
 // 4. List all buckets visible to the caller
-var listResult = await client.ListBucketsAsync();
+var listResult = await client.ListBuckets();
 if (listResult.TryGetValue(out var buckets, out _))
 {
     foreach (var b in buckets)
@@ -94,7 +94,7 @@ if (listResult.TryGetValue(out var buckets, out _))
 }
 
 // 5. Delete an empty bucket
-await client.DeleteBucketAsync("documents");
+await client.DeleteBucket("documents");
 ```
 
 ### 2. Uploading Objects
@@ -109,7 +109,7 @@ var metadata = new Dictionary<string, string>
     ["confidential"] = "true"
 };
 
-var putResult = await client.PutObjectAsync(
+var putResult = await client.PutObject(
     bucket: "documents",
     key: "2026/contract.pdf",
     content: stream,
@@ -125,7 +125,7 @@ if (putResult.TryGetValue(out var outcome, out var err))
 ### 3. Downloading Objects
 
 ```csharp
-var getResult = await client.GetObjectAsync("documents", "2026/contract.pdf");
+var getResult = await client.GetObject("documents", "2026/contract.pdf");
 
 if (getResult.TryGetValue(out var download, out var err))
 {
@@ -150,7 +150,7 @@ if (getResult.TryGetValue(out var download, out var err))
 ### 4. Querying Metadata (`StatObject`)
 
 ```csharp
-var statResult = await client.StatObjectAsync("documents", "2026/contract.pdf");
+var statResult = await client.StatObject("documents", "2026/contract.pdf");
 
 if (statResult.TryGetValue(out var stat, out _))
 {
@@ -161,7 +161,7 @@ if (statResult.TryGetValue(out var stat, out _))
 ### 5. Listing Objects & Pagination
 
 ```csharp
-var pageResult = await client.ListObjectsAsync(
+var pageResult = await client.ListObjects(
     bucket: "documents",
     prefix: "2026/",
     delimiter: "/",
@@ -190,13 +190,13 @@ if (pageResult.TryGetValue(out var page, out _))
 
 ```csharp
 // 1. Create a tenant user (requires Admin role)
-var userResult = await client.CreateUserAsync("bob", role: "Member");
+var userResult = await client.CreateUser("bob", role: "Member");
 if (userResult.TryGetValue(out var user, out _))
 {
     Console.WriteLine($"Created user: {user.Username} (ID: {user.Id})");
 
     // 2. Issue an access key with a 30-day expiration
-    var keyResult = await client.CreateAccessKeyAsync(
+    var keyResult = await client.CreateAccessKey(
         userId: user.Id,
         description: "Bob Laptop Key",
         ttl: TimeSpan.FromDays(30));
@@ -209,10 +209,10 @@ if (userResult.TryGetValue(out var user, out _))
     }
 
     // 3. Revoke access key
-    await client.RevokeAccessKeyAsync(key.Id);
+    await client.RevokeAccessKey(key.Id);
 
     // 4. Delete user
-    await client.DeleteUserAsync(user.Id);
+    await client.DeleteUser(user.Id);
 }
 ```
 
@@ -220,14 +220,14 @@ if (userResult.TryGetValue(out var user, out _))
 
 ```csharp
 // Trigger unreferenced blob garbage collection (grace period: 1 hour)
-var gcResult = await client.RunGcAsync(minBlobAgeSec: 3600);
+var gcResult = await client.RunGc(minBlobAgeSec: 3600);
 if (gcResult.TryGetValue(out var gc, out _))
 {
     Console.WriteLine($"Cleaned up {gc.BlobsDeleted} blobs and {gc.UploadsReaped} orphan uploads.");
 }
 
 // Trigger bucket lifecycle policy sweep
-var sweepResult = await client.RunSweepAsync();
+var sweepResult = await client.RunSweep();
 if (sweepResult.TryGetValue(out var sweep, out _))
 {
     Console.WriteLine($"Pruned {sweep.Expired} expired versions and {sweep.MarkersReaped} delete markers.");
@@ -238,7 +238,7 @@ if (sweepResult.TryGetValue(out var sweep, out _))
 
 ```csharp
 // List all container repos
-var reposResult = await client.ListContainerReposAsync();
+var reposResult = await client.ListContainerRepos();
 if (reposResult.TryGetValue(out var repos, out _))
 {
     foreach (var repo in repos)
@@ -246,7 +246,7 @@ if (reposResult.TryGetValue(out var repos, out _))
         Console.WriteLine($"Repository: {repo}");
 
         // List tags for this repository
-        var tagsResult = await client.ListContainerTagsAsync(repo);
+        var tagsResult = await client.ListContainerTags(repo);
         if (tagsResult.TryGetValue(out var tags, out _))
         {
             foreach (var tag in tags)
@@ -258,7 +258,7 @@ if (reposResult.TryGetValue(out var repos, out _))
 }
 
 // Delete a manifest by tag or digest
-await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+await client.DeleteContainerManifest("my-service", "v1.0.0");
 ```
 
 ### 9. Server Diagnostics & Access Logs
@@ -266,7 +266,7 @@ await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
 Query the in-memory access and diagnostic log ring buffer or clear it:
 
 ```csharp
-var logsResult = await client.GetServerLogsAsync(limit: 50, level: "Error", protocol: "s3");
+var logsResult = await client.GetServerLogs(limit: 50, level: "Error", protocol: "s3");
 if (logsResult.TryGetValue(out var logs, out _))
 {
     foreach (var entry in logs)
@@ -275,7 +275,7 @@ if (logsResult.TryGetValue(out var logs, out _))
     }
 }
 
-await client.ClearServerLogsAsync();
+await client.ClearServerLogs();
 ```
 
 ### 10. Real-Time Domain Event Streaming
@@ -285,7 +285,7 @@ Stream live domain events over Server-Sent Events (SSE) using an `IAsyncEnumerab
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 
-await foreach (var evt in client.StreamEventsAsync(topicFilter: "object.*", resourceFilter: "documents/*", cts.Token))
+await foreach (var evt in client.StreamEvents(topicFilter: "object.*", resourceFilter: "documents/*", cts.Token))
 {
     Console.WriteLine($"[{evt.Time:u}] Event: {evt.Type} on {evt.Subject} (ID: {evt.Id})");
 }
@@ -296,7 +296,7 @@ await foreach (var evt in client.StreamEventsAsync(topicFilter: "object.*", reso
 Manage asynchronous event webhooks, trigger ping tests, or export declarative configurations for GitOps:
 
 ```csharp
-var createResult = await client.CreateWebhookAsync(new CreateWebhookDto(
+var createResult = await client.CreateWebhook(new CreateWebhookDto(
     Name: "ArgoCD Auto Sync",
     Url: "https://argo.example.com/events",
     Secret: "webhook-secret",
@@ -306,13 +306,13 @@ var createResult = await client.CreateWebhookAsync(new CreateWebhookDto(
 
 if (createResult.TryGetValue(out var webhook, out _))
 {
-    var pingResult = await client.TestWebhookAsync(webhook.Id);
+    var pingResult = await client.TestWebhook(webhook.Id);
     if (pingResult.TryGetValue(out var ping, out _))
     {
         Console.WriteLine($"Ping success: {ping.Success} ({ping.LatencyMs}ms, HTTP {ping.StatusCode})");
     }
 
-    await client.UpdateWebhookAsync(webhook.Id, new UpdateWebhookDto(
+    await client.UpdateWebhook(webhook.Id, new UpdateWebhookDto(
         Name: "ArgoCD Auto Sync v2",
         Url: "https://argo.example.com/events-v2",
         Secret: "webhook-secret",
@@ -320,13 +320,13 @@ if (createResult.TryGetValue(out var webhook, out _))
         ResourceFilters: ["*"],
         Active: true));
 
-    var yamlResult = await client.ExportWebhooksYamlAsync();
+    var yamlResult = await client.ExportWebhooksYaml();
     if (yamlResult.TryGetValue(out var yaml, out _))
     {
         File.WriteAllText("webhooks.yaml", yaml);
     }
 
-    await client.DeleteWebhookAsync(webhook.Id);
+    await client.DeleteWebhook(webhook.Id);
 }
 ```
 

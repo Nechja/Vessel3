@@ -206,7 +206,7 @@
         errorMessage = null;
         try
         {
-            var res = await Client.ListBucketsAsync();
+            var res = await Client.ListBuckets();
             if (res.TryGetValue(out var list, out var err))
             {
                 buckets = list.OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
@@ -236,7 +236,7 @@
         creating = true;
         try
         {
-            var res = await Client.CreateBucketAsync(name);
+            var res = await Client.CreateBucket(name);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to create bucket: {err.Message}");
@@ -262,7 +262,7 @@
         armedDeleteBucket = null;
         try
         {
-            var res = await Client.DeleteBucketAsync(name);
+            var res = await Client.DeleteBucket(name);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete bucket: {err.Message}");
@@ -284,14 +284,14 @@
         readOnly = false;
         versioningStatus = "Suspended";
 
-        var accessRes = await Client.GetBucketAccessAsync(bucket);
+        var accessRes = await Client.GetBucketAccess(bucket);
         if (accessRes.TryGetValue(out var access, out _))
         {
             publicRead = access.PublicRead;
             readOnly = access.ReadOnly;
         }
 
-        var verRes = await Client.GetBucketVersioningAsync(bucket);
+        var verRes = await Client.GetBucketVersioning(bucket);
         if (verRes.TryGetValue(out var ver, out _))
         {
             versioningStatus = ver.Status;
@@ -300,7 +300,7 @@
         websiteEnabled = false;
         websiteIndexDoc = "index.html";
         websiteErrorDoc = "";
-        var webRes = await Client.GetBucketWebsiteAsync(bucket);
+        var webRes = await Client.GetBucketWebsite(bucket);
         if (webRes.TryGetValue(out var web, out _) && web is not null)
         {
             websiteEnabled = true;
@@ -316,14 +316,14 @@
         savingSettings = true;
         try
         {
-            var accessRes = await Client.SetBucketAccessAsync(activeSettingsBucket, new BucketAccessDto(publicRead, readOnly));
+            var accessRes = await Client.SetBucketAccess(activeSettingsBucket, new BucketAccessDto(publicRead, readOnly));
             if (accessRes.TryGetError(out var aErr))
             {
                 Toast.Error($"Failed to update access: {aErr.Message}");
                 return;
             }
 
-            var verRes = await Client.SetBucketVersioningAsync(activeSettingsBucket, versioningStatus);
+            var verRes = await Client.SetBucketVersioning(activeSettingsBucket, versioningStatus);
             if (verRes.TryGetError(out var vErr))
             {
                 Toast.Error($"Failed to update versioning: {vErr.Message}");
@@ -332,7 +332,7 @@
 
             if (websiteEnabled)
             {
-                var webRes = await Client.SetBucketWebsiteAsync(activeSettingsBucket, new BucketWebsiteDto(
+                var webRes = await Client.SetBucketWebsite(activeSettingsBucket, new BucketWebsiteDto(
                     string.IsNullOrWhiteSpace(websiteIndexDoc) ? "index.html" : websiteIndexDoc.Trim(),
                     string.IsNullOrWhiteSpace(websiteErrorDoc) ? null : websiteErrorDoc.Trim()));
                 if (webRes.TryGetError(out var wErr))
@@ -343,7 +343,7 @@
             }
             else
             {
-                await Client.DeleteBucketWebsiteAsync(activeSettingsBucket);
+                await Client.DeleteBucketWebsite(activeSettingsBucket);
             }
 
             Toast.Success($"Settings for '{activeSettingsBucket}' saved");

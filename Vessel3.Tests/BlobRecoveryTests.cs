@@ -47,7 +47,7 @@ public class BlobRecoveryTests : IDisposable
 
     private static async Task AssertNoDanglingReferences(Bucket b, IBlobPool pool)
     {
-        foreach (var sha in b.Index.ReferencedBlobs())
+        await foreach (var sha in b.Index.ReferencedBlobs())
             Assert.True(await pool.Exists(sha), $"index references blob with no readable file: {sha}");
     }
 
@@ -65,7 +65,7 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
+        var entry = ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("k")).Value;
         Assert.Equal(blob.Sha, entry.BlobSha);
         Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
@@ -87,7 +87,7 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        var entry = ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("k")).Value!;
+        var entry = ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("k")).Value;
         Assert.Equal(body, await ReadBlob(pool, entry.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
     }
@@ -106,7 +106,9 @@ public class BlobRecoveryTests : IDisposable
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
         Assert.True(await pool.Exists(orphan.Sha));
-        Assert.DoesNotContain(orphan.Sha, restored.Index.ReferencedBlobs());
+        var referencedShas = new List<string>();
+        await foreach (var sha in restored.Index.ReferencedBlobs()) referencedShas.Add(sha);
+        Assert.DoesNotContain(orphan.Sha, referencedShas);
     }
 
     [Fact]
@@ -131,10 +133,10 @@ public class BlobRecoveryTests : IDisposable
 
         using var restored = new Bucket("b", root, sync, durable);
         restored.Open();
-        Assert.NotNull(((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value);
-        Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry?>.Success { Value: not null });
+        Assert.NotNull(((Result<PutEntry>.Success)restored.Index.GetCurrentPut("a")).Value);
+        Assert.False(restored.Index.GetCurrentPut("bk") is Result<PutEntry>.Success);
         Assert.Equal("AAAAAAAA"u8.ToArray(),
-            await ReadBlob(pool, ((Result<PutEntry?>.Success)restored.Index.GetCurrentPut("a")).Value!.BlobSha));
+            await ReadBlob(pool, ((Result<PutEntry>.Success)restored.Index.GetCurrentPut("a")).Value.BlobSha));
         await AssertNoDanglingReferences(restored, pool);
     }
 }

@@ -44,16 +44,19 @@ public static class EventStreamEndpoints
 
             using var heartbeatTimer = new PeriodicTimer(TimeSpan.FromSeconds(15));
             var reader = subscription.Reader;
+            Task<VesselEvent>? readTask = null;
+            Task<bool>? timerTask = null;
 
             while (!ct.IsCancellationRequested)
             {
-                var readTask = reader.ReadAsync(ct).AsTask();
-                var timerTask = heartbeatTimer.WaitForNextTickAsync(ct).AsTask();
+                readTask ??= reader.ReadAsync(ct).AsTask();
+                timerTask ??= heartbeatTimer.WaitForNextTickAsync(ct).AsTask();
 
                 var completed = await Task.WhenAny(readTask, timerTask);
                 if (completed == readTask)
                 {
                     var @event = await readTask;
+                    readTask = null;
                     var eventJson = JsonSerializer.Serialize(@event, NativeJsonContext.Default.VesselEvent);
                     var sseMessage = $"event: {@event.Type}\nid: {@event.Id}\ndata: {eventJson}\n\n";
                     await context.Response.WriteAsync(sseMessage, ct);
@@ -61,6 +64,8 @@ public static class EventStreamEndpoints
                 }
                 else
                 {
+                    await timerTask;
+                    timerTask = null;
                     await context.Response.WriteAsync(": keep-alive\n\n", ct);
                     await context.Response.Body.FlushAsync(ct);
                 }

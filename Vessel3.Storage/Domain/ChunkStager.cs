@@ -73,7 +73,7 @@ internal sealed class ChunkStager(
         if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
 
         var chunksDir = Path.Combine(dir, "chunks");
-        var result = new List<StagedChunk>();
+        List<StagedChunk> result = [];
         if (!Directory.Exists(chunksDir)) return result;
 
         foreach (var path in Directory.EnumerateFiles(chunksDir, "*.json").OrderBy(p => p, StringComparer.Ordinal))
@@ -163,13 +163,11 @@ internal sealed class ChunkStager(
             Crc32C: checksums.Crc32C,
             Sha1: checksums.Sha1));
 
-        return put.Match<Result<CommitChunksOutcome>>(
-            entry =>
-            {
-                Directory.Delete(dir, recursive: true);
-                return new CommitChunksOutcome(entry.VersionId, totalSize);
-            },
-            err => err);
+        if (!put.TryGetValue(out var entry, out var err))
+            return err;
+
+        Directory.Delete(dir, recursive: true);
+        return new CommitChunksOutcome(entry.VersionId, totalSize);
     }
 
     public IEnumerable<string> EnumerateInFlightChunkShas()

@@ -79,12 +79,8 @@ internal sealed class ContainerRepoTokenService : IContainerRepoTokenService
             using var doc = JsonDocument.Parse(payloadBytes);
             var root = doc.RootElement;
 
-            if (root.TryGetProperty("exp", out var expProp))
-            {
-                var exp = expProp.GetInt64();
-                if (exp < clock.GetUtcNow().ToUnixTimeSeconds())
-                    return false;
-            }
+            if (root.TryGetProperty("exp", out var expProp) && expProp.GetInt64() < clock.GetUtcNow().ToUnixTimeSeconds())
+                return false;
 
             if (root.TryGetProperty("sub", out var subProp))
             {
@@ -93,7 +89,7 @@ internal sealed class ContainerRepoTokenService : IContainerRepoTokenService
 
             if (root.TryGetProperty("scopes", out var scopesProp) && scopesProp.ValueKind == JsonValueKind.Array)
             {
-                var list = new List<string>();
+                List<string> list = [];
                 foreach (var el in scopesProp.EnumerateArray())
                 {
                     if (el.GetString() is { } s) list.Add(s);

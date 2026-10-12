@@ -8,9 +8,8 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
     private const long MinPartSize = 5 * 1024 * 1024;
 
     public Result<CreateUploadOutcome> Create(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata) =>
-        stager.CreateSession(bucket, key, contentType, metadata).Match<Result<CreateUploadOutcome>>(
-            session => new CreateUploadOutcome(session.SessionId),
-            err => err);
+        stager.CreateSession(bucket, key, contentType, metadata)
+            .Map(session => new CreateUploadOutcome(session.SessionId));
 
     public async Task<Result<UploadPartOutcome>> UploadPart(string uploadId, int partNumber, Stream body, long? declaredSize, DeclaredChecksums declaredChecksums, CancellationToken ct)
     {
@@ -20,17 +19,15 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
         var chunkToken = FormatPartToken(partNumber);
         var result = await stager.StageChunk(uploadId, chunkToken, body, declaredSize, declaredChecksums, ct);
 
-        return result.Match<Result<UploadPartOutcome>>(
-            chunk =>
-            {
-                var toStore = new ChecksumSet(
-                    declaredChecksums.Crc32.HasExpectation ? chunk.Crc32 : null,
-                    declaredChecksums.Crc32C.HasExpectation ? chunk.Crc32C : null,
-                    declaredChecksums.Sha1.HasExpectation ? chunk.Sha1 : null,
-                    declaredChecksums.Sha256.HasExpectation ? chunk.BlobSha : null);
-                return new UploadPartOutcome(chunk.Md5, chunk.BlobSha, chunk.Size, toStore);
-            },
-            err => err);
+        return result.Map(chunk =>
+        {
+            var toStore = new ChecksumSet(
+                declaredChecksums.Crc32.HasExpectation ? chunk.Crc32 : null,
+                declaredChecksums.Crc32C.HasExpectation ? chunk.Crc32C : null,
+                declaredChecksums.Sha1.HasExpectation ? chunk.Sha1 : null,
+                declaredChecksums.Sha256.HasExpectation ? chunk.BlobSha : null);
+            return new UploadPartOutcome(chunk.Md5, chunk.BlobSha, chunk.Size, toStore);
+        });
     }
 
     public async Task<Result<CompleteUploadOutcome>> Complete(string uploadId, IReadOnlyList<CompletedPart> clientParts, ChecksumAlgorithm? compositeAlgo, CancellationToken ct)
@@ -43,7 +40,7 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
 
         var stored = stagedChunks.ToDictionary(c => ParsePartNumber(c.Token), c => c);
 
-        var ordered = new List<MultipartPart>(clientParts.Count);
+        List<MultipartPart> ordered = new(clientParts.Count);
         var prevNumber = 0;
         foreach (var p in clientParts)
         {
@@ -58,13 +55,13 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
 
             if (p.Sums is not null)
             {
-                if (p.Sums.Crc32 is { } a && !string.Equals(a, chunk.Crc32, StringComparison.OrdinalIgnoreCase))
+                if (p.Sums.Crc32 is { } expectedCrc32 && !string.Equals(expectedCrc32, chunk.Crc32, StringComparison.OrdinalIgnoreCase))
                     return new BadDigestError($"part {p.Number} crc32 mismatch");
-                if (p.Sums.Crc32C is { } b && !string.Equals(b, chunk.Crc32C, StringComparison.OrdinalIgnoreCase))
+                if (p.Sums.Crc32C is { } expectedCrc32C && !string.Equals(expectedCrc32C, chunk.Crc32C, StringComparison.OrdinalIgnoreCase))
                     return new BadDigestError($"part {p.Number} crc32c mismatch");
-                if (p.Sums.Sha1 is { } c && !string.Equals(c, chunk.Sha1, StringComparison.OrdinalIgnoreCase))
+                if (p.Sums.Sha1 is { } expectedSha1 && !string.Equals(expectedSha1, chunk.Sha1, StringComparison.OrdinalIgnoreCase))
                     return new BadDigestError($"part {p.Number} sha1 mismatch");
-                if (p.Sums.Sha256 is { } d && !string.Equals(d, chunk.BlobSha, StringComparison.OrdinalIgnoreCase))
+                if (p.Sums.Sha256 is { } expectedSha256 && !string.Equals(expectedSha256, chunk.BlobSha, StringComparison.OrdinalIgnoreCase))
                     return new BadDigestError($"part {p.Number} sha256(checksum) mismatch");
             }
 
@@ -85,9 +82,10 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
         var wireEtag = $"{composite}-{ordered.Count}";
         var commitResult = await stager.Commit(uploadId, ordered, composite, objectSums, ct);
 
-        return commitResult.Match<Result<CompleteUploadOutcome>>(
-            outcome => new CompleteUploadOutcome(wireEtag, outcome.VersionId, outcome.TotalSize, objectSums),
-            err => err);
+        if (!commitResult.TryGetValue(out var outcome, out var commitErr))
+            return commitErr;
+
+        return new CompleteUploadOutcome(wireEtag, outcome.VersionId, outcome.TotalSize, objectSums);
     }
 
     public Result Abort(string uploadId) => stager.AbortSession(uploadId);
@@ -95,17 +93,20 @@ internal sealed class S3MultipartStore(IChunkStager stager) : IMultipartStore
     public IEnumerable<InProgressUpload> ListUploads(string bucket) =>
         stager.ListSessions(bucket).Select(s => new InProgressUpload(s.SessionId, s.Bucket, s.Key, s.CreatedAt));
 
-    public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId) =>
-        stager.ListChunks(uploadId).Match<Result<IReadOnlyList<ListedPart>>>(
-            chunks => chunks
-                .Select(c => new ListedPart(
-                    ParsePartNumber(c.Token),
-                    c.Md5,
-                    c.Size,
-                    c.StagedAt == default ? DateTimeOffset.UtcNow : c.StagedAt))
-                .OrderBy(p => p.Number)
-                .ToList(),
-            err => err);
+    public Result<IReadOnlyList<ListedPart>> ListParts(string uploadId)
+    {
+        if (!stager.ListChunks(uploadId).TryGetValue(out var chunks, out var listErr))
+            return listErr;
+
+        return chunks
+            .Select(c => new ListedPart(
+                ParsePartNumber(c.Token),
+                c.Md5,
+                c.Size,
+                c.StagedAt == default ? DateTimeOffset.UtcNow : c.StagedAt))
+            .OrderBy(p => p.Number)
+            .ToList();
+    }
 
     public IEnumerable<string> EnumerateInFlightPartShas() => stager.EnumerateInFlightChunkShas();
 

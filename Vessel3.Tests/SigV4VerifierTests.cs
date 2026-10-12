@@ -31,6 +31,13 @@ public class SigV4VerifierTests
     }
 
     [Fact]
+    public void VerifyHeader_UnicodeKey_Accepts()
+    {
+        var req = SignedHeaderForPath(Root, T0.UtcDateTime, "/bucket/中.txt", "/bucket/%E4%B8%AD.txt");
+        Assert.True(Verifier(null, Root).Verify(req).TryGetValue(out _, out _));
+    }
+
+    [Fact]
     public void VerifyHeader_UnknownAccessKey_Rejects()
     {
         var req = SignedHeader(new Credential("AKIANOPE", "x", null, null), T0.UtcDateTime);
@@ -164,6 +171,33 @@ public class SigV4VerifierTests
 
         var canonical = new StringBuilder()
             .Append("GET\n/bucket/key\n\n");
+        foreach (var h in signed) canonical.Append(h).Append(':').Append(req.Headers[h].ToString()).Append('\n');
+        canonical.Append('\n').Append(string.Join(';', signed)).Append("\nUNSIGNED-PAYLOAD");
+
+        var scope = $"{date}/{Region}/s3/aws4_request";
+        var signature = Sign(cred.Secret, date, amzDate, scope, canonical.ToString());
+        req.Headers.Authorization =
+            $"AWS4-HMAC-SHA256 Credential={cred.AccessKey}/{scope}, SignedHeaders={string.Join(';', signed)}, Signature={signature}";
+        return req;
+    }
+
+    private static HttpRequest SignedHeaderForPath(Credential cred, DateTime now, string rawPath, string canonicalUri)
+    {
+        var req = new DefaultHttpContext().Request;
+        req.Method = "GET";
+        req.Path = rawPath;
+        req.Headers.Host = "localhost";
+
+        var amzDate = now.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
+        var date = amzDate[..8];
+        req.Headers["x-amz-date"] = amzDate;
+        req.Headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD";
+
+        var signed = new List<string> { "host", "x-amz-content-sha256", "x-amz-date" };
+        signed.Sort(StringComparer.Ordinal);
+
+        var canonical = new StringBuilder()
+            .Append($"GET\n{canonicalUri}\n\n");
         foreach (var h in signed) canonical.Append(h).Append(':').Append(req.Headers[h].ToString()).Append('\n');
         canonical.Append('\n').Append(string.Join(';', signed)).Append("\nUNSIGNED-PAYLOAD");
 

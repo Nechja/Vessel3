@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml;
 using Vessel3.Storage;
 
@@ -39,53 +40,59 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
         IEnumerable<BucketInfo> containers,
         CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, AzureXmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "EnumerationResults", null);
-        await w.WriteAttributeStringAsync(null, "ServiceEndpoint", null, serviceEndpoint);
-
-        if (!string.IsNullOrEmpty(prefix))
+        var count = (containers as IReadOnlyCollection<BucketInfo>)?.Count ?? 16;
+        using var ms = new MemoryStream(Math.Max(512, count * 350));
+        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
         {
-            await w.WriteElementStringAsync(null, "Prefix", null, prefix);
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "EnumerationResults", null);
+            w.WriteAttributeString(null, "ServiceEndpoint", null, serviceEndpoint);
+
+            if (!string.IsNullOrEmpty(prefix))
+            {
+                w.WriteElementString(null, "Prefix", null, prefix);
+            }
+
+            if (!string.IsNullOrEmpty(marker))
+            {
+                w.WriteElementString(null, "Marker", null, marker);
+            }
+
+            if (maxResults.HasValue)
+            {
+                w.WriteElementString(null, "MaxResults", null, maxResults.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            w.WriteStartElement(null, "Containers", null);
+            foreach (var c in containers)
+            {
+                ct.ThrowIfCancellationRequested();
+                w.WriteStartElement(null, "Container", null);
+                w.WriteElementString(null, "Name", null, c.Name);
+
+                w.WriteStartElement(null, "Properties", null);
+                w.WriteElementString(null, "Last-Modified", null, AzureXmlDefaults.ToRfc1123(c.CreatedAt));
+                w.WriteElementString(null, "Etag", null, $"\"{c.Name}\"");
+                w.WriteElementString(null, "LeaseStatus", null, "unlocked");
+                w.WriteElementString(null, "LeaseState", null, "available");
+                w.WriteElementString(null, "DefaultEncryptionScope", null, "$account-encryption-key");
+                w.WriteElementString(null, "DenyEncryptionScopeOverride", null, "false");
+                w.WriteElementString(null, "HasImmutabilityPolicy", null, "false");
+                w.WriteElementString(null, "HasLegalHold", null, "false");
+                w.WriteEndElement();
+
+                w.WriteEndElement();
+            }
+            w.WriteEndElement();
+
+            w.WriteElementString(null, "NextMarker", null, "");
+
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
         }
 
-        if (!string.IsNullOrEmpty(marker))
-        {
-            await w.WriteElementStringAsync(null, "Marker", null, marker);
-        }
-
-        if (maxResults.HasValue)
-        {
-            await w.WriteElementStringAsync(null, "MaxResults", null, maxResults.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        await w.WriteStartElementAsync(null, "Containers", null);
-        foreach (var c in containers)
-        {
-            ct.ThrowIfCancellationRequested();
-            await w.WriteStartElementAsync(null, "Container", null);
-            await w.WriteElementStringAsync(null, "Name", null, c.Name);
-
-            await w.WriteStartElementAsync(null, "Properties", null);
-            await w.WriteElementStringAsync(null, "Last-Modified", null, AzureXmlDefaults.ToRfc1123(c.CreatedAt));
-            await w.WriteElementStringAsync(null, "Etag", null, $"\"{c.Name}\"");
-            await w.WriteElementStringAsync(null, "LeaseStatus", null, "unlocked");
-            await w.WriteElementStringAsync(null, "LeaseState", null, "available");
-            await w.WriteElementStringAsync(null, "DefaultEncryptionScope", null, "$account-encryption-key");
-            await w.WriteElementStringAsync(null, "DenyEncryptionScopeOverride", null, "false");
-            await w.WriteElementStringAsync(null, "HasImmutabilityPolicy", null, "false");
-            await w.WriteElementStringAsync(null, "HasLegalHold", null, "false");
-            await w.WriteEndElementAsync();
-
-            await w.WriteEndElementAsync();
-        }
-        await w.WriteEndElementAsync();
-
-        await w.WriteElementStringAsync(null, "NextMarker", null, "");
-
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 
     public async Task WriteListBlobs(
@@ -99,110 +106,120 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
         ListPage page,
         CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, AzureXmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "EnumerationResults", null);
-        await w.WriteAttributeStringAsync(null, "ServiceEndpoint", null, serviceEndpoint);
-        await w.WriteAttributeStringAsync(null, "ContainerName", null, containerName);
-
-        if (!string.IsNullOrEmpty(prefix))
+        using var ms = new MemoryStream(Math.Max(512, page.Entries.Count * 300));
+        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
         {
-            await w.WriteElementStringAsync(null, "Prefix", null, prefix);
-        }
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "EnumerationResults", null);
+            w.WriteAttributeString(null, "ServiceEndpoint", null, serviceEndpoint);
+            w.WriteAttributeString(null, "ContainerName", null, containerName);
 
-        if (!string.IsNullOrEmpty(marker))
-        {
-            await w.WriteElementStringAsync(null, "Marker", null, marker);
-        }
-
-        if (maxResults.HasValue)
-        {
-            await w.WriteElementStringAsync(null, "MaxResults", null, maxResults.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        if (!string.IsNullOrEmpty(delimiter))
-        {
-            await w.WriteElementStringAsync(null, "Delimiter", null, delimiter);
-        }
-
-        await w.WriteStartElementAsync(null, "Blobs", null);
-        foreach (var entry in page.Entries)
-        {
-            ct.ThrowIfCancellationRequested();
-            switch (entry)
+            if (!string.IsNullOrEmpty(prefix))
             {
-                case ListEntry.Contents c:
-                    await w.WriteStartElementAsync(null, "Blob", null);
-                    await w.WriteElementStringAsync(null, "Name", null, c.Key);
-                    await w.WriteStartElementAsync(null, "Properties", null);
-                    await w.WriteElementStringAsync(null, "Creation-Time", null, AzureXmlDefaults.ToRfc1123(c.LastModified));
-                    await w.WriteElementStringAsync(null, "Last-Modified", null, AzureXmlDefaults.ToRfc1123(c.LastModified));
-                    await w.WriteElementStringAsync(null, "Etag", null, c.Etag.StartsWith('"') ? c.Etag : $"\"{c.Etag}\"");
-                    await w.WriteElementStringAsync(null, "Content-Length", null, c.Size.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    await w.WriteElementStringAsync(null, "Content-Type", null, "application/octet-stream");
-                    await w.WriteElementStringAsync(null, "BlobType", null, "BlockBlob");
-                    await w.WriteElementStringAsync(null, "AccessTier", null, "Hot");
-                    await w.WriteElementStringAsync(null, "AccessTierInferred", null, "true");
-                    await w.WriteElementStringAsync(null, "LeaseStatus", null, "unlocked");
-                    await w.WriteElementStringAsync(null, "LeaseState", null, "available");
-                    await w.WriteElementStringAsync(null, "ServerEncrypted", null, "true");
-                    await w.WriteEndElementAsync();
-                    await w.WriteEndElementAsync();
-                    break;
-
-                case ListEntry.CommonPrefix p:
-                    await w.WriteStartElementAsync(null, "BlobPrefix", null);
-                    await w.WriteElementStringAsync(null, "Name", null, p.Key);
-                    await w.WriteEndElementAsync();
-                    break;
+                w.WriteElementString(null, "Prefix", null, prefix);
             }
+
+            if (!string.IsNullOrEmpty(marker))
+            {
+                w.WriteElementString(null, "Marker", null, marker);
+            }
+
+            if (maxResults.HasValue)
+            {
+                w.WriteElementString(null, "MaxResults", null, maxResults.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (!string.IsNullOrEmpty(delimiter))
+            {
+                w.WriteElementString(null, "Delimiter", null, delimiter);
+            }
+
+            w.WriteStartElement(null, "Blobs", null);
+            foreach (var entry in page.Entries)
+            {
+                ct.ThrowIfCancellationRequested();
+                switch (entry)
+                {
+                    case ListEntry.Contents c:
+                        w.WriteStartElement(null, "Blob", null);
+                        w.WriteElementString(null, "Name", null, c.Key);
+                        w.WriteStartElement(null, "Properties", null);
+                        w.WriteElementString(null, "Creation-Time", null, AzureXmlDefaults.ToRfc1123(c.LastModified));
+                        w.WriteElementString(null, "Last-Modified", null, AzureXmlDefaults.ToRfc1123(c.LastModified));
+                        w.WriteElementString(null, "Etag", null, c.Etag.StartsWith('"') ? c.Etag : $"\"{c.Etag}\"");
+                        w.WriteElementString(null, "Content-Length", null, c.Size.ToString(CultureInfo.InvariantCulture));
+                        w.WriteElementString(null, "Content-Type", null, "application/octet-stream");
+                        w.WriteElementString(null, "BlobType", null, "BlockBlob");
+                        w.WriteElementString(null, "AccessTier", null, "Hot");
+                        w.WriteElementString(null, "AccessTierInferred", null, "true");
+                        w.WriteElementString(null, "LeaseStatus", null, "unlocked");
+                        w.WriteElementString(null, "LeaseState", null, "available");
+                        w.WriteElementString(null, "ServerEncrypted", null, "true");
+                        w.WriteEndElement();
+                        w.WriteEndElement();
+                        break;
+
+                    case ListEntry.CommonPrefix p:
+                        w.WriteStartElement(null, "BlobPrefix", null);
+                        w.WriteElementString(null, "Name", null, p.Key);
+                        w.WriteEndElement();
+                        break;
+                }
+            }
+            w.WriteEndElement();
+
+            w.WriteElementString(null, "NextMarker", null, page.NextContinuationToken ?? "");
+
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
         }
-        await w.WriteEndElementAsync();
 
-        await w.WriteElementStringAsync(null, "NextMarker", null, page.NextContinuationToken ?? "");
-
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 
     public async Task WriteServiceProperties(Stream output, CancellationToken ct)
     {
-        await using var w = XmlWriter.Create(output, AzureXmlDefaults.WriterSettings);
-        await w.WriteStartDocumentAsync();
-        await w.WriteStartElementAsync(null, "StorageServiceProperties", null);
+        using var ms = new MemoryStream(1024);
+        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
+        {
+            w.WriteStartDocument();
+            w.WriteStartElement(null, "StorageServiceProperties", null);
 
-        await w.WriteStartElementAsync(null, "Logging", null);
-        await w.WriteElementStringAsync(null, "Version", null, "1.0");
-        await w.WriteElementStringAsync(null, "Delete", null, "false");
-        await w.WriteElementStringAsync(null, "Read", null, "false");
-        await w.WriteElementStringAsync(null, "Write", null, "false");
-        await w.WriteStartElementAsync(null, "RetentionPolicy", null);
-        await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
+            w.WriteStartElement(null, "Logging", null);
+            w.WriteElementString(null, "Version", null, "1.0");
+            w.WriteElementString(null, "Delete", null, "false");
+            w.WriteElementString(null, "Read", null, "false");
+            w.WriteElementString(null, "Write", null, "false");
+            w.WriteStartElement(null, "RetentionPolicy", null);
+            w.WriteElementString(null, "Enabled", null, "false");
+            w.WriteEndElement();
+            w.WriteEndElement();
 
-        await w.WriteStartElementAsync(null, "HourMetrics", null);
-        await w.WriteElementStringAsync(null, "Version", null, "1.0");
-        await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteStartElementAsync(null, "RetentionPolicy", null);
-        await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
+            w.WriteStartElement(null, "HourMetrics", null);
+            w.WriteElementString(null, "Version", null, "1.0");
+            w.WriteElementString(null, "Enabled", null, "false");
+            w.WriteStartElement(null, "RetentionPolicy", null);
+            w.WriteElementString(null, "Enabled", null, "false");
+            w.WriteEndElement();
+            w.WriteEndElement();
 
-        await w.WriteStartElementAsync(null, "MinuteMetrics", null);
-        await w.WriteElementStringAsync(null, "Version", null, "1.0");
-        await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteStartElementAsync(null, "RetentionPolicy", null);
-        await w.WriteElementStringAsync(null, "Enabled", null, "false");
-        await w.WriteEndElementAsync();
-        await w.WriteEndElementAsync();
+            w.WriteStartElement(null, "MinuteMetrics", null);
+            w.WriteElementString(null, "Version", null, "1.0");
+            w.WriteElementString(null, "Enabled", null, "false");
+            w.WriteStartElement(null, "RetentionPolicy", null);
+            w.WriteElementString(null, "Enabled", null, "false");
+            w.WriteEndElement();
+            w.WriteEndElement();
 
-        await w.WriteStartElementAsync(null, "Cors", null);
-        await w.WriteEndElementAsync();
+            w.WriteStartElement(null, "Cors", null);
+            w.WriteEndElement();
 
-        await w.WriteEndElementAsync();
-        await w.WriteEndDocumentAsync();
-        await w.FlushAsync();
+            w.WriteEndElement();
+            w.WriteEndDocument();
+            w.Flush();
+        }
+
+        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
     }
 }

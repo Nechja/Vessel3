@@ -1,8 +1,13 @@
 using System.Globalization;
+using Microsoft.Extensions.Primitives;
 
 namespace Vessel3.Server.S3.Key;
 
-internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, IHttpResultMapper http, IPreconditionEvaluator pre) : IS3KeyAction
+internal sealed class PutObject(
+    IObjectStore objects,
+    IBucketRegistry registry,
+    IHttpResultMapper http,
+    IPreconditionEvaluator preconditions) : IS3KeyAction
 {
     public S3KeyRoute Route => new(HttpMethods.Put, S3KeySubresource.None);
 
@@ -12,17 +17,21 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
         var response = context.Response;
         var cancellationToken = context.RequestAborted;
 
-        if (!await CheckWritePreconditionsAsync(bucket, key, request, cancellationToken))
+        if (!await CheckWritePreconditions(bucket, key, request, cancellationToken))
         {
             return Results.StatusCode(412);
         }
 
         var (body, declaredLength) = RequestBodyDecoder.Decode(request);
-        var contentSha = request.Headers["x-amz-content-sha256"].ToString();
-        var declaredSha = body is AwsChunkedStream || contentSha is "UNSIGNED-PAYLOAD" || contentSha.Length is not 64
+        var contentSha = request.Headers.TryGetValue(S3Headers.ContentSha256, out var contentShaHeader) && !StringValues.IsNullOrEmpty(contentShaHeader)
+            ? contentShaHeader.ToString()
+            : null;
+        var declaredSha = body is AwsChunkedStream || contentSha is S3Headers.UnsignedPayload || contentSha?.Length is not 64
             ? null
             : contentSha;
-        var declaredMd5OrNull = S3RequestExtensions.Nullify(request.Headers["Content-MD5"].ToString());
+        var declaredMd5OrNull = request.Headers.TryGetValue(S3Headers.ContentMd5, out var contentMd5Header)
+            ? S3RequestExtensions.Nullify(contentMd5Header)
+            : null;
 
         var metadata = S3HeaderCodec.ExtractUserMetadata(request.Headers);
         var declaredChecksums = ChecksumHeaders.ParseDeclared(request.Headers);
@@ -31,7 +40,10 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             return http.Map(new BadDigestError("malformed x-amz-checksum-* header (base64 expected)"));
         }
 
-        if (!TagSet.ParseHeader(request.Headers["x-amz-tagging"].ToString()).TryGetValue(out var initialTags, out var tagError))
+        var taggingHeader = request.Headers.TryGetValue("x-amz-tagging", out var taggingHeaderValue)
+            ? S3RequestExtensions.Nullify(taggingHeaderValue)
+            : null;
+        if (!TagSet.ParseHeader(taggingHeader).TryGetValue(out var initialTags, out var tagError))
         {
             return http.Map(tagError);
         }
@@ -41,8 +53,8 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             return http.Map(retentionError);
         }
 
-        var initialHold = request.Headers["x-amz-object-lock-legal-hold"].ToString()
-            .Equals("ON", StringComparison.OrdinalIgnoreCase);
+        var initialHold = request.Headers.TryGetValue("x-amz-object-lock-legal-hold", out var legalHoldHeaderValue)
+            && string.Equals(legalHoldHeaderValue, "ON", StringComparison.OrdinalIgnoreCase);
 
         Result<PutOutcome> result;
         try
@@ -73,17 +85,17 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
             http.Map);
     }
 
-    private async Task<bool> CheckWritePreconditionsAsync(string bucket, string key, HttpRequest request, CancellationToken cancellationToken)
+    private async Task<bool> CheckWritePreconditions(string bucket, string key, HttpRequest request, CancellationToken cancellationToken)
     {
         var writeConditions = S3HeaderCodec.ExtractWritePreconditions(request.Headers);
-        if (!pre.HasWriteConditions(writeConditions))
+        if (!preconditions.HasWriteConditions(writeConditions))
         {
             return true;
         }
 
         var existing = objects.Stat(bucket, key);
         var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
-        if (pre.EvaluateForWrite(writeConditions, currentEtag) is Precondition.Failed)
+        if (preconditions.EvaluateForWrite(writeConditions, currentEtag) is Precondition.Failed)
         {
             await request.Body.CopyToAsync(Stream.Null, cancellationToken);
             return false;
@@ -119,10 +131,13 @@ internal sealed class PutObject(IObjectStore objects, IBucketRegistry registry, 
 
     private Result<Retention?> ResolveInitialRetention(IHeaderDictionary headers, string bucket)
     {
-        var lockModeHeader = headers["x-amz-object-lock-mode"].ToString();
-        var lockUntilHeader = headers["x-amz-object-lock-retain-until-date"].ToString();
-        if (!string.IsNullOrEmpty(lockModeHeader) && !string.IsNullOrEmpty(lockUntilHeader))
+        if (headers.TryGetValue("x-amz-object-lock-mode", out var lockModeVal)
+            && headers.TryGetValue("x-amz-object-lock-retain-until-date", out var lockUntilVal)
+            && !StringValues.IsNullOrEmpty(lockModeVal)
+            && !StringValues.IsNullOrEmpty(lockUntilVal))
         {
+            var lockModeHeader = lockModeVal.ToString();
+            var lockUntilHeader = lockUntilVal.ToString();
             var mode = lockModeHeader switch
             {
                 "GOVERNANCE" => (RetentionMode?)RetentionMode.Governance,

@@ -32,9 +32,12 @@ internal static class WebhookEndpoints
         }
 
         var result = store.ListWebhooks();
-        return result.Match(
-            hooks => Results.Json<List<WebhookDto>>([.. hooks.Select(ToDto)], NativeJsonContext.Default.ListWebhookDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var hooks, out var error))
+        {
+            return error.ToHttpResult();
+        }
+
+        return Results.Json<List<WebhookDto>>([.. hooks.Select(ToDto)], NativeJsonContext.Default.ListWebhookDto);
     }
 
     private static IResult ExportWebhooksYaml(HttpContext context, IWebhookStore store)
@@ -66,11 +69,12 @@ internal static class WebhookEndpoints
         }
 
         var result = store.GetWebhook(id);
-        return result.Match(
-            hook => hook is not null
-                ? Results.Json(ToDto(hook), NativeJsonContext.Default.WebhookDto)
-                : Results.NotFound(),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var hook, out var error))
+        {
+            return error.ToHttpResult();
+        }
+
+        return Results.Json(ToDto(hook), NativeJsonContext.Default.WebhookDto);
     }
 
     private static async Task<IResult> CreateWebhook(HttpContext context, IWebhookStore store)
@@ -89,9 +93,12 @@ internal static class WebhookEndpoints
         var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.CreateWebhookDto);
         var createRequest = new CreateWebhookRequest(body.Name, body.Url, body.Secret, body.EventFilters, body.ResourceFilters, body.Active);
         var result = store.CreateWebhook(createRequest);
-        return result.Match(
-            created => Results.Json(ToDto(created), NativeJsonContext.Default.WebhookDto, statusCode: 201),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var created, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(ToDto(created), NativeJsonContext.Default.WebhookDto, statusCode: 201);
     }
 
     private static async Task<IResult> UpdateWebhook(string id, HttpContext context, IWebhookStore store)
@@ -110,9 +117,12 @@ internal static class WebhookEndpoints
         var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.UpdateWebhookDto);
         var updateRequest = new UpdateWebhookRequest(body.Name, body.Url, body.Secret, body.EventFilters, body.ResourceFilters, body.Active);
         var result = store.UpdateWebhook(id, updateRequest);
-        return result.Match(
-            updated => Results.Json(ToDto(updated), NativeJsonContext.Default.WebhookDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var updated, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(ToDto(updated), NativeJsonContext.Default.WebhookDto);
     }
 
     private static IResult DeleteWebhook(string id, HttpContext context, IWebhookStore store)
@@ -129,9 +139,7 @@ internal static class WebhookEndpoints
         }
 
         var result = store.DeleteWebhook(id);
-        return result.Match(
-            () => Results.NoContent(),
-            NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     private static async Task<IResult> TestWebhook(string id, HttpContext context, IWebhookDeliveryService delivery)
@@ -144,17 +152,20 @@ internal static class WebhookEndpoints
         }
 
         var result = await delivery.TestWebhook(id, context.RequestAborted);
-        return result.Match(
-            testResult => Results.Json(
-                new WebhookTestResultDto(
-                    testResult.WebhookId,
-                    testResult.Success,
-                    testResult.StatusCode,
-                    testResult.Latency.TotalMilliseconds,
-                    testResult.ErrorMessage,
-                    testResult.ResponseBody),
-                NativeJsonContext.Default.WebhookTestResultDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var testResult, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(
+            new WebhookTestResultDto(
+                testResult.WebhookId,
+                testResult.Success,
+                testResult.StatusCode,
+                testResult.Latency.TotalMilliseconds,
+                testResult.ErrorMessage,
+                testResult.ResponseBody),
+            NativeJsonContext.Default.WebhookTestResultDto);
     }
 
     private static WebhookDto ToDto(Webhook webhook) =>

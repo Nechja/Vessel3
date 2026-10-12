@@ -26,7 +26,10 @@ public sealed class OpenTelemetryTracingTests
         {
             ShouldListenTo = s => s.Name == "Vessel3",
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStopped = a => captured = a
+            ActivityStopped = a =>
+            {
+                if (a.GetTagItem("url.path") is "/test-bucket/my-file.txt") captured = a;
+            }
         };
         ActivitySource.AddActivityListener(listener);
 
@@ -112,7 +115,10 @@ public sealed class OpenTelemetryTracingTests
         {
             ShouldListenTo = s => s.Name == "Vessel3",
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStopped = a => captured = a
+            ActivityStopped = a =>
+            {
+                if (a.Status == ActivityStatusCode.Error) captured = a;
+            }
         };
         ActivitySource.AddActivityListener(listener);
 

@@ -27,17 +27,12 @@ public sealed class BuildAndPackagingIntegrityTests
         var commandString = (string?)execElement.Attribute("Command") ?? string.Empty;
         var environmentVariables = (string?)execElement.Attribute("EnvironmentVariables") ?? string.Empty;
 
-        // Ensure we do not unconditionally force --no-build or --no-restore directly in the Command
-        // because fresh CI runners have not built or restored Vessel3.UI beforehand.
         Assert.DoesNotContain("--no-build", commandString);
 
-        // If --no-restore is in the command, it must be conditionally driven via a property,
-        // never hardcoded statically into the Command attribute string.
         Assert.False(
             commandString.Contains("--no-restore", StringComparison.Ordinal) && !commandString.Contains("$(UIPublishArgs)", StringComparison.Ordinal),
             "PublishUI command must not hardcode static --no-restore; it must be conditional to allow fresh CI restores.");
 
-        // DOTNET_CLI_HOME must not be statically overridden to a local-only folder
         Assert.DoesNotContain(".dotnet-home", environmentVariables);
     }
 
@@ -112,7 +107,6 @@ public sealed class BuildAndPackagingIntegrityTests
                     continue;
                 }
 
-                // If --filter-class is used, it must appear after '--'
                 if (lineContent.Contains("--filter-class", StringComparison.Ordinal))
                 {
                     var doubleDashIndex = lineContent.IndexOf(" -- ", StringComparison.Ordinal);

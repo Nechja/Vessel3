@@ -56,7 +56,7 @@ public class GarbageCollectorTests : IDisposable
         Assert.Equal(0, report.BlobsDeleted);
         Assert.True(await blobs.Exists(part.BlobSha));
 
-        var current = ((Result<PutEntry?>.Success)registry.GetCurrentPut("mybucket", "big")).Value!;
+        var current = ((Result<PutEntry>.Success)registry.GetCurrentPut("mybucket", "big")).Value;
         Assert.Equal(part.BlobSha, current.Parts![0].BlobSha);
     }
 

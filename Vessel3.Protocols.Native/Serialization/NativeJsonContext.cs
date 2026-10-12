@@ -17,6 +17,12 @@ public readonly record struct ObjectsPageDto(IReadOnlyList<ObjectSummaryDto> Obj
 
 public readonly record struct PutObjectResultDto(string ETag, string? VersionId, long Size, string? Sha256);
 
+public readonly record struct CreateUploadResultDto(string UploadId, string Bucket, string Key);
+
+public readonly record struct UploadPartDto(int PartNumber, string ETag);
+
+public readonly record struct CompleteUploadRequestDto(IReadOnlyList<UploadPartDto> Parts);
+
 public readonly record struct UserDto(string Id, string Username, string Role, string Status, DateTimeOffset CreatedAt);
 
 public readonly record struct CreateUserRequest(string Username, string Role);
@@ -100,6 +106,11 @@ public readonly record struct ServerLogEntryDto(
 [JsonSerializable(typeof(ObjectSummaryDto))]
 [JsonSerializable(typeof(ObjectsPageDto))]
 [JsonSerializable(typeof(PutObjectResultDto))]
+[JsonSerializable(typeof(CreateUploadResultDto))]
+[JsonSerializable(typeof(UploadPartDto))]
+[JsonSerializable(typeof(IReadOnlyList<UploadPartDto>))]
+[JsonSerializable(typeof(List<UploadPartDto>))]
+[JsonSerializable(typeof(CompleteUploadRequestDto))]
 [JsonSerializable(typeof(UserDto))]
 [JsonSerializable(typeof(IReadOnlyList<UserDto>))]
 [JsonSerializable(typeof(List<UserDto>))]

@@ -256,7 +256,7 @@
     {
         try
         {
-            var res = await Client.ListBucketsAsync();
+            var res = await Client.ListBuckets();
             if (res.TryGetValue(out var list, out _))
             {
                 allBuckets = list.OrderBy(b => b.Name, StringComparer.Ordinal).ToList();

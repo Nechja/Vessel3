@@ -53,7 +53,6 @@ public sealed class WebhookStoreTests : IDisposable
             Assert.False(hook.IsStatic);
         }
 
-        // Reopen to verify SQLite persistence
         using (var store = new SqliteWebhookStore(options))
         {
             var listRes = store.ListWebhooks();
@@ -111,8 +110,8 @@ public sealed class WebhookStoreTests : IDisposable
         Assert.False(delRes.TryGetError(out _));
 
         var getRes = store.GetWebhook(created.Id);
-        Assert.True(getRes.TryGetValue(out var deletedHook, out _));
-        Assert.Null(deletedHook);
+        Assert.False(getRes.TryGetValue(out _, out var getErr));
+        Assert.IsType<NoSuchWebhookError>(getErr);
     }
 
     [Fact]

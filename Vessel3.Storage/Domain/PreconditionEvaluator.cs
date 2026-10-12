@@ -30,6 +30,9 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
 
     public Precondition Evaluate(PreconditionRules rules, string etag, DateTimeOffset lastModified)
     {
+        if (rules is { IfMatch: null, IfNoneMatch: null, IfModifiedSince: null, IfUnmodifiedSince: null })
+            return Precondition.Pass;
+
         var lastModSec = TruncateToSecond(lastModified);
 
         if (IsMatchFailed(rules.IfMatch, etag) || IsUnmodifiedFailed(rules.IfUnmodifiedSince, lastModSec))
@@ -41,9 +44,11 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
     }
 
     public Precondition EvaluateForWrite(WritePreconditions rules, string? currentEtag) =>
-        IsWriteMatchFailed(rules.IfMatch, currentEtag) || IsWriteNoneMatchFailed(rules.IfNoneMatch, currentEtag)
-            ? Precondition.Failed
-            : Precondition.Pass;
+        rules is { IfMatch: null, IfNoneMatch: null }
+            ? Precondition.Pass
+            : IsWriteMatchFailed(rules.IfMatch, currentEtag) || IsWriteNoneMatchFailed(rules.IfNoneMatch, currentEtag)
+                ? Precondition.Failed
+                : Precondition.Pass;
 
     public bool HasWriteConditions(WritePreconditions rules) =>
         !string.IsNullOrEmpty(rules.IfMatch) || !string.IsNullOrEmpty(rules.IfNoneMatch);

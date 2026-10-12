@@ -204,7 +204,7 @@
         errorMessage = "";
         try
         {
-            var res = await Client.ListContainerReposAsync();
+            var res = await Client.ListContainerRepos();
             if (res.TryGetValue(out var repos, out var err))
             {
                 allRepos = repos.OrderBy(r => r, StringComparer.Ordinal).ToList();
@@ -244,7 +244,7 @@
         loadingTagsRepos.Add(repo);
         try
         {
-            var res = await Client.ListContainerTagsAsync(repo);
+            var res = await Client.ListContainerTags(repo);
             if (res.TryGetValue(out var tags, out var err))
             {
                 repoTags[repo] = tags.OrderBy(t => t, StringComparer.Ordinal).ToList();
@@ -269,7 +269,7 @@
         armedDeleteTag = null;
         try
         {
-            var res = await Client.DeleteContainerManifestAsync(repo, tag);
+            var res = await Client.DeleteContainerManifest(repo, tag);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete tag {tag}: {err.Message}");

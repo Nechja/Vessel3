@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -29,9 +30,23 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
     private const string Service = "s3";
     private const string Terminator = "aws4_request";
     private static readonly TimeSpan SkewAllowance = TimeSpan.FromMinutes(15);
+    private readonly ConcurrentDictionary<(string Secret, string Date, string Region), byte[]> signingKeyCache = new();
 
     public Result<SignatureContext> Verify(HttpRequest req) =>
         req.Query.ContainsKey("X-Amz-Signature") ? VerifyPresigned(req) : VerifyHeader(req);
+
+    private byte[] GetSigningKey(string secretKey, string date, string reg)
+    {
+        if (signingKeyCache.TryGetValue((secretKey, date, reg), out var cached))
+            return cached;
+
+        if (signingKeyCache.Count > 100)
+            signingKeyCache.Clear();
+
+        var key = DeriveSigningKey(secretKey, date, reg);
+        signingKeyCache.TryAdd((secretKey, date, reg), key);
+        return key;
+    }
 
     private Result<SignatureContext> VerifyPresigned(HttpRequest req)
     {
@@ -54,13 +69,13 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
-        var ak = credParts[0];
+        var accessKeyId = credParts[0];
         var date = credParts[1];
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (credentials.Find(ak) is not { } cred)
-            return new InvalidAccessKeyIdError(ak);
+        if (credentials.Find(accessKeyId) is not { } cred)
+            return new InvalidAccessKeyIdError(accessKeyId);
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
         if (reg != region.Value)
@@ -88,7 +103,7 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
 
-        var signingKey = DeriveSigningKey(cred.Secret, date, reg);
+        var signingKey = GetSigningKey(cred.Secret, date, reg);
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
@@ -112,13 +127,13 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         if (credParts.Length is not 5 || credParts[4] is not Terminator)
             return new AuthorizationHeaderMalformedError("Bad Credential format");
 
-        var ak = credParts[0];
+        var accessKeyId = credParts[0];
         var date = credParts[1];
         var reg = credParts[2];
         var svc = credParts[3];
 
-        if (credentials.Find(ak) is not { } cred)
-            return new InvalidAccessKeyIdError(ak);
+        if (credentials.Find(accessKeyId) is not { } cred)
+            return new InvalidAccessKeyIdError(accessKeyId);
 
         if (svc is not Service)
             return new AuthorizationHeaderMalformedError($"Unexpected service {svc}");
@@ -154,7 +169,7 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         var scope = $"{date}/{reg}/{Service}/{Terminator}";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{canonicalHash}";
 
-        var signingKey = DeriveSigningKey(cred.Secret, date, reg);
+        var signingKey = GetSigningKey(cred.Secret, date, reg);
         var expected = HmacSha256Hex(signingKey, stringToSign);
 
         return ConstantTimeEquals(expected, signature)
@@ -196,21 +211,48 @@ internal sealed class SigV4Verifier(ICredentialStore credentials, ServerRegion r
         sb.Append(CanonicalUri(req.Path.Value ?? "/")).Append('\n');
         sb.Append(CanonicalQuery(req.Query, excludeQueryKey)).Append('\n');
 
-        var sorted = signedHeaders.OrderBy(s => s, StringComparer.Ordinal).ToArray();
-        foreach (var h in sorted)
+        if (signedHeaders.Length > 1 && !IsSorted(signedHeaders))
+            Array.Sort(signedHeaders, StringComparer.Ordinal);
+
+        for (var i = 0; i < signedHeaders.Length; i++)
         {
+            var h = signedHeaders[i];
             var v = req.Headers[h].ToString().Trim();
             sb.Append(h).Append(':').Append(v).Append('\n');
         }
         sb.Append('\n');
-        sb.Append(string.Join(';', sorted)).Append('\n');
+        for (var i = 0; i < signedHeaders.Length; i++)
+        {
+            if (i > 0) sb.Append(';');
+            sb.Append(signedHeaders[i]);
+        }
+        sb.Append('\n');
         sb.Append(contentHash);
         return sb.ToString();
+    }
+
+    private static bool IsSorted(string[] arr)
+    {
+        for (var i = 1; i < arr.Length; i++)
+            if (string.CompareOrdinal(arr[i - 1], arr[i]) > 0) return false;
+        return true;
     }
 
     private string CanonicalUri(string path)
     {
         if (path.Length == 0) return "/";
+        var needsEncode = false;
+        for (var i = 0; i < path.Length; i++)
+        {
+            var ch = path[i];
+            if (ch > 0x7F || (!IsUnreserved((byte)ch) && ch != '/'))
+            {
+                needsEncode = true;
+                break;
+            }
+        }
+        if (!needsEncode) return path;
+
         var segments = path.Split('/');
         for (var i = 0; i < segments.Length; i++) segments[i] = PercentEncode(segments[i], encodeSlash: false);
         return string.Join('/', segments);

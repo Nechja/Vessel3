@@ -11,7 +11,7 @@ internal static class WebDavXmlDefaults
 
     public static XmlWriterSettings WriterSettings { get; } = new()
     {
-        Async = true,
+        Async = false,
         Indent = false,
         OmitXmlDeclaration = false,
         Encoding = new UTF8Encoding(false),

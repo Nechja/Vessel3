@@ -25,7 +25,7 @@ internal static class FileSyncExtensions
 
     private static List<string> MissingLevels(string dir)
     {
-        var missing = new List<string>();
+        List<string> missing = [];
         for (var level = dir; level is not null && !Directory.Exists(level); level = ParentOf(level))
             missing.Add(level);
         return missing;

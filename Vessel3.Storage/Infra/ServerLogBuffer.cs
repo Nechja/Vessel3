@@ -23,7 +23,7 @@ public sealed class ServerLogBuffer(int capacity = 1_000) : IServerLogBuffer
     public IReadOnlyList<ServerLogEntry> GetRecent(int limit = 100, string? level = null, string? protocol = null)
     {
         var max = Math.Clamp(limit, 1, 1_000);
-        var result = new List<ServerLogEntry>(Math.Min(max, count));
+        List<ServerLogEntry> result = new(Math.Min(max, count));
 
         lock (sync)
         {

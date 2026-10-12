@@ -42,10 +42,9 @@ internal sealed class MkcolAction(
 
     private async Task<IResult> CreateDirectoryCollection(string bucket, string path, HttpResponse res, CancellationToken ct)
     {
-        var bucketRes = registry.Exists(bucket);
-        if (!bucketRes.TryGetValue(out var exists, out var bErr) || !exists)
+        if (registry.EnsureExists(bucket).TryGetError(out var err))
         {
-            return new WebDavErrorResult(bErr ?? new NoSuchBucketError(bucket));
+            return new WebDavErrorResult(err);
         }
 
         var dirKey = path.TrimStart('/').TrimEnd('/') + "/";

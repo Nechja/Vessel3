@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Vessel3.Primitives;
@@ -115,7 +116,7 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             }
             cmd.Parameters.AddWithValue("@limit", clampedLimit);
 
-            var list = new List<string>();
+            List<string> list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -150,7 +151,7 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             cmd.Parameters.AddWithValue("@repoId", repoId);
             cmd.Parameters.AddWithValue("@limit", clampedLimit);
 
-            var list = new List<string>();
+            List<string> list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -476,13 +477,11 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
             selectCmd.CommandText = "SELECT id, temp_path FROM upload_sessions WHERE expires_at <= @cutoff;";
             selectCmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O", CultureInfo.InvariantCulture));
 
-            var toDelete = new List<(string Id, string Path)>();
-            using (var reader = selectCmd.ExecuteReader())
+            List<(string Id, string Path)> toDelete = [];
+            using var reader = selectCmd.ExecuteReader();
+            while (reader.Read())
             {
-                while (reader.Read())
-                {
-                    toDelete.Add((reader.GetString(0), reader.GetString(1)));
-                }
+                toDelete.Add((reader.GetString(0), reader.GetString(1)));
             }
 
             foreach (var item in toDelete)
@@ -502,21 +501,27 @@ internal sealed class SqliteContainerRepoCatalog : IContainerRepoCatalog
         }
     }
 
-    public IEnumerable<string> AllReferencedBlobs()
+    public async IAsyncEnumerable<string> AllReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
+        List<string> list;
         lock (gate)
         {
             EnsureOpen();
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = "SELECT DISTINCT blob_sha FROM manifest_blobs;";
 
-            var list = new List<string>();
+            list = [];
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
                 list.Add(reader.GetString(0));
             }
-            return list;
+        }
+
+        foreach (var sha in list)
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return sha;
         }
     }
 

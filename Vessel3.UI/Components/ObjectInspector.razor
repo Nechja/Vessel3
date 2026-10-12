@@ -104,7 +104,7 @@
 
         try
         {
-            var res = await Client.StatObjectAsync(Bucket, ObjectKey);
+            var res = await Client.StatObject(Bucket, ObjectKey);
             if (!res.TryGetValue(out var stat, out var err))
             {
                 errorMessage = err.Message;
@@ -123,7 +123,7 @@
                 }
                 else
                 {
-                    var dlRes = await Client.GetObjectAsync(Bucket, ObjectKey);
+                    var dlRes = await Client.GetObject(Bucket, ObjectKey);
                     if (dlRes.TryGetValue(out var dl, out var dlErr))
                     {
                         using (dl)
@@ -145,7 +145,7 @@
             }
             else if (IsText(ObjectKey))
             {
-                var dlRes = await Client.GetObjectAsync(Bucket, ObjectKey);
+                var dlRes = await Client.GetObject(Bucket, ObjectKey);
                 if (dlRes.TryGetValue(out var dl, out _))
                 {
                     using (dl)

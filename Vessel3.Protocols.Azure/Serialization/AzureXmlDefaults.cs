@@ -8,7 +8,7 @@ internal static class AzureXmlDefaults
 {
     public static XmlWriterSettings WriterSettings { get; } = new()
     {
-        Async = true,
+        Async = false,
         Indent = false,
         OmitXmlDeclaration = false,
         Encoding = new UTF8Encoding(false),

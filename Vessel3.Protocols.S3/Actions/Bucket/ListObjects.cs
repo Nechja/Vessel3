@@ -4,17 +4,17 @@ internal sealed class ListObjects(IBucketLister lister, IS3XmlWriter xml, IHttpR
 {
     public S3BucketRoute Route => new(HttpMethods.Get, S3BucketSubresource.None);
 
-    public Task<IResult> Invoke(string bucket, HttpContext ctx)
+    public async Task<IResult> Invoke(string bucket, HttpContext ctx)
     {
         var (listReq, continuationToken) = ListObjectsQuery.Bind(bucket, ctx.Request.Query);
+        var res = lister.List(listReq.ToStorageRequest(), continuationToken);
+        if (!res.TryGetValue(out var page, out var err))
+        {
+            return http.Map(err);
+        }
 
-        return lister.List(listReq.ToStorageRequest(), continuationToken).Match<Task<IResult>>(
-            async page =>
-            {
-                ctx.Response.ContentType = "application/xml";
-                await xml.WriteListObjects(ctx.Response.Body, listReq, page, ctx.RequestAborted);
-                return Results.Empty;
-            },
-            err => Task.FromResult(http.Map(err)));
+        ctx.Response.ContentType = "application/xml";
+        await xml.WriteListObjects(ctx.Response.Body, listReq, page, ctx.RequestAborted);
+        return Results.Empty;
     }
 }

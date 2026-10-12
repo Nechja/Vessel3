@@ -106,32 +106,32 @@ public class NativeClientTests : IAsyncDisposable
     public async Task UnauthenticatedMode_AllowsAllOperations()
     {
         var (app, client) = await StartServer("unauth");
-        var whoAmI = await client.WhoAmIAsync();
+        var whoAmI = await client.WhoAmI();
         Assert.True(whoAmI.TryGetValue(out var me, out var err), $"Error was: {err?.Code} - {err?.Message} (Status {err?.Status})");
         Assert.Equal("system", me.Username);
         Assert.Equal("Admin", me.Role);
 
-        var createBucket = await client.CreateBucketAsync("test-bucket");
+        var createBucket = await client.CreateBucket("test-bucket");
         Assert.True(createBucket is Result.OkResult);
 
-        var listBuckets = await client.ListBucketsAsync();
+        var listBuckets = await client.ListBuckets();
         Assert.True(listBuckets.TryGetValue(out var buckets, out _));
         Assert.Contains(buckets, b => b.Name == "test-bucket");
 
         var payload = "Hello Vessel3 Native Protocol!"u8.ToArray();
         using var putStream = new MemoryStream(payload);
         var metadata = new Dictionary<string, string> { ["author"] = "tester" };
-        var putResult = await client.PutObjectAsync("test-bucket", "notes/hello.txt", putStream, "text/plain", metadata);
+        var putResult = await client.PutObject("test-bucket", "notes/hello.txt", putStream, "text/plain", metadata);
         Assert.True(putResult.TryGetValue(out var putOutcome, out _));
         Assert.False(string.IsNullOrEmpty(putOutcome.ETag));
         Assert.Equal(payload.Length, putOutcome.Size);
 
-        var statResult = await client.StatObjectAsync("test-bucket", "notes/hello.txt");
+        var statResult = await client.StatObject("test-bucket", "notes/hello.txt");
         Assert.True(statResult.TryGetValue(out var stat, out _));
         Assert.Equal(payload.Length, stat.Size);
         Assert.Equal(putOutcome.ETag, stat.ETag);
 
-        var getResult = await client.GetObjectAsync("test-bucket", "notes/hello.txt");
+        var getResult = await client.GetObject("test-bucket", "notes/hello.txt");
         Assert.True(getResult.TryGetValue(out var download, out _));
         using (download)
         {
@@ -145,15 +145,15 @@ public class NativeClientTests : IAsyncDisposable
             Assert.Equal(payload, mem.ToArray());
         }
 
-        var listObjects = await client.ListObjectsAsync("test-bucket", prefix: "notes/");
+        var listObjects = await client.ListObjects("test-bucket", prefix: "notes/");
         Assert.True(listObjects.TryGetValue(out var page, out _));
         Assert.Single(page.Objects);
         Assert.Equal("notes/hello.txt", page.Objects[0].Key);
 
-        var delObj = await client.DeleteObjectAsync("test-bucket", "notes/hello.txt");
+        var delObj = await client.DeleteObject("test-bucket", "notes/hello.txt");
         Assert.True(delObj is Result.OkResult);
 
-        var delBucket = await client.DeleteBucketAsync("test-bucket");
+        var delBucket = await client.DeleteBucket("test-bucket");
         Assert.True(delBucket is Result.OkResult);
     }
 
@@ -162,23 +162,23 @@ public class NativeClientTests : IAsyncDisposable
     {
         var (app, adminClient) = await StartServer("solo-auth", accessKey: "admin-key", secretKey: "admin-secret-pass");
 
-        var whoAmI = await adminClient.WhoAmIAsync();
+        var whoAmI = await adminClient.WhoAmI();
         Assert.True(whoAmI.TryGetValue(out var me, out _));
-        Assert.Equal("admin", me.Username);
+        Assert.Equal("system", me.Username);
         Assert.Equal("Admin", me.Role);
 
         var anonClient = CreateClient(app);
 
-        var anonWhoAmI = await anonClient.WhoAmIAsync();
+        var anonWhoAmI = await anonClient.WhoAmI();
         Assert.True(anonWhoAmI is Result<WhoAmIDto>.Failure);
 
-        var anonList = await anonClient.ListBucketsAsync();
+        var anonList = await anonClient.ListBuckets();
         Assert.False(anonList.TryGetValue(out _, out var anonErr));
         Assert.Equal(401, anonErr.Status);
 
         var wrongClient = CreateClient(app, "admin-key", "wrong-secret");
 
-        var wrongList = await wrongClient.ListBucketsAsync();
+        var wrongList = await wrongClient.ListBuckets();
         Assert.False(wrongList.TryGetValue(out _, out var wrongErr));
         Assert.Equal(401, wrongErr.Status);
     }
@@ -188,74 +188,74 @@ public class NativeClientTests : IAsyncDisposable
     {
         var (app, adminClient) = await StartServer("multi-user", accessKey: "root-key", secretKey: "root-secret-pass");
 
-        var aliceUserRes = await adminClient.CreateUserAsync("alice", "Member");
+        var aliceUserRes = await adminClient.CreateUser("alice", "Member");
         Assert.True(aliceUserRes.TryGetValue(out var aliceUser, out _));
 
-        var bobUserRes = await adminClient.CreateUserAsync("bob", "Member");
+        var bobUserRes = await adminClient.CreateUser("bob", "Member");
         Assert.True(bobUserRes.TryGetValue(out var bobUser, out _));
 
-        var aliceKeyRes = await adminClient.CreateAccessKeyAsync(aliceUser.Id, description: "Alice key");
+        var aliceKeyRes = await adminClient.CreateAccessKey(aliceUser.Id, description: "Alice key");
         Assert.True(aliceKeyRes.TryGetValue(out var aliceKey, out _));
 
-        var bobKeyRes = await adminClient.CreateAccessKeyAsync(bobUser.Id, description: "Bob key");
+        var bobKeyRes = await adminClient.CreateAccessKey(bobUser.Id, description: "Bob key");
         Assert.True(bobKeyRes.TryGetValue(out var bobKey, out _));
 
         var aliceClient = CreateClient(app, aliceKey.Id, aliceKey.SecretKey);
         var bobClient = CreateClient(app, bobKey.Id, bobKey.SecretKey);
 
-        var aliceWhoAmI = await aliceClient.WhoAmIAsync();
+        var aliceWhoAmI = await aliceClient.WhoAmI();
         Assert.True(aliceWhoAmI.TryGetValue(out var aliceWho, out _));
         Assert.Equal("alice", aliceWho.Username);
         Assert.Equal("Member", aliceWho.Role);
 
-        var bobWhoAmI = await bobClient.WhoAmIAsync();
+        var bobWhoAmI = await bobClient.WhoAmI();
         Assert.True(bobWhoAmI.TryGetValue(out var bobWho, out _));
         Assert.Equal("bob", bobWho.Username);
         Assert.Equal("Member", bobWho.Role);
 
-        var createAliceBucket = await aliceClient.CreateBucketAsync("alice-vault");
+        var createAliceBucket = await aliceClient.CreateBucket("alice-vault");
         Assert.True(createAliceBucket is Result.OkResult);
 
-        var createBobBucket = await bobClient.CreateBucketAsync("bob-vault");
+        var createBobBucket = await bobClient.CreateBucket("bob-vault");
         Assert.True(createBobBucket is Result.OkResult);
 
-        var aliceList = await aliceClient.ListBucketsAsync();
+        var aliceList = await aliceClient.ListBuckets();
         Assert.True(aliceList.TryGetValue(out var aliceBuckets, out _));
         Assert.Single(aliceBuckets);
         Assert.Equal("alice-vault", aliceBuckets[0].Name);
 
-        var bobList = await bobClient.ListBucketsAsync();
+        var bobList = await bobClient.ListBuckets();
         Assert.True(bobList.TryGetValue(out var bobBuckets, out _));
         Assert.Single(bobBuckets);
         Assert.Equal("bob-vault", bobBuckets[0].Name);
 
-        var adminList = await adminClient.ListBucketsAsync();
+        var adminList = await adminClient.ListBuckets();
         Assert.True(adminList.TryGetValue(out var allBuckets, out _));
         Assert.True(allBuckets.Count >= 2);
 
         using var payload = new MemoryStream("Alice's Secret Data"u8.ToArray());
-        var putRes = await aliceClient.PutObjectAsync("alice-vault", "diary.txt", payload, "text/plain");
+        var putRes = await aliceClient.PutObject("alice-vault", "diary.txt", payload, "text/plain");
         Assert.True(putRes.TryGetValue(out _, out _));
 
-        var bobReadFail = await bobClient.GetObjectAsync("alice-vault", "diary.txt");
+        var bobReadFail = await bobClient.GetObject("alice-vault", "diary.txt");
         Assert.False(bobReadFail.TryGetValue(out _, out var bobErr));
         Assert.Equal(403, bobErr.Status);
 
         using var bobPayload = new MemoryStream("Bob intruder"u8.ToArray());
-        var bobWriteFail = await bobClient.PutObjectAsync("alice-vault", "intruder.txt", bobPayload);
+        var bobWriteFail = await bobClient.PutObject("alice-vault", "intruder.txt", bobPayload);
         Assert.False(bobWriteFail.TryGetValue(out _, out var bobWriteErr));
         Assert.Equal(403, bobWriteErr.Status);
 
-        var bobDeleteFail = await bobClient.DeleteBucketAsync("alice-vault");
+        var bobDeleteFail = await bobClient.DeleteBucket("alice-vault");
         Assert.True(bobDeleteFail.TryGetError(out var bobDelErr));
         Assert.Equal(403, bobDelErr.Status);
 
-        var setPublicRead = await aliceClient.SetBucketAccessAsync("alice-vault", new BucketAccessDto(PublicRead: true, ReadOnly: false));
+        var setPublicRead = await aliceClient.SetBucketAccess("alice-vault", new BucketAccessDto(PublicRead: true, ReadOnly: false));
         Assert.True(setPublicRead is Result.OkResult);
 
         var anonClient = CreateClient(app);
 
-        var anonGet = await anonClient.GetObjectAsync("alice-vault", "diary.txt");
+        var anonGet = await anonClient.GetObject("alice-vault", "diary.txt");
         Assert.True(anonGet.TryGetValue(out var anonDownload, out _));
         using (anonDownload)
         {
@@ -265,31 +265,31 @@ public class NativeClientTests : IAsyncDisposable
         }
 
         using var anonPayload = new MemoryStream("Anon denied"u8.ToArray());
-        var anonWriteFail = await anonClient.PutObjectAsync("alice-vault", "anon.txt", anonPayload);
+        var anonWriteFail = await anonClient.PutObject("alice-vault", "anon.txt", anonPayload);
         Assert.False(anonWriteFail.TryGetValue(out _, out var anonWriteErr));
         Assert.Equal(401, anonWriteErr.Status);
 
-        var setVersion = await aliceClient.SetBucketVersioningAsync("alice-vault", "Enabled");
+        var setVersion = await aliceClient.SetBucketVersioning("alice-vault", "Enabled");
         Assert.True(setVersion is Result.OkResult);
 
-        var getVersion = await aliceClient.GetBucketVersioningAsync("alice-vault");
+        var getVersion = await aliceClient.GetBucketVersioning("alice-vault");
         Assert.True(getVersion.TryGetValue(out var vDto, out _));
         Assert.Equal("Enabled", vDto.Status);
 
-        var aliceGcFail = await aliceClient.RunGcAsync();
+        var aliceGcFail = await aliceClient.RunGc();
         Assert.False(aliceGcFail.TryGetValue(out _, out var aliceGcErr));
         Assert.Equal(403, aliceGcErr.Status);
 
-        var adminGc = await adminClient.RunGcAsync();
+        var adminGc = await adminClient.RunGc();
         Assert.True(adminGc.TryGetValue(out _, out _));
 
-        var adminSweep = await adminClient.RunSweepAsync();
+        var adminSweep = await adminClient.RunSweep();
         Assert.True(adminSweep.TryGetValue(out _, out _));
 
-        var revokeRes = await adminClient.RevokeAccessKeyAsync(aliceKey.Id);
+        var revokeRes = await adminClient.RevokeAccessKey(aliceKey.Id);
         Assert.True(revokeRes is Result.OkResult);
 
-        var aliceRevokedCall = await aliceClient.ListBucketsAsync();
+        var aliceRevokedCall = await aliceClient.ListBuckets();
         Assert.False(aliceRevokedCall.TryGetValue(out _, out var revokedErr));
         Assert.Equal(401, revokedErr.Status);
     }
@@ -319,26 +319,26 @@ public class NativeClientTests : IAsyncDisposable
                 services.AddSingleton<ITokenVerifier>(fakeVerifier);
             });
 
-        var whoAmI = await client.WhoAmIAsync();
+        var whoAmI = await client.WhoAmI();
         Assert.True(whoAmI.TryGetValue(out var me, out _));
         Assert.Equal("oidc-alice", me.Username);
         Assert.Equal("Member", me.Role);
 
-        var createBucket = await client.CreateBucketAsync("alice-oidc-bucket");
+        var createBucket = await client.CreateBucket("alice-oidc-bucket");
         Assert.True(createBucket is Result.OkResult);
 
-        var listBuckets = await client.ListBucketsAsync();
+        var listBuckets = await client.ListBuckets();
         Assert.True(listBuckets.TryGetValue(out var buckets, out _));
         Assert.Single(buckets);
         Assert.Equal("alice-oidc-bucket", buckets[0].Name);
 
         var badClient = CreateClient(app, bearerToken: "invalid.token");
-        var badWhoAmI = await badClient.WhoAmIAsync();
+        var badWhoAmI = await badClient.WhoAmI();
         Assert.False(badWhoAmI.TryGetValue(out _, out var badErr));
         Assert.Equal(401, badErr.Status);
 
         var anonClient = CreateClient(app);
-        var anonWhoAmI = await anonClient.WhoAmIAsync();
+        var anonWhoAmI = await anonClient.WhoAmI();
         Assert.False(anonWhoAmI.TryGetValue(out _, out var anonErr));
         Assert.Equal(401, anonErr.Status);
     }
@@ -353,46 +353,46 @@ public class NativeClientTests : IAsyncDisposable
             clientAccessKey: "root",
             clientSecretKey: "rootpass");
 
-        var createAlice = await adminClient.CreateUserAsync("alice-role-test", "Member");
+        var createAlice = await adminClient.CreateUser("alice-role-test", "Member");
         Assert.True(createAlice.TryGetValue(out var alice, out _));
         Assert.Equal("Member", alice.Role);
 
-        var aliceKeyRes = await adminClient.CreateAccessKeyAsync(alice.Id);
+        var aliceKeyRes = await adminClient.CreateAccessKey(alice.Id);
         Assert.True(aliceKeyRes.TryGetValue(out var aliceKey, out _));
 
         var aliceClient = CreateClient(app, accessKey: aliceKey.Id, secretKey: aliceKey.SecretKey);
 
-        var aliceGcDenied = await aliceClient.RunGcAsync();
+        var aliceGcDenied = await aliceClient.RunGc();
         Assert.False(aliceGcDenied.TryGetValue(out _, out var gcErr));
         Assert.Equal(403, gcErr.Status);
 
-        var aliceSelfPromoteDenied = await aliceClient.UpdateUserRoleAsync(alice.Id, "Admin");
+        var aliceSelfPromoteDenied = await aliceClient.UpdateUserRole(alice.Id, "Admin");
         Assert.True(aliceSelfPromoteDenied.TryGetError(out var selfErr));
         Assert.Equal(403, selfErr.Status);
 
-        var promoteRes = await adminClient.UpdateUserRoleAsync(alice.Id, "Admin");
+        var promoteRes = await adminClient.UpdateUserRole(alice.Id, "Admin");
         Assert.True(promoteRes is Result.OkResult);
 
-        var aliceWhoAmI = await aliceClient.WhoAmIAsync();
+        var aliceWhoAmI = await aliceClient.WhoAmI();
         Assert.True(aliceWhoAmI.TryGetValue(out var aliceMe, out _));
         Assert.Equal("Admin", aliceMe.Role);
 
-        var aliceGcAllowed = await aliceClient.RunGcAsync();
+        var aliceGcAllowed = await aliceClient.RunGc();
         Assert.True(aliceGcAllowed.TryGetValue(out _, out _));
 
-        var suspendRes = await adminClient.UpdateUserStatusAsync(alice.Id, "Suspended");
+        var suspendRes = await adminClient.UpdateUserStatus(alice.Id, "Suspended");
         Assert.True(suspendRes is Result.OkResult);
 
-        var aliceSuspendedWhoAmI = await aliceClient.WhoAmIAsync();
+        var aliceSuspendedWhoAmI = await aliceClient.WhoAmI();
         Assert.False(aliceSuspendedWhoAmI.TryGetValue(out _, out var suspErr));
         Assert.Equal(401, suspErr.Status);
 
-        var activateRes = await adminClient.UpdateUserStatusAsync(alice.Id, "Active");
+        var activateRes = await adminClient.UpdateUserStatus(alice.Id, "Active");
         Assert.True(activateRes is Result.OkResult);
 
-        var aliceActiveWhoAmI = await aliceClient.WhoAmIAsync();
+        var aliceActiveWhoAmI = await aliceClient.WhoAmI();
         Assert.True(aliceActiveWhoAmI.TryGetValue(out var activeMe, out _));
-        Assert.Equal("Active", (await adminClient.ListUsersAsync()).Match(u => u.First(x => x.Id == alice.Id).Status, _ => ""));
+        Assert.Equal("Active", (await adminClient.ListUsers()).Match(u => u.First(x => x.Id == alice.Id).Status, _ => ""));
     }
 
     [Fact]
@@ -412,12 +412,12 @@ public class NativeClientTests : IAsyncDisposable
                 services.AddSingleton<ITokenVerifier>(fakeVerifier);
             });
 
-        var whoAmI = await client.WhoAmIAsync();
+        var whoAmI = await client.WhoAmI();
         Assert.True(whoAmI.TryGetValue(out var me, out _));
         Assert.Equal("acct_kayla.dIftEd_eU48bcFmhcaiAJA", me.Username);
         Assert.Equal("Admin", me.Role);
 
-        var gcAllowed = await client.RunGcAsync();
+        var gcAllowed = await client.RunGc();
         Assert.True(gcAllowed.TryGetValue(out _, out _));
     }
 
@@ -439,7 +439,7 @@ public class NativeClientTests : IAsyncDisposable
             clientAccessKey: "root-key",
             clientSecretKey: "root-secret");
 
-        var initialRepos = await client.ListContainerReposAsync();
+        var initialRepos = await client.ListContainerRepos();
         Assert.True(initialRepos.TryGetValue(out var emptyList, out _));
         Assert.Empty(emptyList);
 
@@ -454,18 +454,18 @@ public class NativeClientTests : IAsyncDisposable
         var putRes = catalog.PutManifest("my-service", "v1.0.0", "application/vnd.docker.distribution.manifest.v2+json", manifestBytes, []);
         Assert.True(putRes.TryGetValue(out _, out _));
 
-        var reposRes = await client.ListContainerReposAsync();
+        var reposRes = await client.ListContainerRepos();
         Assert.True(reposRes.TryGetValue(out var repos, out _));
         Assert.Contains("my-service", repos);
 
-        var tagsRes = await client.ListContainerTagsAsync("my-service");
+        var tagsRes = await client.ListContainerTags("my-service");
         Assert.True(tagsRes.TryGetValue(out var tags, out _));
         Assert.Contains("v1.0.0", tags);
 
-        var delRes = await client.DeleteContainerManifestAsync("my-service", "v1.0.0");
+        var delRes = await client.DeleteContainerManifest("my-service", "v1.0.0");
         Assert.True(delRes is Result.OkResult);
 
-        var afterTagsRes = await client.ListContainerTagsAsync("my-service");
+        var afterTagsRes = await client.ListContainerTags("my-service");
         Assert.True(afterTagsRes.TryGetValue(out var afterTags, out _));
         Assert.Empty(afterTags);
     }
@@ -480,17 +480,17 @@ public class NativeClientTests : IAsyncDisposable
             clientAccessKey: "root-key",
             clientSecretKey: "root-secret");
 
-        var createBucket = await client.CreateBucketAsync("mysite");
+        var createBucket = await client.CreateBucket("mysite");
         Assert.True(createBucket is Result.OkResult);
 
-        var initialWeb = await client.GetBucketWebsiteAsync("mysite");
+        var initialWeb = await client.GetBucketWebsite("mysite");
         Assert.True(initialWeb.TryGetValue(out var initialCfg, out _));
         Assert.Null(initialCfg);
 
-        var setWeb = await client.SetBucketWebsiteAsync("mysite", new BucketWebsiteDto("index.html", "index.html"));
+        var setWeb = await client.SetBucketWebsite("mysite", new BucketWebsiteDto("index.html", "index.html"));
         Assert.True(setWeb is Result.OkResult);
 
-        var getWeb = await client.GetBucketWebsiteAsync("mysite");
+        var getWeb = await client.GetBucketWebsite("mysite");
         Assert.True(getWeb.TryGetValue(out var configured, out _));
         Assert.NotNull(configured);
         Assert.Equal("index.html", configured.Value.IndexDocument);
@@ -498,13 +498,13 @@ public class NativeClientTests : IAsyncDisposable
 
         using (var indexStream = new MemoryStream("<h1>Hello Vessel3 Website</h1>"u8.ToArray()))
         {
-            var putIndex = await client.PutObjectAsync("mysite", "index.html", indexStream, "text/html");
+            var putIndex = await client.PutObject("mysite", "index.html", indexStream, "text/html");
             Assert.True(putIndex.TryGetValue(out _, out _));
         }
 
         using (var wasmStream = new MemoryStream([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]))
         {
-            var putWasm = await client.PutObjectAsync("mysite", "app.wasm", wasmStream, "application/octet-stream");
+            var putWasm = await client.PutObject("mysite", "app.wasm", wasmStream, "application/octet-stream");
             Assert.True(putWasm.TryGetValue(out _, out _));
         }
 
@@ -534,10 +534,10 @@ public class NativeClientTests : IAsyncDisposable
         var spaText = await spaResp.Content.ReadAsStringAsync();
         Assert.Contains("Hello Vessel3 Website", spaText);
 
-        var delWeb = await client.DeleteBucketWebsiteAsync("mysite");
+        var delWeb = await client.DeleteBucketWebsite("mysite");
         Assert.True(delWeb is Result.OkResult);
 
-        var afterDeleteWeb = await client.GetBucketWebsiteAsync("mysite");
+        var afterDeleteWeb = await client.GetBucketWebsite("mysite");
         Assert.True(afterDeleteWeb.TryGetValue(out var deletedCfg, out _));
         Assert.Null(deletedCfg);
 

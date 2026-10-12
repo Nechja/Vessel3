@@ -51,7 +51,9 @@ internal sealed class PutBlockListAction(
 
         var wireEtag = $"{Guid.NewGuid():N}";
         var metadata = AzureHeaderCodec.ExtractUserMetadata(context.Request.Headers);
-        var contentType = context.Request.Headers["x-ms-blob-content-type"].ToString();
+        var contentType = context.Request.Headers.TryGetValue("x-ms-blob-content-type", out var ctVal) && !string.IsNullOrEmpty(ctVal)
+            ? ctVal.ToString()
+            : null;
 
         var commitResult = await stager.Commit(
             session.SessionId,
@@ -60,7 +62,7 @@ internal sealed class PutBlockListAction(
             ChecksumSet.Empty,
             context.RequestAborted,
             metadataOverride: metadata.Count > 0 ? metadata : null,
-            contentTypeOverride: !string.IsNullOrEmpty(contentType) ? contentType : null);
+            contentTypeOverride: contentType);
 
         if (!commitResult.TryGetValue(out _, out var commitError))
         {
@@ -79,18 +81,15 @@ internal sealed class PutBlockListAction(
         try
         {
             var document = System.Xml.Linq.XDocument.Load(stream);
-            if (document.Root is not null)
+            if (document.Root is null) return true;
+
+            foreach (var element in document.Root.Elements())
             {
-                foreach (var element in document.Root.Elements())
+                if (element.Name.LocalName is not ("Latest" or "Uncommitted" or "Committed")) continue;
+                var blockId = element.Value.Trim();
+                if (!string.IsNullOrEmpty(blockId))
                 {
-                    if (element.Name.LocalName is "Latest" or "Uncommitted" or "Committed")
-                    {
-                        var blockId = element.Value.Trim();
-                        if (!string.IsNullOrEmpty(blockId))
-                        {
-                            blockIds.Add(blockId);
-                        }
-                    }
+                    blockIds.Add(blockId);
                 }
             }
             return true;
@@ -107,7 +106,7 @@ internal sealed class PutBlockListAction(
         out List<MultipartPart> orderedParts,
         out string? missingBlockId)
     {
-        orderedParts = new List<MultipartPart>(blockIds.Count);
+        orderedParts = new(blockIds.Count);
         missingBlockId = null;
 
         for (var i = 0; i < blockIds.Count; i++)

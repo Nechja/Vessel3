@@ -64,24 +64,20 @@ internal static class AdminEndpoints
             var protocol = ctx.Request.Query.TryGetValue("protocol", out var proto) ? proto.ToString() : null;
 
             var logs = buffer.GetRecent(limit, level, protocol);
-            var dtos = new List<ServerLogEntryDto>(logs.Count);
-            foreach (var entry in logs)
-            {
-                dtos.Add(new ServerLogEntryDto(
-                    entry.Id,
-                    entry.Timestamp,
-                    entry.Level,
-                    entry.Source,
-                    entry.Message,
-                    entry.Protocol,
-                    entry.Action,
-                    entry.Subject,
-                    entry.Actor,
-                    entry.StatusCode,
-                    entry.DurationMs,
-                    entry.TraceId,
-                    entry.ErrorDetails));
-            }
+            List<ServerLogEntryDto> dtos = [.. logs.Select(entry => new ServerLogEntryDto(
+                entry.Id,
+                entry.Timestamp,
+                entry.Level,
+                entry.Source,
+                entry.Message,
+                entry.Protocol,
+                entry.Action,
+                entry.Subject,
+                entry.Actor,
+                entry.StatusCode,
+                entry.DurationMs,
+                entry.TraceId,
+                entry.ErrorDetails))];
 
             return Results.Json(dtos, NativeJsonContext.Default.ListServerLogEntryDto);
         });

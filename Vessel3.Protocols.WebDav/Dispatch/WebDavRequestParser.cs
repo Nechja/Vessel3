@@ -24,17 +24,25 @@ internal static class WebDavRequestParser
         var isCollection = isTrailingSlash || segments.Length <= 1;
 
         var operation = ResolveOperation(req.Method);
-        var depth = ResolveDepth(req.Headers[WebDavHeaders.Depth].ToString(), operation);
+        var depth = ResolveDepth(req.Headers[WebDavHeaders.Depth], operation);
 
-        var destination = req.Headers[WebDavHeaders.Destination].ToString();
-        var overwrite = !string.Equals(req.Headers[WebDavHeaders.Overwrite].ToString(), "F", StringComparison.OrdinalIgnoreCase);
+        string? destination = null;
+        if (operation is WebDavOperationKind.Copy or WebDavOperationKind.Move
+            && req.Headers.TryGetValue(WebDavHeaders.Destination, out var destVal) && destVal.Count > 0)
+        {
+            destination = destVal[0];
+        }
+
+        var overwrite = !(operation is WebDavOperationKind.Copy or WebDavOperationKind.Move
+            && req.Headers.TryGetValue(WebDavHeaders.Overwrite, out var ovrVal)
+            && string.Equals(ovrVal, "F", StringComparison.OrdinalIgnoreCase));
 
         return new WebDavRequestTarget(
             operation,
             bucket,
             itemPath,
             depth,
-            string.IsNullOrEmpty(destination) ? null : destination,
+            destination,
             overwrite,
             isCollection);
     }
@@ -54,13 +62,26 @@ internal static class WebDavRequestParser
     private static (string? Bucket, string? Key) ExtractBucketAndPath(string[] segments, bool isTrailingSlash) => segments switch
     {
         [] => (null, null),
-        [var b] => (Uri.UnescapeDataString(b), null),
-        [var b, .. var rest] => (Uri.UnescapeDataString(b), FormatKey(rest, isTrailingSlash))
+        [var b] => (b.Contains('%') ? Uri.UnescapeDataString(b) : b, null),
+        [var b, .. var rest] => (b.Contains('%') ? Uri.UnescapeDataString(b) : b, FormatKey(rest, isTrailingSlash))
     };
 
     private static string FormatKey(string[] segments, bool isTrailingSlash)
     {
-        var unescaped = string.Join('/', segments.Select(Uri.UnescapeDataString));
+        var needsUnescape = false;
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (segments[i].Contains('%'))
+            {
+                needsUnescape = true;
+                break;
+            }
+        }
+
+        var unescaped = needsUnescape
+            ? string.Join('/', segments.Select(Uri.UnescapeDataString))
+            : string.Join('/', segments);
+
         return isTrailingSlash && !unescaped.EndsWith('/')
             ? unescaped + "/"
             : unescaped;
@@ -75,30 +96,33 @@ internal static class WebDavRequestParser
         _ => path
     };
 
-    private static WebDavOperationKind ResolveOperation(string method) => method.ToUpperInvariant() switch
+    private static WebDavOperationKind ResolveOperation(string method) => method switch
     {
-        "OPTIONS" => WebDavOperationKind.Options,
-        "PROPFIND" => WebDavOperationKind.Propfind,
-        "GET" => WebDavOperationKind.Get,
-        "HEAD" => WebDavOperationKind.Head,
-        "PUT" => WebDavOperationKind.Put,
-        "DELETE" => WebDavOperationKind.Delete,
-        "MKCOL" => WebDavOperationKind.Mkcol,
-        "MOVE" => WebDavOperationKind.Move,
-        "COPY" => WebDavOperationKind.Copy,
-        "LOCK" => WebDavOperationKind.Lock,
-        "UNLOCK" => WebDavOperationKind.Unlock,
-        "PROPPATCH" => WebDavOperationKind.Proppatch,
+        _ when HttpMethods.IsGet(method) => WebDavOperationKind.Get,
+        _ when HttpMethods.IsHead(method) => WebDavOperationKind.Head,
+        _ when HttpMethods.IsPut(method) => WebDavOperationKind.Put,
+        _ when HttpMethods.IsDelete(method) => WebDavOperationKind.Delete,
+        _ when HttpMethods.IsOptions(method) => WebDavOperationKind.Options,
+        _ when string.Equals(method, "PROPFIND", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Propfind,
+        _ when string.Equals(method, "MKCOL", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Mkcol,
+        _ when string.Equals(method, "MOVE", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Move,
+        _ when string.Equals(method, "COPY", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Copy,
+        _ when string.Equals(method, "LOCK", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Lock,
+        _ when string.Equals(method, "UNLOCK", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Unlock,
+        _ when string.Equals(method, "PROPPATCH", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Proppatch,
         _ => WebDavOperationKind.Unknown
     };
 
-    private static int ResolveDepth(string? depthHeader, WebDavOperationKind operation) =>
-        string.IsNullOrEmpty(depthHeader)
-            ? operation is WebDavOperationKind.Propfind ? 1 : int.MaxValue
-            : depthHeader.Trim().ToLowerInvariant() switch
-            {
-                "0" => 0,
-                "1" => 1,
-                _ => int.MaxValue
-            };
+    private static int ResolveDepth(Microsoft.Extensions.Primitives.StringValues depthHeader, WebDavOperationKind operation)
+    {
+        if (depthHeader.Count == 0 || depthHeader[0] is not { Length: > 0 } val)
+        {
+            return operation is WebDavOperationKind.Propfind ? 1 : int.MaxValue;
+        }
+
+        var span = val.AsSpan().Trim();
+        if (span.SequenceEqual("0")) return 0;
+        if (span.SequenceEqual("1")) return 1;
+        return int.MaxValue;
+    }
 }

@@ -404,7 +404,7 @@
                 var tf = string.IsNullOrWhiteSpace(topicFilter) ? null : topicFilter;
                 var rf = string.IsNullOrWhiteSpace(resourceFilter) ? null : resourceFilter;
 
-                await foreach (var evt in Client.StreamEventsAsync(tf, rf, token))
+                await foreach (var evt in Client.StreamEvents(tf, rf, token))
                 {
                     if (isPaused)
                     {
@@ -513,7 +513,7 @@
         loadingLogs = true;
         try
         {
-            var res = await Client.GetServerLogsAsync(logLimit, selectedLevel, selectedProtocol);
+            var res = await Client.GetServerLogs(logLimit, selectedLevel, selectedProtocol);
             if (res.TryGetValue(out var logs, out var err))
             {
                 serverLogs = [.. logs];
@@ -531,7 +531,7 @@
 
     private async Task ClearLogs()
     {
-        var res = await Client.ClearServerLogsAsync();
+        var res = await Client.ClearServerLogs();
         if (!res.TryGetError(out var err))
         {
             serverLogs.Clear();

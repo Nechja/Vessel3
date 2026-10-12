@@ -101,8 +101,6 @@ internal sealed partial class WebhookDeliveryWorker : BackgroundService, IWebhoo
         var webhookResult = store.GetWebhook(webhookId);
         if (!webhookResult.TryGetValue(out var webhook, out var error))
             return error;
-        if (webhook is null)
-            return new NoSuchWebhookError(webhookId);
 
         var testEvent = new VesselEvent(
             "evt_test_" + Ulid.NewUlid().ToString(),

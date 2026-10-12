@@ -121,9 +121,10 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 TryDelete(tempPath);
             }
 
-            return fileSync.SyncDirectory(finalDir) is Result.Failure ef
-                ? ef.Error
-                : new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
+            if (fileSync.SyncDirectory(finalDir) is Result.Failure ef)
+                return ef.Error;
+
+            return new StoredBlob(sha, md5, crc32hex, crc32chex, sha1hex, total);
         }
         catch (IOException ex) when (IsOutOfSpace(ex))
         {

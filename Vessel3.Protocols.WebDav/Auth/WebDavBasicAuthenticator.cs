@@ -56,7 +56,7 @@ internal sealed class WebDavBasicAuthenticator(
 
     private bool TryAuthenticateUser(string key, string secret, out Result<CallerIdentity> result)
     {
-        if (identity is null || !identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) || keyEntry is null)
+        if (identity is null || !identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
         {
             result = default!;
             return false;

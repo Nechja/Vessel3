@@ -4,53 +4,59 @@ namespace Vessel3.Client;
 
 public interface IVesselClient : IDisposable
 {
-    Task<Result<WhoAmIDto>> WhoAmIAsync(CancellationToken ct = default);
+    Task<Result<WhoAmIDto>> WhoAmI(CancellationToken ct = default);
 
-    Task<Result<IReadOnlyList<BucketDto>>> ListBucketsAsync(CancellationToken ct = default);
-    Task<Result> CreateBucketAsync(string bucket, CancellationToken ct = default);
-    Task<Result> DeleteBucketAsync(string bucket, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<BucketDto>>> ListBuckets(CancellationToken ct = default);
+    Task<Result> CreateBucket(string bucket, CancellationToken ct = default);
+    Task<Result> DeleteBucket(string bucket, CancellationToken ct = default);
 
-    Task<Result<BucketAccessDto>> GetBucketAccessAsync(string bucket, CancellationToken ct = default);
-    Task<Result> SetBucketAccessAsync(string bucket, BucketAccessDto access, CancellationToken ct = default);
+    Task<Result<BucketAccessDto>> GetBucketAccess(string bucket, CancellationToken ct = default);
+    Task<Result> SetBucketAccess(string bucket, BucketAccessDto access, CancellationToken ct = default);
 
-    Task<Result<BucketVersioningDto>> GetBucketVersioningAsync(string bucket, CancellationToken ct = default);
-    Task<Result> SetBucketVersioningAsync(string bucket, string status, CancellationToken ct = default);
+    Task<Result<BucketVersioningDto>> GetBucketVersioning(string bucket, CancellationToken ct = default);
+    Task<Result> SetBucketVersioning(string bucket, string status, CancellationToken ct = default);
 
-    Task<Result<BucketWebsiteDto?>> GetBucketWebsiteAsync(string bucket, CancellationToken ct = default);
-    Task<Result> SetBucketWebsiteAsync(string bucket, BucketWebsiteDto website, CancellationToken ct = default);
-    Task<Result> DeleteBucketWebsiteAsync(string bucket, CancellationToken ct = default);
+    Task<Result<BucketWebsiteDto?>> GetBucketWebsite(string bucket, CancellationToken ct = default);
+    Task<Result> SetBucketWebsite(string bucket, BucketWebsiteDto website, CancellationToken ct = default);
+    Task<Result> DeleteBucketWebsite(string bucket, CancellationToken ct = default);
 
-    Task<Result<ObjectsPageDto>> ListObjectsAsync(string bucket, string? prefix = null, string? delimiter = null, string? marker = null, int limit = 1000, CancellationToken ct = default);
-    Task<Result<VesselObjectDownload>> GetObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default);
-    Task<Result<ObjectSummaryDto>> StatObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default);
-    Task<Result<PutObjectResultDto>> PutObjectAsync(string bucket, string key, Stream content, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
-    Task<Result> DeleteObjectAsync(string bucket, string key, string? versionId = null, CancellationToken ct = default);
+    Task<Result<ObjectsPageDto>> ListObjects(string bucket, string? prefix = null, string? delimiter = null, string? marker = null, int limit = 1000, CancellationToken ct = default);
+    Task<Result<VesselObjectDownload>> GetObject(string bucket, string key, string? versionId = null, CancellationToken ct = default);
+    Task<Result<ObjectSummaryDto>> StatObject(string bucket, string key, string? versionId = null, CancellationToken ct = default);
+    Task<Result<PutObjectResultDto>> PutObject(string bucket, string key, Stream content, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
+    Task<Result<PutObjectResultDto>> PutObject(string bucket, string key, Stream content, string? contentType, IReadOnlyDictionary<string, string>? metadata, IProgress<long>? progress, CancellationToken ct = default);
+    Task<Result<CreateUploadResultDto>> CreateMultipartUpload(string bucket, string key, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
+    Task<Result<UploadPartDto>> UploadPart(string bucket, string key, string uploadId, int partNumber, Stream content, long length, CancellationToken ct = default);
+    Task<Result<PutObjectResultDto>> CompleteMultipartUpload(string bucket, string key, string uploadId, IReadOnlyList<UploadPartDto> parts, CancellationToken ct = default);
+    Task<Result> AbortMultipartUpload(string bucket, string key, string uploadId, CancellationToken ct = default);
+    Task<Result<PutObjectResultDto>> UploadObject(string bucket, string key, Stream content, long size, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, IProgress<long>? progress = null, CancellationToken ct = default);
+    Task<Result> DeleteObject(string bucket, string key, string? versionId = null, CancellationToken ct = default);
 
-    Task<Result<IReadOnlyList<UserDto>>> ListUsersAsync(CancellationToken ct = default);
-    Task<Result<UserDto>> CreateUserAsync(string username, string role = "Member", CancellationToken ct = default);
-    Task<Result> UpdateUserRoleAsync(string userId, string role, CancellationToken ct = default);
-    Task<Result> UpdateUserStatusAsync(string userId, string status, CancellationToken ct = default);
-    Task<Result> DeleteUserAsync(string userId, CancellationToken ct = default);
-    Task<Result<AccessKeyDto>> CreateAccessKeyAsync(string userId, string? description = null, TimeSpan? ttl = null, CancellationToken ct = default);
-    Task<Result<IReadOnlyList<AccessKeyDto>>> ListAccessKeysAsync(string userId, CancellationToken ct = default);
-    Task<Result> RevokeAccessKeyAsync(string accessKeyId, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<UserDto>>> ListUsers(CancellationToken ct = default);
+    Task<Result<UserDto>> CreateUser(string username, string role = "Member", CancellationToken ct = default);
+    Task<Result> UpdateUserRole(string userId, string role, CancellationToken ct = default);
+    Task<Result> UpdateUserStatus(string userId, string status, CancellationToken ct = default);
+    Task<Result> DeleteUser(string userId, CancellationToken ct = default);
+    Task<Result<AccessKeyDto>> CreateAccessKey(string userId, string? description = null, TimeSpan? ttl = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<AccessKeyDto>>> ListAccessKeys(string userId, CancellationToken ct = default);
+    Task<Result> RevokeAccessKey(string accessKeyId, CancellationToken ct = default);
 
-    Task<Result<GcReportDto>> RunGcAsync(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default);
-    Task<Result<SweepReportDto>> RunSweepAsync(string? nowOverride = null, CancellationToken ct = default);
-    Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogsAsync(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default);
-    Task<Result> ClearServerLogsAsync(CancellationToken ct = default);
+    Task<Result<GcReportDto>> RunGc(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default);
+    Task<Result<SweepReportDto>> RunSweep(string? nowOverride = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogs(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default);
+    Task<Result> ClearServerLogs(CancellationToken ct = default);
 
-    Task<Result<IReadOnlyList<string>>> ListContainerReposAsync(int limit = 100, string? last = null, CancellationToken ct = default);
-    Task<Result<IReadOnlyList<string>>> ListContainerTagsAsync(string repo, int limit = 100, string? last = null, CancellationToken ct = default);
-    Task<Result> DeleteContainerManifestAsync(string repo, string reference, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<string>>> ListContainerRepos(int limit = 100, string? last = null, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<string>>> ListContainerTags(string repo, int limit = 100, string? last = null, CancellationToken ct = default);
+    Task<Result> DeleteContainerManifest(string repo, string reference, CancellationToken ct = default);
 
-    Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooksAsync(CancellationToken ct = default);
-    Task<Result<WebhookDto>> GetWebhookAsync(string id, CancellationToken ct = default);
-    Task<Result<WebhookDto>> CreateWebhookAsync(CreateWebhookDto dto, CancellationToken ct = default);
-    Task<Result<WebhookDto>> UpdateWebhookAsync(string id, UpdateWebhookDto dto, CancellationToken ct = default);
-    Task<Result> DeleteWebhookAsync(string id, CancellationToken ct = default);
-    Task<Result<WebhookTestResultDto>> TestWebhookAsync(string id, CancellationToken ct = default);
-    Task<Result<string>> ExportWebhooksYamlAsync(CancellationToken ct = default);
+    Task<Result<IReadOnlyList<WebhookDto>>> ListWebhooks(CancellationToken ct = default);
+    Task<Result<WebhookDto>> GetWebhook(string id, CancellationToken ct = default);
+    Task<Result<WebhookDto>> CreateWebhook(CreateWebhookDto dto, CancellationToken ct = default);
+    Task<Result<WebhookDto>> UpdateWebhook(string id, UpdateWebhookDto dto, CancellationToken ct = default);
+    Task<Result> DeleteWebhook(string id, CancellationToken ct = default);
+    Task<Result<WebhookTestResultDto>> TestWebhook(string id, CancellationToken ct = default);
+    Task<Result<string>> ExportWebhooksYaml(CancellationToken ct = default);
 
-    IAsyncEnumerable<VesselEventDto> StreamEventsAsync(string? topicFilter = null, string? resourceFilter = null, CancellationToken ct = default);
+    IAsyncEnumerable<VesselEventDto> StreamEvents(string? topicFilter = null, string? resourceFilter = null, CancellationToken ct = default);
 }

@@ -63,7 +63,7 @@ public sealed class ChunkStagerTests : IDisposable
         Assert.Equal(chunk1Data.Length + chunk2Data.Length, outcome.TotalSize);
         Assert.NotNull(outcome.VersionId);
 
-        var put = Assert.IsType<Result<PutEntry?>.Success>(registry.GetCurrentPut("test-bucket", "staged.txt")).Value;
+        var put = Assert.IsType<Result<PutEntry>.Success>(registry.GetCurrentPut("test-bucket", "staged.txt")).Value;
         Assert.NotNull(put);
         Assert.Equal("custom-etag", put.Md5);
         Assert.Equal(2, put.Parts!.Count);

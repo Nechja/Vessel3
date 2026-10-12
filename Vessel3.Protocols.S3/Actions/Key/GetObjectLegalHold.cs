@@ -4,18 +4,16 @@ internal sealed class GetObjectLegalHold(IBucketRegistry registry, IS3XmlWriter 
 {
     public S3KeyRoute Route => new(HttpMethods.Get, S3KeySubresource.LegalHold);
 
-    public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
+    public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
         var versionId = ctx.VersionId() ?? registry.CurrentVersionOf(bucket, key);
-        return versionId is null
-            ? Task.FromResult(http.Map(new NoSuchKeyError(key)))
-            : registry.GetLegalHold(bucket, key, versionId).Match<Task<IResult>>(
-                async on =>
-                {
-                    ctx.Response.ContentType = "application/xml";
-                    await xml.WriteLegalHold(ctx.Response.Body, on, ctx.RequestAborted);
-                    return Results.Empty;
-                },
-                err => Task.FromResult(http.Map(err)));
+        if (versionId is null) return http.Map(new NoSuchKeyError(key));
+
+        if (!registry.GetLegalHold(bucket, key, versionId).TryGetValue(out var on, out var err))
+            return http.Map(err);
+
+        ctx.Response.ContentType = "application/xml";
+        await xml.WriteLegalHold(ctx.Response.Body, on, ctx.RequestAborted);
+        return Results.Empty;
     }
 }

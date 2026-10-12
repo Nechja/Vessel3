@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Buffers.Text;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -53,9 +55,7 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
 
     public Result<CallerIdentity> Verify(HttpRequest req, string? pathAccount)
     {
-        var auth = req.Headers.Authorization.ToString();
-
-        if (string.IsNullOrEmpty(auth))
+        if (!req.Headers.TryGetValue("Authorization", out var authVal) || authVal.Count == 0 || authVal[0] is not { Length: > 0 } auth)
         {
             return isUnauthenticatedMode
                 ? CallerIdentity.System
@@ -100,18 +100,31 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         }
 
         var stringToSign = BuildStringToSign(req, accountToUse);
-        using var hmac = new HMACSHA256(keyBytes);
-        var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(stringToSign));
-        var expectedSig = Convert.ToBase64String(computedHash);
-
-        var expectedBytes = Encoding.UTF8.GetBytes(expectedSig);
-        var actualBytes = Encoding.UTF8.GetBytes(signature);
-
-        if (expectedBytes.Length != actualBytes.Length ||
-            !CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+        Span<byte> hash = stackalloc byte[32];
+        var utf8ByteCount = Encoding.UTF8.GetByteCount(stringToSign);
+        byte[]? rented = null;
+        Span<byte> utf8Bytes = utf8ByteCount <= 1024 ? stackalloc byte[1024] : (rented = ArrayPool<byte>.Shared.Rent(utf8ByteCount));
+        try
         {
-            var detail = $"The MAC signature found in the HTTP request '{signature}' is not the same as any computed signature. Server used following string to sign: '{stringToSign}'.";
-            return new AzureAuthenticationError(detail);
+            var written = Encoding.UTF8.GetBytes(stringToSign, utf8Bytes);
+            HMACSHA256.HashData(keyBytes, utf8Bytes[..written], hash);
+
+            Span<byte> expectedSigBytes = stackalloc byte[64];
+            Base64.EncodeToUtf8(hash, expectedSigBytes, out _, out var bytesWritten);
+
+            Span<byte> actualBytes = stackalloc byte[64];
+            var actualWritten = Encoding.UTF8.TryGetBytes(signature.AsSpan(), actualBytes, out var bytesEncoded) ? bytesEncoded : 0;
+
+            if (actualWritten != bytesWritten ||
+                !CryptographicOperations.FixedTimeEquals(expectedSigBytes[..bytesWritten], actualBytes[..actualWritten]))
+            {
+                var detail = $"The MAC signature found in the HTTP request '{signature}' is not the same as any computed signature. Server used following string to sign: '{stringToSign}'.";
+                return new AzureAuthenticationError(detail);
+            }
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
         }
 
         return caller;
@@ -139,20 +152,20 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
             return (null, null);
         }
 
-        if (identity.GetAccessKey(account) is not Result<AccessKey?>.Success { Value: { } ak } || ak.IsRevoked)
+        if (!identity.GetAccessKey(account).TryGetValue(out var accessKey, out _) || accessKey.IsRevoked)
         {
             return (null, null);
         }
 
-        if (identity.GetUser(ak.UserId) is not Result<User?>.Success { Value: { } user } || user.Status is not UserStatus.Active)
+        if (!identity.GetUser(accessKey.UserId).TryGetValue(out var user, out _) || user.Status is not UserStatus.Active)
         {
             return (null, null);
         }
 
         byte[] bytes;
-        try { bytes = Convert.FromBase64String(ak.SecretKey); }
-        catch { bytes = Encoding.UTF8.GetBytes(ak.SecretKey); }
-        return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, ak.Id));
+        try { bytes = Convert.FromBase64String(accessKey.SecretKey); }
+        catch { bytes = Encoding.UTF8.GetBytes(accessKey.SecretKey); }
+        return (bytes, new CallerIdentity(user.Id, user.Username, user.Role, accessKey.Id));
     }
 
     public static string BuildStringToSign(HttpRequest req, string account)
@@ -160,18 +173,21 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         var method = req.Method;
         var headers = req.Headers;
 
-        var contentEncoding = headers.ContentEncoding.ToString();
-        var contentLanguage = headers.ContentLanguage.ToString();
-        var contentLength = req.ContentLength is > 0 ? req.ContentLength.Value.ToString(CultureInfo.InvariantCulture) : "";
-        var contentMd5 = headers["Content-MD5"].ToString();
-        var contentType = headers.ContentType.ToString();
+        static string GetHeader(IHeaderDictionary hdrs, string key) =>
+            hdrs.TryGetValue(key, out var val) && val.Count > 0 && val[0] is { Length: > 0 } s ? s : "";
 
-        var date = headers["x-ms-date"].Count > 0 ? "" : headers.Date.ToString();
-        var ifModifiedSince = headers.IfModifiedSince.ToString();
-        var ifMatch = headers.IfMatch.ToString();
-        var ifNoneMatch = headers.IfNoneMatch.ToString();
-        var ifUnmodifiedSince = headers.IfUnmodifiedSince.ToString();
-        var range = headers.Range.ToString();
+        var contentEncoding = GetHeader(headers, "Content-Encoding");
+        var contentLanguage = GetHeader(headers, "Content-Language");
+        var contentLength = req.ContentLength is > 0 ? req.ContentLength.Value.ToString(CultureInfo.InvariantCulture) : "";
+        var contentMd5 = GetHeader(headers, "Content-MD5");
+        var contentType = GetHeader(headers, "Content-Type");
+
+        var date = headers.ContainsKey("x-ms-date") ? "" : GetHeader(headers, "Date");
+        var ifModifiedSince = GetHeader(headers, "If-Modified-Since");
+        var ifMatch = GetHeader(headers, "If-Match");
+        var ifNoneMatch = GetHeader(headers, "If-None-Match");
+        var ifUnmodifiedSince = GetHeader(headers, "If-Unmodified-Since");
+        var range = GetHeader(headers, "Range");
 
         var canonicalHeaders = BuildCanonicalizedHeaders(headers);
         var canonicalResource = BuildCanonicalizedResource(req, account);
@@ -200,15 +216,15 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
         var msHeaders = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var (k, v) in headers)
         {
+            if (!k.StartsWith("x-ms-", StringComparison.OrdinalIgnoreCase)) continue;
             var lower = k.ToLowerInvariant();
-            if (lower.StartsWith("x-ms-", StringComparison.Ordinal))
-            {
-                var val = v.ToString().Trim();
-                msHeaders[lower] = msHeaders.TryGetValue(lower, out var existing) ? $"{existing},{val}" : val;
-            }
+            var val = v.ToString().Trim();
+            msHeaders[lower] = msHeaders.TryGetValue(lower, out var existing) ? $"{existing},{val}" : val;
         }
 
-        var sb = new StringBuilder();
+        if (msHeaders.Count == 0) return string.Empty;
+
+        var sb = new StringBuilder(msHeaders.Count * 64);
         foreach (var (k, v) in msHeaders)
         {
             sb.Append(k).Append(':').Append(v).Append('\n');
@@ -218,35 +234,35 @@ internal sealed class AzureSharedKeyVerifier : IAzureVerifier
 
     private static string BuildCanonicalizedResource(HttpRequest req, string account)
     {
-        var sb = new StringBuilder();
-        sb.Append('/').Append(account);
-
         var rawPath = req.Path.Value ?? "/";
-        sb.Append(rawPath);
-
-        if (req.Query.Count > 0)
+        if (req.Query.Count == 0)
         {
-            var sortedParams = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
-            foreach (var (k, v) in req.Query)
-            {
-                if (string.IsNullOrEmpty(k)) continue;
-                var lowerK = k.ToLowerInvariant();
-                if (!sortedParams.TryGetValue(lowerK, out var list))
-                {
-                    list = [];
-                    sortedParams[lowerK] = list;
-                }
-                foreach (var val in v)
-                {
-                    if (val is not null) list.Add(Uri.UnescapeDataString(val));
-                }
-            }
+            return $"/{account}{rawPath}";
+        }
 
-            foreach (var (k, v) in sortedParams)
+        var sb = new StringBuilder(64 + rawPath.Length);
+        sb.Append('/').Append(account).Append(rawPath);
+
+        var sortedParams = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (k, v) in req.Query)
+        {
+            if (string.IsNullOrEmpty(k)) continue;
+            var lowerK = k.ToLowerInvariant();
+            if (!sortedParams.TryGetValue(lowerK, out var list))
             {
-                v.Sort(StringComparer.Ordinal);
-                sb.Append('\n').Append(k).Append(':').Append(string.Join(',', v));
+                list = [];
+                sortedParams[lowerK] = list;
             }
+            foreach (var val in v)
+            {
+                if (val is not null) list.Add(Uri.UnescapeDataString(val));
+            }
+        }
+
+        foreach (var (k, v) in sortedParams)
+        {
+            v.Sort(StringComparer.Ordinal);
+            sb.Append('\n').Append(k).Append(':').Append(string.Join(',', v));
         }
 
         return sb.ToString();

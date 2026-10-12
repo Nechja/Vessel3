@@ -151,7 +151,7 @@ internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = 
 
     private async Task<string?> ReadLine(CancellationToken ct)
     {
-        var bytes = new List<byte>(64);
+        List<byte> bytes = new(64);
         var one = new byte[1];
         while (true)
         {

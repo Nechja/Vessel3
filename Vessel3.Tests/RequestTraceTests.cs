@@ -157,7 +157,7 @@ public sealed class RequestTraceTests : IDisposable
         RequestTrace.Current = trace;
 
         Assert.IsType<Result<CurrentPage>.Success>(registry.ListCurrent("bucket", "p/", null, 10));
-        Assert.IsType<Result<PutEntry?>.Success>(registry.GetCurrentPut("bucket", "k"));
+        Assert.IsType<Result<PutEntry>.Failure>(registry.GetCurrentPut("bucket", "k"));
 
         Assert.True(trace.Ticks(Stage.Query) > 0);
         Assert.True(trace.Ticks(Stage.ReadLock) >= 0);

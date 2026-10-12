@@ -95,7 +95,7 @@ internal sealed class GcGate : IGcGate, IDisposable
 
     private void ReleaseCollecting()
     {
-        var admitted = new List<TaskCompletionSource>();
+        List<TaskCompletionSource> admitted = [];
         lock (sync)
         {
             collecting = false;

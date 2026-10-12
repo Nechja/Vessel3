@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Microsoft.Extensions.Primitives;
 
 namespace Vessel3.Server.S3;
 
@@ -57,7 +58,7 @@ internal sealed class S3KeyActionDispatcher(
         && registry.GetAccess(bucket) is Result<BucketAccess>.Success { Value.ReadOnly: true };
 
     private static S3KeyHeaderFlag ResolveHeaderFlag(IHeaderDictionary headers) =>
-        !string.IsNullOrEmpty(headers["x-amz-copy-source"].ToString())
+        headers.TryGetValue("x-amz-copy-source", out var v) && !StringValues.IsNullOrEmpty(v)
             ? S3KeyHeaderFlag.CopySource
             : S3KeyHeaderFlag.None;
 

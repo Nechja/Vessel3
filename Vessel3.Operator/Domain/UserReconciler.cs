@@ -43,7 +43,7 @@ public sealed partial class UserReconciler(
             {
                 secretName = secret.Name;
                 var endpoint = user.ServerReference.BuildClusterEndpoint();
-                var secretData = new Dictionary<string, string>
+                Dictionary<string, string> secretData = new()
                 {
                     [secret.AccessKeyField] = accessKey.AccessKeyId,
                     [secret.SecretKeyField] = accessKey.SecretAccessKey,

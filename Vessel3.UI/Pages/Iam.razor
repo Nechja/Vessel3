@@ -352,7 +352,7 @@
         errorMessage = null;
         try
         {
-            var res = await Client.ListUsersAsync();
+            var res = await Client.ListUsers();
             if (res.TryGetValue(out var list, out var err))
             {
                 users = list.OrderBy(u => u.Username, StringComparer.Ordinal).ToList();
@@ -400,7 +400,7 @@
         loadingKeys = true;
         try
         {
-            var res = await Client.ListAccessKeysAsync(userId);
+            var res = await Client.ListAccessKeys(userId);
             if (res.TryGetValue(out var list, out var err))
             {
                 keys = list.ToList();
@@ -427,7 +427,7 @@
         creatingUser = true;
         try
         {
-            var res = await Client.CreateUserAsync(name, newUserRole);
+            var res = await Client.CreateUser(name, newUserRole);
             if (!res.TryGetValue(out _, out var err))
             {
                 Toast.Error($"Failed to create user: {err.Message}");
@@ -453,7 +453,7 @@
         armedDeleteUser = null;
         try
         {
-            var res = await Client.DeleteUserAsync(userId);
+            var res = await Client.DeleteUser(userId);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete user: {err.Message}");
@@ -485,7 +485,7 @@
         {
             if (editUserRole != eu.Role)
             {
-                var r = await Client.UpdateUserRoleAsync(eu.Id, editUserRole);
+                var r = await Client.UpdateUserRole(eu.Id, editUserRole);
                 if (r.TryGetError(out var roleErr))
                 {
                     Toast.Error($"Failed to update role: {roleErr.Message}");
@@ -494,7 +494,7 @@
             }
             if (editUserStatus != eu.Status)
             {
-                var r = await Client.UpdateUserStatusAsync(eu.Id, editUserStatus);
+                var r = await Client.UpdateUserStatus(eu.Id, editUserStatus);
                 if (r.TryGetError(out var statusErr))
                 {
                     Toast.Error($"Failed to update status: {statusErr.Message}");
@@ -521,7 +521,7 @@
         creatingKey = true;
         try
         {
-            var res = await Client.CreateAccessKeyAsync(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
+            var res = await Client.CreateAccessKey(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
             if (!res.TryGetValue(out var key, out var err))
             {
                 Toast.Error($"Failed to generate key: {err.Message}");
@@ -548,7 +548,7 @@
     {
         try
         {
-            var res = await Client.RevokeAccessKeyAsync(keyId);
+            var res = await Client.RevokeAccessKey(keyId);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to revoke key: {err.Message}");

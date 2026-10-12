@@ -9,4 +9,5 @@ internal sealed record StoredObject(
     string ContentType,
     IReadOnlyDictionary<string, string> Metadata,
     ChecksumSet Checksums,
-    IReadOnlyDictionary<string, string>? SystemHeaders = null);
+    IReadOnlyDictionary<string, string>? SystemHeaders = null,
+    string? VersionId = null);

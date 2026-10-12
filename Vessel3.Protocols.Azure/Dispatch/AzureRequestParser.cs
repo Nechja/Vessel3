@@ -5,15 +5,35 @@ namespace Vessel3.Protocols.Azure.Dispatch;
 internal static class AzureRequestParser
 {
     public const string DevStoreAccount = "devstoreaccount1";
+    private const string DevStorePathPrefix = "/" + DevStoreAccount;
 
-    public static bool IsAzureRequest(HttpRequest req) =>
-        req.Headers.ContainsKey("x-ms-version") ||
-        req.Headers.ContainsKey("x-ms-date") ||
-        req.Headers.Authorization.ToString().StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) ||
-        req.Headers.Authorization.ToString().StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase) ||
-        (req.Query.ContainsKey("sig") && (req.Query.ContainsKey("se") || req.Query.ContainsKey("sp") || req.Query.ContainsKey("sv"))) ||
-        (req.Path.Value ?? "/").StartsWith($"/{DevStoreAccount}", StringComparison.OrdinalIgnoreCase) ||
-        (req.Path.Value ?? "/").StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase);
+    public static bool IsAzureRequest(HttpRequest req)
+    {
+        var headers = req.Headers;
+        if (headers.ContainsKey("x-ms-version") || headers.ContainsKey("x-ms-date"))
+        {
+            return true;
+        }
+
+        if (headers.TryGetValue("Authorization", out var authHdr) && authHdr.Count > 0 &&
+            authHdr[0] is { Length: > 0 } authStr &&
+            (authStr.StartsWith("SharedKey ", StringComparison.OrdinalIgnoreCase) ||
+             authStr.StartsWith("SharedKeyLite ", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var query = req.Query;
+        if (query.ContainsKey("sig") && (query.ContainsKey("se") || query.ContainsKey("sp") || query.ContainsKey("sv")))
+        {
+            return true;
+        }
+
+        var path = req.Path.Value;
+        return path is not null &&
+            (path.StartsWith(DevStorePathPrefix, StringComparison.OrdinalIgnoreCase) ||
+             path.StartsWith("/V3AK", StringComparison.OrdinalIgnoreCase));
+    }
 
     public static AzureRequestTarget Parse(HttpRequest req)
     {
@@ -41,19 +61,31 @@ internal static class AzureRequestParser
 
         if (idx < segments.Length)
         {
-            container = Uri.UnescapeDataString(segments[idx]);
+            container = segments[idx].Contains('%') ? Uri.UnescapeDataString(segments[idx]) : segments[idx];
             idx++;
         }
 
         if (idx < segments.Length)
         {
-            blob = string.Join('/', segments[idx..].Select(Uri.UnescapeDataString));
+            var remaining = segments[idx..];
+            var needsUnescape = false;
+            foreach (var seg in remaining)
+            {
+                if (seg.Contains('%'))
+                {
+                    needsUnescape = true;
+                    break;
+                }
+            }
+            blob = needsUnescape
+                ? string.Join('/', remaining.Select(Uri.UnescapeDataString))
+                : string.Join('/', remaining);
         }
 
         var method = req.Method;
         var query = req.Query;
-        var comp = query["comp"].ToString();
-        var restype = query["restype"].ToString();
+        var comp = query.TryGetValue("comp", out var compValues) && compValues.Count > 0 ? compValues[0] ?? "" : "";
+        var restype = query.TryGetValue("restype", out var restypeValues) && restypeValues.Count > 0 ? restypeValues[0] ?? "" : "";
 
         var op = ResolveOperation(method, container, blob, restype, comp, req.Headers);
 
@@ -62,7 +94,9 @@ internal static class AzureRequestParser
 
     private static string? ExtractAccountFromAuthHeader(HttpRequest req)
     {
-        var auth = req.Headers.Authorization.ToString();
+        if (!req.Headers.TryGetValue("Authorization", out var authVal) || authVal.Count == 0 || authVal[0] is not { Length: > 0 } auth)
+            return null;
+
         const string sharedKeyPrefix = "SharedKey ";
         const string sharedKeyLitePrefix = "SharedKeyLite ";
 

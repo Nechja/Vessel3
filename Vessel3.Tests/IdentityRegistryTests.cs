@@ -63,8 +63,8 @@ public class IdentityRegistryTests : IDisposable
         Assert.Equal(user.Id, found.Id);
 
         var missing = reg.FindUserByUsername("nonexistent");
-        Assert.True(missing.TryGetValue(out var notFound, out _));
-        Assert.Null(notFound);
+        Assert.False(missing.TryGetValue(out _, out var notFoundErr));
+        Assert.IsType<NotFoundError>(notFoundErr);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class IdentityRegistryTests : IDisposable
         var updateStatusResult = reg.UpdateUserStatus(user.Id, UserStatus.Suspended);
         Assert.Same(Result.Ok, updateStatusResult);
 
-        var refreshed = ((Result<User?>.Success)reg.GetUser(user.Id)).Value;
+        var refreshed = ((Result<User>.Success)reg.GetUser(user.Id)).Value;
         Assert.NotNull(refreshed);
         Assert.Equal(UserRole.Admin, refreshed.Role);
         Assert.Equal(UserStatus.Suspended, refreshed.Status);
@@ -117,11 +117,11 @@ public class IdentityRegistryTests : IDisposable
         var deleteResult = reg.DeleteUser(user.Id);
         Assert.Same(Result.Ok, deleteResult);
 
-        var fetchUser = ((Result<User?>.Success)reg.GetUser(user.Id)).Value;
-        Assert.Null(fetchUser);
+        var fetchUser = reg.GetUser(user.Id);
+        Assert.True(fetchUser.TryGetError(out var userErr) && userErr is NotFoundError);
 
-        var fetchKey = ((Result<AccessKey?>.Success)reg.GetAccessKey(key.Id)).Value;
-        Assert.Null(fetchKey);
+        var fetchKey = reg.GetAccessKey(key.Id);
+        Assert.True(fetchKey.TryGetError(out var keyErr) && keyErr is InvalidAccessKeyIdError);
 
         var deleteMissing = reg.DeleteUser("nonexistent");
         Assert.True(deleteMissing.Match(() => false, err => err is NotFoundError));
@@ -153,7 +153,7 @@ public class IdentityRegistryTests : IDisposable
         var revokeResult = reg.RevokeAccessKey(key.Id);
         Assert.Same(Result.Ok, revokeResult);
 
-        var revokedKey = ((Result<AccessKey?>.Success)reg.GetAccessKey(key.Id)).Value;
+        var revokedKey = ((Result<AccessKey>.Success)reg.GetAccessKey(key.Id)).Value;
         Assert.NotNull(revokedKey);
         Assert.True(revokedKey.IsRevoked);
 
@@ -208,7 +208,7 @@ public class IdentityRegistryTests : IDisposable
         Assert.Equal("admin", caller.Username);
         Assert.Equal(UserRole.Admin, caller.Role);
 
-        var adminUser = ((Result<User?>.Success)reg.FindUserByUsername("admin")).Value;
+        var adminUser = ((Result<User>.Success)reg.FindUserByUsername("admin")).Value;
         Assert.NotNull(adminUser);
         Assert.Equal(UserRole.Admin, adminUser.Role);
     }
@@ -221,7 +221,7 @@ public class IdentityRegistryTests : IDisposable
         var key = ((Result<AccessKey>.Success)reg1.CreateAccessKey(user.Id)).Value;
 
         using var reg2 = new IdentityRegistry(new IdentityOptions(root), clock);
-        var fetchedUser = ((Result<User?>.Success)reg2.GetUser(user.Id)).Value;
+        var fetchedUser = ((Result<User>.Success)reg2.GetUser(user.Id)).Value;
         Assert.NotNull(fetchedUser);
         Assert.Equal("grace", fetchedUser.Username);
         Assert.Equal(UserRole.Admin, fetchedUser.Role);
@@ -242,9 +242,9 @@ public class IdentityRegistryTests : IDisposable
         var res = reg.EnsureAdminUsers(["kayla", "alice"]);
         Assert.Same(Result.Ok, res);
 
-        var refreshedU1 = ((Result<User?>.Success)reg.GetUser(u1.Id)).Value!;
-        var refreshedU2 = ((Result<User?>.Success)reg.GetUser(u2.Id)).Value!;
-        var refreshedU3 = ((Result<User?>.Success)reg.GetUser(u3.Id)).Value!;
+        var refreshedU1 = ((Result<User>.Success)reg.GetUser(u1.Id)).Value;
+        var refreshedU2 = ((Result<User>.Success)reg.GetUser(u2.Id)).Value;
+        var refreshedU3 = ((Result<User>.Success)reg.GetUser(u3.Id)).Value;
 
         Assert.Equal(UserRole.Admin, refreshedU1.Role);
         Assert.Equal(UserRole.Member, refreshedU2.Role);

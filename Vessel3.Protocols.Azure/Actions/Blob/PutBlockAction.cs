@@ -19,8 +19,7 @@ internal sealed class PutBlockAction(
             return new AzureErrorResult(new InvalidResourceNameError("Container and Blob are required"), errorXml);
         }
 
-        var blockId = ctx.Request.Query["blockid"].ToString();
-        if (string.IsNullOrEmpty(blockId))
+        if (!ctx.Request.Query.TryGetValue("blockid", out var bVal) || bVal.Count == 0 || bVal[0] is not { Length: > 0 } blockId)
         {
             return new AzureErrorResult(new InvalidResourceNameError("Missing blockid query parameter"), errorXml);
         }

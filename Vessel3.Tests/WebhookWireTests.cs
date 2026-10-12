@@ -127,18 +127,18 @@ public sealed class WebhookWireTests : IAsyncDisposable
             ["drummer:*"],
             Active: true);
 
-        var createRes = await client.CreateWebhookAsync(createReq);
+        var createRes = await client.CreateWebhook(createReq);
         Assert.True(createRes.TryGetValue(out var hook, out _));
         Assert.Equal("drummer-hook", hook.Name);
         Assert.Equal("drummer-secret", hook.Secret);
         Assert.False(hook.IsStatic);
 
-        var listRes = await client.ListWebhooksAsync();
+        var listRes = await client.ListWebhooks();
         Assert.True(listRes.TryGetValue(out var list, out _));
         Assert.Single(list);
         Assert.Equal("drummer-hook", list[0].Name);
 
-        var updateRes = await client.UpdateWebhookAsync(hook.Id, new UpdateWebhookDto(
+        var updateRes = await client.UpdateWebhook(hook.Id, new UpdateWebhookDto(
             "drummer-hook-v2",
             "http://127.0.0.1:9999/wh2",
             null,
@@ -148,15 +148,15 @@ public sealed class WebhookWireTests : IAsyncDisposable
         Assert.True(updateRes.TryGetValue(out var updated, out _));
         Assert.Equal("drummer-hook-v2", updated.Name);
 
-        var exportRes = await client.ExportWebhooksYamlAsync();
+        var exportRes = await client.ExportWebhooksYaml();
         Assert.True(exportRes.TryGetValue(out var yaml, out _));
         Assert.Contains("id: " + hook.Id, yaml, StringComparison.Ordinal);
         Assert.Contains("drummer-hook-v2", yaml, StringComparison.Ordinal);
 
-        var delRes = await client.DeleteWebhookAsync(hook.Id);
+        var delRes = await client.DeleteWebhook(hook.Id);
         Assert.False(delRes.TryGetError(out _));
 
-        var listAfterRes = await client.ListWebhooksAsync();
+        var listAfterRes = await client.ListWebhooks();
         Assert.True(listAfterRes.TryGetValue(out var listAfter, out _));
         Assert.Empty(listAfter);
     }
@@ -179,7 +179,7 @@ public sealed class WebhookWireTests : IAsyncDisposable
 
         var (_, client) = await StartVesselServer("yaml-load", yamlPath);
 
-        var listRes = await client.ListWebhooksAsync();
+        var listRes = await client.ListWebhooks();
         Assert.True(listRes.TryGetValue(out var list, out _));
         Assert.Single(list);
         var hook = list[0];
@@ -187,13 +187,11 @@ public sealed class WebhookWireTests : IAsyncDisposable
         Assert.Equal("Naomi Static Hook", hook.Name);
         Assert.True(hook.IsStatic);
 
-        // Modifying static webhook should fail
-        var updateRes = await client.UpdateWebhookAsync(hook.Id, new UpdateWebhookDto(
+        var updateRes = await client.UpdateWebhook(hook.Id, new UpdateWebhookDto(
             "naomi-mod", "http://127.0.0.1:9999/naomi", null, ["*"]));
         Assert.False(updateRes.TryGetValue(out _, out _));
 
-        // Deleting static webhook should fail
-        var delRes = await client.DeleteWebhookAsync(hook.Id);
+        var delRes = await client.DeleteWebhook(hook.Id);
         Assert.True(delRes.TryGetError(out _));
     }
 
@@ -204,7 +202,7 @@ public sealed class WebhookWireTests : IAsyncDisposable
         var (vesselApp, client) = await StartVesselServer("delivery");
 
         var secret = "avasarala-test-secret-789";
-        var createRes = await client.CreateWebhookAsync(new CreateWebhookDto(
+        var createRes = await client.CreateWebhook(new CreateWebhookDto(
             "avasarala-notifier",
             receiverUrl,
             secret,
@@ -213,19 +211,16 @@ public sealed class WebhookWireTests : IAsyncDisposable
             Active: true));
         Assert.True(createRes.TryGetValue(out var createdHook, out _));
 
-        // Also test the ping endpoint
-        var pingRes = await client.TestWebhookAsync(createdHook.Id);
+        var pingRes = await client.TestWebhook(createdHook.Id);
         Assert.True(pingRes.TryGetValue(out var testVal, out var pingErr), $"TestWebhookAsync returned failure: {pingErr?.Code}: {pingErr?.Message}");
         Assert.True(testVal.Success, $"TestWebhook failed: StatusCode={testVal.StatusCode}, Error={testVal.ErrorMessage}, Body={testVal.ResponseBody}");
         Assert.Equal(200, testVal.StatusCode);
 
-        // Drain the ping message from queue
         Assert.True(queue.TryDequeue(out var pingMsg));
         Assert.Contains("webhook.ping", pingMsg.Body, StringComparison.Ordinal);
         Assert.NotNull(pingMsg.Signature);
         AssertVerifyHmac(pingMsg.Body, secret, pingMsg.Signature);
 
-        // Now push a container manifest to /v2/drummer/manifests/latest
         var vesselUrl = vesselApp.Urls.First();
         using var ociHttp = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri(vesselUrl) };
 
@@ -261,7 +256,6 @@ public sealed class WebhookWireTests : IAsyncDisposable
         var manifestRes = await ociHttp.SendAsync(manifestReq);
         Assert.Equal(HttpStatusCode.Created, manifestRes.StatusCode);
 
-        // Wait for webhook background delivery
         ReceivedWebhook? delivered = null;
         for (var i = 0; i < 50; i++)
         {
@@ -279,7 +273,6 @@ public sealed class WebhookWireTests : IAsyncDisposable
         Assert.NotNull(delivered.Signature);
         AssertVerifyHmac(delivered.Body, secret, delivered.Signature);
 
-        // Now delete manifest and verify container.image.deleted event
         var delManifestRes = await ociHttp.DeleteAsync("/v2/drummer/manifests/latest");
         Assert.True(delManifestRes.IsSuccessStatusCode);
 

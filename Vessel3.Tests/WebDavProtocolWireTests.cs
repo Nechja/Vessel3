@@ -194,6 +194,17 @@ public sealed class WebDavProtocolWireTests : IDisposable
     }
 
     [Fact]
+    public async Task Propfind_NonExistentBucketDepth0_Returns404()
+    {
+        var (_, client) = await StartServer("propfind-missing");
+
+        using var propMissing = new HttpRequestMessage(new HttpMethod("PROPFIND"), "/dav/nonexistent-bucket/");
+        propMissing.Headers.Add("Depth", "0");
+        using var res = await client.SendAsync(propMissing);
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
     public async Task CopyAndMove_ValidResources_ExecutesOperations()
     {
         var (_, client) = await StartServer("copymove");

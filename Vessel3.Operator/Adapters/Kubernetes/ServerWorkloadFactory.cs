@@ -15,15 +15,15 @@ public static class ServerWorkloadFactory
     public static V1Service CreateService(ServerDeclaration server)
     {
         var labels = CreateLabels(server.Identity.Name);
-        var ports = new List<V1ServicePort>
-        {
+        List<V1ServicePort> ports =
+        [
             new()
             {
                 Name = KubernetesConstants.ServicePortName,
                 Port = server.Port,
                 TargetPort = server.Port
             }
-        };
+        ];
 
         return new V1Service
         {

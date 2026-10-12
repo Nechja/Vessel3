@@ -12,15 +12,14 @@ internal sealed class DeleteObject(IObjectStore objects, IHttpResultMapper http)
             ? objects.Delete(bucket, key, bypass)
             : objects.DeleteVersion(bucket, key, delVersionId, bypass);
 
-        return Task.FromResult(result.Match<IResult>(
-            outcome =>
-            {
-                if (outcome.Found && !string.IsNullOrEmpty(outcome.VersionId))
-                    ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
-                if (outcome.IsDeleteMarker)
-                    ctx.Response.Headers["x-amz-delete-marker"] = "true";
-                return Results.NoContent();
-            },
-            http.Map));
+        if (!result.TryGetValue(out var outcome, out var err))
+            return Task.FromResult(http.Map(err));
+
+        if (outcome.Found && !string.IsNullOrEmpty(outcome.VersionId))
+            ctx.Response.Headers["x-amz-version-id"] = outcome.VersionId;
+        if (outcome.IsDeleteMarker)
+            ctx.Response.Headers["x-amz-delete-marker"] = "true";
+
+        return Task.FromResult<IResult>(Results.NoContent());
     }
 }

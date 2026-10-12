@@ -101,7 +101,7 @@ using Vessel3.Client;
 using var client = new VesselClient("http://127.0.0.1:9000", accessKey: "my-key", secretKey: "my-secret");
 
 // List all container repos
-var reposResult = await client.ListContainerReposAsync();
+var reposResult = await client.ListContainerRepos();
 if (reposResult.TryGetValue(out var repos, out var err))
 {
     foreach (var repo in repos)
@@ -109,7 +109,7 @@ if (reposResult.TryGetValue(out var repos, out var err))
         Console.WriteLine($"Repo: {repo}");
 
         // List tags for this container repo
-        var tagsResult = await client.ListContainerTagsAsync(repo);
+        var tagsResult = await client.ListContainerTags(repo);
         if (tagsResult.TryGetValue(out var tags, out _))
         {
             foreach (var tag in tags)
@@ -121,5 +121,5 @@ if (reposResult.TryGetValue(out var repos, out var err))
 }
 
 // Delete a container manifest/tag
-await client.DeleteContainerManifestAsync("drummer", "v1.0.0");
+await client.DeleteContainerManifest("drummer", "v1.0.0");
 ```

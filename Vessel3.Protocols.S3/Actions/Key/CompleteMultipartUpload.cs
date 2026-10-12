@@ -6,23 +6,22 @@ internal sealed class CompleteMultipartUpload(IMultipartStore multipart, IS3XmlR
 
     public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
-        var uploadId = ctx.Request.Query["uploadId"].ToString();
+        var uploadId = ctx.Request.Query.TryGetValue("uploadId", out var uid) && uid.Count > 0 ? uid[0] ?? string.Empty : string.Empty;
         if (!(await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var parsedParts, out var err))
             return http.Map(err);
 
-        var compositeAlgo = ResolveCompositeAlgo(ctx.Request.Headers["x-amz-sdk-checksum-algorithm"].ToString(), parsedParts);
+        var sdkAlgo = ctx.Request.Headers.TryGetValue("x-amz-sdk-checksum-algorithm", out var algoVal) && algoVal.Count > 0 ? algoVal[0] ?? string.Empty : string.Empty;
+        var compositeAlgo = ResolveCompositeAlgo(sdkAlgo, parsedParts);
 
         var completed = await multipart.Complete(uploadId, parsedParts, compositeAlgo, ctx.RequestAborted);
-        return completed.Match<IResult>(
-            outcome =>
-            {
-                ctx.Response.ContentType = "application/xml";
-                var partsCount = parsedParts.Count;
-                return Results.Stream(async stream =>
-                    await xml.WriteCompleteMultipartUploadResult(stream, bucket, key, outcome.Etag, outcome.Checksums, partsCount, ctx.RequestAborted),
-                    "application/xml");
-            },
-            http.Map);
+        if (!completed.TryGetValue(out var outcome, out var completeErr))
+            return http.Map(completeErr);
+
+        ctx.Response.ContentType = "application/xml";
+        var partsCount = parsedParts.Count;
+        return Results.Stream(async stream =>
+            await xml.WriteCompleteMultipartUploadResult(stream, bucket, key, outcome.Etag, outcome.Checksums, partsCount, ctx.RequestAborted),
+            "application/xml");
     }
 
     private static ChecksumAlgorithm? ResolveCompositeAlgo(string sdkAlgo, IReadOnlyList<CompletedPart> parts)

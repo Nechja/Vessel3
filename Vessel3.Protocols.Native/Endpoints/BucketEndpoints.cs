@@ -39,7 +39,7 @@ internal static class BucketEndpoints
         RequestTrace.SetTarget("CreateBucket", bucket);
         var caller = context.GetCaller();
         var result = caller is not null ? registry.Create(bucket, caller) : registry.Create(bucket);
-        return result.Match(_ => Results.Ok(), NativeHttpResult.ToHttpResult);
+        return result.TryGetValue(out _, out var err) ? Results.Ok() : err.ToHttpResult();
     }
 
     private static IResult DeleteBucket(string bucket, HttpContext context, IBucketRegistry registry)
@@ -47,7 +47,7 @@ internal static class BucketEndpoints
         RequestTrace.SetTarget("DeleteBucket", bucket);
         var caller = context.GetCaller();
         var result = caller is not null ? registry.Delete(bucket, caller) : registry.Delete(bucket);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     private static IResult GetBucketAccess(string bucket, HttpContext context, IBucketRegistry registry)
@@ -60,9 +60,12 @@ internal static class BucketEndpoints
         }
 
         var result = registry.GetAccess(bucket);
-        return result.Match(
-            access => Results.Json(new BucketAccessDto(access.PublicRead, access.ReadOnly), NativeJsonContext.Default.BucketAccessDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var access, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(new BucketAccessDto(access.PublicRead, access.ReadOnly), NativeJsonContext.Default.BucketAccessDto);
     }
 
     private static async Task<IResult> PutBucketAccess(string bucket, HttpContext context, IBucketRegistry registry)
@@ -76,7 +79,7 @@ internal static class BucketEndpoints
 
         var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.BucketAccessDto);
         var result = registry.SetAccess(bucket, new BucketAccess(body.PublicRead, body.ReadOnly));
-        return result.Match(() => Results.Ok(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
     private static IResult GetBucketVersioning(string bucket, HttpContext context, IBucketRegistry registry)
@@ -89,9 +92,12 @@ internal static class BucketEndpoints
         }
 
         var result = registry.GetVersioning(bucket);
-        return result.Match(
-            status => Results.Json(new BucketVersioningDto(status.ToString()), NativeJsonContext.Default.BucketVersioningDto),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var status, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return Results.Json(new BucketVersioningDto(status.ToString()), NativeJsonContext.Default.BucketVersioningDto);
     }
 
     private static async Task<IResult> PutBucketVersioning(string bucket, HttpContext context, IBucketRegistry registry)
@@ -110,7 +116,7 @@ internal static class BucketEndpoints
         }
 
         var result = registry.SetVersioning(bucket, status);
-        return result.Match(() => Results.Ok(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
     private static IResult GetBucketWebsite(string bucket, HttpContext context, IBucketRegistry registry)
@@ -123,11 +129,14 @@ internal static class BucketEndpoints
         }
 
         var result = registry.GetWebsite(bucket);
-        return result.Match(
-            websiteConfig => websiteConfig is not null
-                ? Results.Json(new BucketWebsiteDto(websiteConfig.IndexDocument, websiteConfig.ErrorDocument), NativeJsonContext.Default.BucketWebsiteDto)
-                : Results.Json(new ErrorDto("NoSuchWebsiteConfiguration", $"The specified bucket does not have a website configuration: {bucket}"), NativeJsonContext.Default.ErrorDto, statusCode: StatusCodes.Status404NotFound),
-            NativeHttpResult.ToHttpResult);
+        if (!result.TryGetValue(out var websiteConfig, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        return websiteConfig is not null
+            ? Results.Json(new BucketWebsiteDto(websiteConfig.IndexDocument, websiteConfig.ErrorDocument), NativeJsonContext.Default.BucketWebsiteDto)
+            : Results.Json(new ErrorDto("NoSuchWebsiteConfiguration", $"The specified bucket does not have a website configuration: {bucket}"), NativeJsonContext.Default.ErrorDto, statusCode: StatusCodes.Status404NotFound);
     }
 
     private static async Task<IResult> PutBucketWebsite(string bucket, HttpContext context, IBucketRegistry registry)
@@ -146,7 +155,7 @@ internal static class BucketEndpoints
         }
 
         var result = registry.SetWebsite(bucket, new WebsiteConfig(body.IndexDocument, body.ErrorDocument));
-        return result.Match(() => Results.Ok(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
     private static IResult DeleteBucketWebsite(string bucket, HttpContext context, IBucketRegistry registry)
@@ -159,6 +168,6 @@ internal static class BucketEndpoints
         }
 
         var result = registry.RemoveWebsite(bucket);
-        return result.Match(() => Results.NoContent(), NativeHttpResult.ToHttpResult);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 }

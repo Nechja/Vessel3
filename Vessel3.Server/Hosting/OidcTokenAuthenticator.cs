@@ -8,24 +8,29 @@ internal sealed class OidcTokenAuthenticator(ITokenVerifier verifier, IIdentityR
         if (!verifyResult.TryGetValue(out var verified, out var err))
             return err;
 
-        var userResult = registry.FindUserByUsername(verified.Subject);
-        if (!userResult.TryGetValue(out var user, out var findErr))
-            return findErr;
-
         var targetRole = verified.IsAdmin ? UserRole.Admin : UserRole.Member;
+        User user;
 
-        if (user is null)
+        if (registry.FindUserByUsername(verified.Subject).TryGetValue(out var existingUser, out var findErr))
+        {
+            user = existingUser;
+            if (verified.IsAdmin && user.Role != UserRole.Admin)
+            {
+                var updateResult = registry.UpdateUserRole(user.Id, UserRole.Admin);
+                if (updateResult.TryGetError(out var updateErr))
+                    return updateErr;
+                user = user with { Role = UserRole.Admin };
+            }
+        }
+        else if (findErr is NotFoundError)
         {
             var createResult = registry.CreateUser(verified.Subject, targetRole);
-            if (!createResult.TryGetValue(out user, out var createErr))
+            if (!createResult.TryGetValue(out user!, out var createErr))
                 return createErr;
         }
-        else if (verified.IsAdmin && user.Role != UserRole.Admin)
+        else
         {
-            var updateResult = registry.UpdateUserRole(user.Id, UserRole.Admin);
-            if (updateResult.TryGetError(out var updateErr))
-                return updateErr;
-            user = user with { Role = UserRole.Admin };
+            return findErr;
         }
 
         return new CallerIdentity(user.Id, user.Username, user.Role, token);
