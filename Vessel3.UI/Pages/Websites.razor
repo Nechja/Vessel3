@@ -628,7 +628,7 @@
 
                 await using var stream = await file.OpenStream();
                 var mime = MimeHelper.GetMimeType(file.RelativePath);
-                var putRes = await Client.PutObject(targetBucket, file.RelativePath, stream, mime);
+                var putRes = await Client.UploadObject(targetBucket, file.RelativePath, stream, file.Size, mime);
                 if (!putRes.TryGetValue(out _, out var putErr))
                 {
                     Toast.Error($"Failed to upload {file.RelativePath}: {putErr.Message}");

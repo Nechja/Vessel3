@@ -12,11 +12,7 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
 
     public VesselClient(string baseUrl, string? accessKey = null, string? secretKey = null, string? bearerToken = null)
         : this(
-            new HttpClient(new SocketsHttpHandler { UseProxy = false })
-            {
-                BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/"),
-                Timeout = Timeout.InfiniteTimeSpan
-            },
+            new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/") },
             new VesselClientOptions(baseUrl, accessKey, secretKey, bearerToken),
             disposeHttpClient: true)
     {
@@ -193,18 +189,26 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
         return new ObjectSummaryDto(key, size, etag, lastModified, verId);
     }
 
-    public async Task<Result<PutObjectResultDto>> PutObject(
+    public Task<Result<PutObjectResultDto>> PutObject(
         string bucket,
         string key,
         Stream content,
         string? contentType = null,
         IReadOnlyDictionary<string, string>? metadata = null,
-        IProgress<long>? progress = null,
+        CancellationToken ct = default)
+        => PutObject(bucket, key, content, contentType, metadata, progress: null, ct);
+
+    public async Task<Result<PutObjectResultDto>> PutObject(
+        string bucket,
+        string key,
+        Stream content,
+        string? contentType,
+        IReadOnlyDictionary<string, string>? metadata,
+        IProgress<long>? progress,
         CancellationToken ct = default)
     {
         var uploadStream = progress is not null ? new ProgressStream(content, progress) : content;
         using var req = CreateRequest(HttpMethod.Put, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/objects/{EscapeKey(key)}");
-        req.Options.Set(new HttpRequestOptionsKey<bool>("WebAssemblyEnableStreamingRequest"), true);
         req.Content = new StreamContent(uploadStream, 81920);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType ?? VesselMediaTypes.OctetStream);
 
@@ -218,6 +222,150 @@ public sealed class VesselClient(HttpClient http, VesselClientOptions? options =
 
         using var res = await http.SendAsync(req, ct);
         return await ReadJson(res, VesselJsonContext.Default.PutObjectResultDto, ct);
+    }
+
+    public async Task<Result<CreateUploadResultDto>> CreateMultipartUpload(
+        string bucket,
+        string key,
+        string? contentType = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Post, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/uploads/{EscapeKey(key)}");
+        if (contentType is not null)
+        {
+            req.Content = new ByteArrayContent([]);
+            req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        }
+
+        if (metadata is not null)
+        {
+            foreach (var (metaKey, metaValue) in metadata)
+            {
+                req.Headers.TryAddWithoutValidation($"{VesselHeaders.MetaPrefix}{metaKey}", metaValue);
+            }
+        }
+
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.CreateUploadResultDto, ct);
+    }
+
+    public async Task<Result<UploadPartDto>> UploadPart(
+        string bucket,
+        string key,
+        string uploadId,
+        int partNumber,
+        Stream content,
+        long length,
+        CancellationToken ct = default)
+    {
+        var path = $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/uploads/{EscapeKey(key)}?uploadId={Uri.EscapeDataString(uploadId)}&partNumber={partNumber}";
+        using var req = CreateRequest(HttpMethod.Put, path);
+        req.Content = new StreamContent(content, 81920);
+        req.Content.Headers.ContentLength = length;
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue(VesselMediaTypes.OctetStream);
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.UploadPartDto, ct);
+    }
+
+    public async Task<Result<PutObjectResultDto>> CompleteMultipartUpload(
+        string bucket,
+        string key,
+        string uploadId,
+        IReadOnlyList<UploadPartDto> parts,
+        CancellationToken ct = default)
+    {
+        var path = $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/uploads/{EscapeKey(key)}?uploadId={Uri.EscapeDataString(uploadId)}";
+        using var req = CreateRequest(HttpMethod.Post, path);
+        req.Content = System.Net.Http.Json.JsonContent.Create(new CompleteUploadRequestDto(parts), VesselJsonContext.Default.CompleteUploadRequestDto);
+        using var res = await http.SendAsync(req, ct);
+        return await ReadJson(res, VesselJsonContext.Default.PutObjectResultDto, ct);
+    }
+
+    public async Task<Result> AbortMultipartUpload(
+        string bucket,
+        string key,
+        string uploadId,
+        CancellationToken ct = default)
+    {
+        var path = $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/uploads/{EscapeKey(key)}?uploadId={Uri.EscapeDataString(uploadId)}";
+        using var req = CreateRequest(HttpMethod.Delete, path);
+        using var res = await http.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await ReadError(res, ct);
+    }
+
+    public const int DefaultPartSize = 5 * 1024 * 1024;
+
+    public async Task<Result<PutObjectResultDto>> UploadObject(
+        string bucket,
+        string key,
+        Stream content,
+        long size,
+        string? contentType = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        IProgress<long>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (size <= DefaultPartSize)
+        {
+            return await PutObject(bucket, key, content, contentType, metadata, progress, ct);
+        }
+
+        var initRes = await CreateMultipartUpload(bucket, key, contentType, metadata, ct);
+        if (!initRes.TryGetValue(out var upload, out var initErr))
+        {
+            return initErr;
+        }
+
+        var parts = new List<UploadPartDto>();
+        var partNumber = 1;
+        var totalUploaded = 0L;
+        var buffer = new byte[DefaultPartSize];
+
+        try
+        {
+            while (true)
+            {
+                var bytesRead = 0;
+                while (bytesRead < DefaultPartSize)
+                {
+                    var read = await content.ReadAsync(buffer.AsMemory(bytesRead, DefaultPartSize - bytesRead), ct);
+                    if (read == 0) break;
+                    bytesRead += read;
+                }
+
+                if (bytesRead == 0) break;
+
+                using var partStream = new MemoryStream(buffer, 0, bytesRead, writable: false);
+                var partRes = await UploadPart(bucket, key, upload.UploadId, partNumber, partStream, bytesRead, ct);
+                if (!partRes.TryGetValue(out var partDto, out var partErr))
+                {
+                    await AbortMultipartUpload(bucket, key, upload.UploadId, CancellationToken.None);
+                    return partErr;
+                }
+
+                parts.Add(partDto);
+                totalUploaded += bytesRead;
+                progress?.Report(totalUploaded);
+                partNumber++;
+
+                if (bytesRead < DefaultPartSize) break;
+            }
+
+            var completeRes = await CompleteMultipartUpload(bucket, key, upload.UploadId, parts, ct);
+            if (!completeRes.TryGetValue(out var outcome, out var completeErr))
+            {
+                await AbortMultipartUpload(bucket, key, upload.UploadId, CancellationToken.None);
+                return completeErr;
+            }
+
+            return outcome;
+        }
+        catch (Exception ex)
+        {
+            await AbortMultipartUpload(bucket, key, upload.UploadId, CancellationToken.None);
+            return new HttpError("ClientError", ex.Message, 500);
+        }
     }
 
     public async Task<Result> DeleteObject(string bucket, string key, string? versionId = null, CancellationToken ct = default)

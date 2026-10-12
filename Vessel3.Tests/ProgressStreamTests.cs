@@ -80,6 +80,40 @@ public sealed class ProgressStreamTests
         Assert.True(memory.IsDisposed);
     }
 
+    [Fact]
+    public void ProgressStream_RewindAndSeek_SynchronizesReportedBytes()
+    {
+        var data = Encoding.UTF8.GetBytes("0123456789abcdef");
+        using var memory = new MemoryStream(data);
+        var syncProgress = new SyncProgress();
+        using var progressStream = new ProgressStream(memory, syncProgress);
+
+        var buf = new byte[10];
+        var read = progressStream.Read(buf, 0, 10);
+        Assert.Equal(10, read);
+        Assert.Equal(10, syncProgress.Reports.Last());
+
+        progressStream.Position = 0;
+        Assert.Equal(0, syncProgress.Reports.Last());
+
+        read = progressStream.Read(buf, 0, 5);
+        Assert.Equal(5, read);
+        Assert.Equal(5, syncProgress.Reports.Last());
+
+        progressStream.Seek(2, SeekOrigin.Begin);
+        Assert.Equal(2, syncProgress.Reports.Last());
+
+        read = progressStream.Read(buf, 0, 2);
+        Assert.Equal(2, read);
+        Assert.Equal(4, syncProgress.Reports.Last());
+    }
+
+    private sealed class SyncProgress : IProgress<long>
+    {
+        public List<long> Reports { get; } = [];
+        public void Report(long value) => Reports.Add(value);
+    }
+
     private sealed class DisposableMemoryStream : MemoryStream
     {
         public bool IsDisposed { get; private set; }

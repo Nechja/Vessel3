@@ -11,7 +11,12 @@ internal sealed class ProgressStream(Stream inner, IProgress<long> progress) : S
     public override long Position
     {
         get => inner.Position;
-        set => inner.Position = value;
+        set
+        {
+            inner.Position = value;
+            totalBytesRead = value;
+            progress.Report(totalBytesRead);
+        }
     }
 
     public override void Flush() => inner.Flush();
@@ -45,7 +50,14 @@ internal sealed class ProgressStream(Stream inner, IProgress<long> progress) : S
         return read;
     }
 
-    public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+    public override long Seek(long offset, SeekOrigin origin)
+    {
+        var pos = inner.Seek(offset, origin);
+        totalBytesRead = pos;
+        progress.Report(totalBytesRead);
+        return pos;
+    }
+
     public override void SetLength(long value) => throw new NotSupportedException();
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
@@ -67,7 +79,7 @@ internal sealed class ProgressStream(Stream inner, IProgress<long> progress) : S
     private void Report(int bytesRead)
     {
         if (bytesRead <= 0) return;
-        totalBytesRead += bytesRead;
+        totalBytesRead = inner.CanSeek ? inner.Position : totalBytesRead + bytesRead;
         progress.Report(totalBytesRead);
     }
 }
