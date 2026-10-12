@@ -3,9 +3,9 @@ using Vessel3.Primitives;
 using Vessel3.Protocols.Native.Serialization;
 using Vessel3.Storage;
 
-namespace Vessel3.Protocols.Native.Handlers;
+namespace Vessel3.Protocols.Native.Adapters;
 
-internal sealed class NativeIdentityHandler(IIdentityRegistry identity)
+internal sealed class NativeIdentityAdapter(IIdentityRegistry identity)
 {
     public IResult WhoAmI(HttpContext context)
     {

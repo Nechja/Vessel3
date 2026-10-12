@@ -3,9 +3,9 @@ using Vessel3.Primitives;
 using Vessel3.Protocols.Native.Serialization;
 using Vessel3.Storage;
 
-namespace Vessel3.Protocols.Native.Handlers;
+namespace Vessel3.Protocols.Native.Adapters;
 
-internal sealed class NativeBucketHandler(IBucketRegistry registry)
+internal sealed class NativeBucketAdapter(IBucketRegistry registry)
 {
     public IResult ListBuckets(HttpContext context)
     {

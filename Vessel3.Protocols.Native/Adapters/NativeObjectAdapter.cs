@@ -7,9 +7,9 @@ using Vessel3.Protocols.Native.Headers;
 using Vessel3.Protocols.Native.Serialization;
 using Vessel3.Storage;
 
-namespace Vessel3.Protocols.Native.Handlers;
+namespace Vessel3.Protocols.Native.Adapters;
 
-internal sealed class NativeObjectHandler(
+internal sealed class NativeObjectAdapter(
     IObjectStore objects,
     IBucketRegistry registry,
     IChunkStager stager,

@@ -31,6 +31,13 @@ builder.Services.AddTransient<IVesselClient>(sp =>
     var http = sp.GetRequiredService<HttpClient>();
     return new VesselClient(http, new VesselClientOptions(origin, a.AccessKey, a.SecretKey, a.BearerToken));
 });
+builder.Services.AddTransient<IBucketsClient>(sp => sp.GetRequiredService<IVesselClient>().Buckets);
+builder.Services.AddTransient<IObjectsClient>(sp => sp.GetRequiredService<IVesselClient>().Objects);
+builder.Services.AddTransient<IIdentityClient>(sp => sp.GetRequiredService<IVesselClient>().Identity);
+builder.Services.AddTransient<IAdminClient>(sp => sp.GetRequiredService<IVesselClient>().Admin);
+builder.Services.AddTransient<IContainersClient>(sp => sp.GetRequiredService<IVesselClient>().Containers);
+builder.Services.AddTransient<IWebhooksClient>(sp => sp.GetRequiredService<IVesselClient>().Webhooks);
+builder.Services.AddTransient<IEventsClient>(sp => sp.GetRequiredService<IVesselClient>().Events);
 
 var host = builder.Build();
 

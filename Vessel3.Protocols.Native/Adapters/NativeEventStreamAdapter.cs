@@ -3,9 +3,9 @@ using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Storage;
 
-namespace Vessel3.Protocols.Native.Handlers;
+namespace Vessel3.Protocols.Native.Adapters;
 
-internal sealed class NativeEventStreamHandler(IEventStreamHub hub)
+internal sealed class NativeEventStreamAdapter(IEventStreamHub hub)
 {
     public async Task StreamEvents(
         HttpContext context,

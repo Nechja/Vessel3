@@ -5,9 +5,9 @@ using Vessel3.Protocols.Native.Serialization;
 using Vessel3.Storage;
 using Vessel3.Storage.Lifecycle;
 
-namespace Vessel3.Protocols.Native.Handlers;
+namespace Vessel3.Protocols.Native.Adapters;
 
-internal sealed class NativeAdminHandler(
+internal sealed class NativeAdminAdapter(
     IGarbageCollector gc,
     ILifecycleSweeper sweeper,
     IServerLogBuffer buffer)
