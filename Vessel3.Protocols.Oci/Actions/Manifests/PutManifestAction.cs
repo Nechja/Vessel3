@@ -9,8 +9,11 @@ namespace Vessel3.Protocols.Oci.Actions.Manifests;
 internal sealed class PutManifestAction(
     IContainerRepoCatalog catalog,
     IBlobPool blobs,
-    IWebhookEventPublisher? publisher = null) : IOciAction
+    IWebhookEventPublisher? publisher = null,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.PutManifest;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -24,7 +27,7 @@ internal sealed class PutManifestAction(
 
         if (payload.Length == 0)
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.ManifestInvalid, "Manifest payload cannot be empty");
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.ManifestInvalid, "Manifest payload cannot be empty");
             return;
         }
 
@@ -34,7 +37,7 @@ internal sealed class PutManifestAction(
         var putResult = catalog.PutManifest(repo, reference, mediaType, payload, layerDigests);
         if (!putResult.TryGetValue(out var outcome, out var putErr))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.ManifestInvalid, putErr.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.ManifestInvalid, putErr.Message);
             return;
         }
 

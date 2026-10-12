@@ -7,8 +7,11 @@ namespace Vessel3.Protocols.Oci.Actions.Blobs;
 
 internal sealed class CommitBlobUploadAction(
     IContainerRepoCatalog catalog,
-    IBlobPool blobs) : IOciAction
+    IBlobPool blobs,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.CommitBlobUpload;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -17,14 +20,14 @@ internal sealed class CommitBlobUploadAction(
         var uploadId = target.UploadId ?? "";
         if (!ctx.Request.Query.TryGetValue("digest", out var dVal) || dVal.Count == 0 || dVal[0] is not { Length: > 0 } declaredDigest)
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, "Missing digest query parameter on upload commit");
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, "Missing digest query parameter on upload commit");
             return;
         }
 
         var sessionResult = catalog.GetUploadSession(uploadId);
         if (!sessionResult.TryGetValue(out var session, out var err))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUploadUnknown, err.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUploadUnknown, err.Message);
             return;
         }
 
@@ -34,7 +37,7 @@ internal sealed class CommitBlobUploadAction(
             await ctx.Request.Body.CopyToAsync(fileStream, ctx.RequestAborted);
         }
 
-        var cleanDeclaredSha = OciResponseWriter.CleanSha(declaredDigest);
+        var cleanDeclaredSha = responseWriter.CleanSha(declaredDigest);
 
         StoredBlob storedBlob;
         await using (var readFileStream = new FileStream(session.TempFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
@@ -42,7 +45,7 @@ internal sealed class CommitBlobUploadAction(
             var writeResult = await blobs.Write(readFileStream, readFileStream.Length, ChecksumIntent.None, ctx.RequestAborted);
             if (!writeResult.TryGetValue(out var b, out var writeErr))
             {
-                await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, writeErr.Message);
+                await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, writeErr.Message);
                 return;
             }
             storedBlob = b;
@@ -52,7 +55,7 @@ internal sealed class CommitBlobUploadAction(
         {
             await blobs.Delete(storedBlob.Sha, ctx.RequestAborted);
             catalog.CancelUploadSession(uploadId);
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} does not match computed sha256:{storedBlob.Sha}");
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} does not match computed sha256:{storedBlob.Sha}");
             return;
         }
 

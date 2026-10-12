@@ -13,17 +13,15 @@ internal interface IAdminService
 }
 
 internal sealed class AdminService(
-    IGarbageCollector gc,
-    ILifecycleSweeper sweeper,
-    ICompactor compactor,
     IBucketRegistry registry,
-    IHttpResultMapper http) : IAdminService
+    IHttpResultMapper http,
+    IGarbageCollector? gc = null,
+    ILifecycleSweeper? sweeper = null,
+    ICompactor? compactor = null) : IAdminService
 {
-    public AdminService(IBucketRegistry registry, IHttpResultMapper http)
-        : this(null!, null!, null!, registry, http) { }
-
     public async Task RunGc(HttpContext ctx)
     {
+        ArgumentNullException.ThrowIfNull(gc);
         RequestTrace.SetAction("AdminGc");
         var blobAgeSec = ParseAgeQuery(ctx.Request.Query, "blob-age", fallback: (long)TimeSpan.FromHours(1).TotalSeconds);
         var uploadAgeSec = ParseAgeQuery(ctx.Request.Query, "upload-age", fallback: (long)TimeSpan.FromDays(7).TotalSeconds);
@@ -34,6 +32,7 @@ internal sealed class AdminService(
 
     public async Task RunCompact(HttpContext ctx)
     {
+        ArgumentNullException.ThrowIfNull(compactor);
         RequestTrace.SetAction("AdminCompact");
         var minBytes = ParseAgeQuery(ctx.Request.Query, "min-bytes", fallback: 0);
         var report = compactor.Run(minBytes);
@@ -43,6 +42,7 @@ internal sealed class AdminService(
 
     public async Task RunLifecycle(HttpContext ctx)
     {
+        ArgumentNullException.ThrowIfNull(sweeper);
         RequestTrace.SetAction("AdminLifecycle");
         var now = DateTimeOffset.UtcNow;
         if (ctx.Request.Query.TryGetValue("now", out var nowRaw)

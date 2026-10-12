@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Http;
 
 namespace Vessel3.Protocols.Oci.Serialization;
 
-internal static class OciResponseWriter
+internal sealed class OciResponseWriter : IOciResponseWriter
 {
-    public static async Task WriteOciError(HttpContext ctx, int statusCode, string code, string message)
+    public static OciResponseWriter Instance { get; } = new();
+
+    public async Task WriteOciError(HttpContext ctx, int statusCode, string code, string message)
     {
         ctx.Response.StatusCode = statusCode;
         ctx.Response.ContentType = OciMediaTypes.Json;
@@ -13,7 +15,7 @@ internal static class OciResponseWriter
         await JsonSerializer.SerializeAsync(ctx.Response.Body, errDto, OciJsonContext.Default.OciErrorResponseDto);
     }
 
-    public static string CleanSha(string digest) =>
+    public string CleanSha(string digest) =>
         digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
             ? digest[7..].ToLowerInvariant()
             : digest.ToLowerInvariant();

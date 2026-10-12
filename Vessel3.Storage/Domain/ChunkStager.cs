@@ -14,8 +14,10 @@ internal sealed class ChunkStager(
     IBucketRegistry registry,
     IBlobPool blobs,
     IDurableWrite durableWrite,
-    IGcGate gate) : IChunkStager
+    IGcGate gate,
+    IChecksumValidator? checksumValidator = null) : IChunkStager
 {
+    private readonly IChecksumValidator checksumValidator = checksumValidator ?? ChecksumValidator.Instance;
     public Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
     {
         var existsResult = registry.Exists(bucket);
@@ -49,7 +51,7 @@ internal sealed class ChunkStager(
         var written = await blobs.Write(body, declaredSize, declaredChecksums.ToIntent(), ct);
         if (!written.TryGetValue(out var blob, out var blobErr)) return blobErr;
 
-        if (!ChecksumValidator.Validate(blob, declaredChecksums, body, out _, out var checksumErr))
+        if (!checksumValidator.Validate(blob, declaredChecksums, body, out _, out var checksumErr))
             return checksumErr;
 
         var chunk = new StagedChunk(

@@ -6,6 +6,7 @@ using Vessel3.Protocols.Oci.Actions;
 using Vessel3.Protocols.Oci.Actions.Blobs;
 using Vessel3.Protocols.Oci.Actions.Manifests;
 using Vessel3.Protocols.Oci.Dispatch;
+using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
 
 namespace Vessel3.Protocols.Oci;
@@ -35,6 +36,7 @@ public static class ContainerRepoExtensions
             sp.GetRequiredService<IContainerRepoTokenService>(),
             sp.GetRequiredService<ContainerRepoAuthOptions>(),
             sp.GetService<ITokenAuthenticator>()));
+        services.AddSingleton<IOciResponseWriter, OciResponseWriter>();
         services.AddSingleton<IOciAction, PingAction>();
         services.AddSingleton<IOciAction, TokenAction>();
         services.AddSingleton<IOciAction, CatalogAction>();

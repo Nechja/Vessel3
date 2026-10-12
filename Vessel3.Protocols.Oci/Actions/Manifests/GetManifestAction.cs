@@ -4,8 +4,12 @@ using Vessel3.Protocols.Oci.Serialization;
 
 namespace Vessel3.Protocols.Oci.Actions.Manifests;
 
-internal sealed class GetManifestAction(IContainerRepoCatalog catalog) : IOciAction
+internal sealed class GetManifestAction(
+    IContainerRepoCatalog catalog,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.GetManifest;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -16,7 +20,7 @@ internal sealed class GetManifestAction(IContainerRepoCatalog catalog) : IOciAct
         var manifestResult = catalog.GetManifest(repo, reference);
         if (!manifestResult.TryGetValue(out var manifest, out var err))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.ManifestUnknown, err.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.ManifestUnknown, err.Message);
             return;
         }
 

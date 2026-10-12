@@ -2,9 +2,11 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Vessel3.Storage;
 
-internal static class ChecksumValidator
+internal sealed class ChecksumValidator : IChecksumValidator
 {
-    public static bool Validate(
+    public static ChecksumValidator Instance { get; } = new();
+
+    public bool Validate(
         StoredBlob blob,
         DeclaredChecksums declared,
         Stream body,

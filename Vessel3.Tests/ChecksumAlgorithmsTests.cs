@@ -249,8 +249,9 @@ public sealed class ChecksumAlgorithmsTests
             ChecksumTarget.None,
             ChecksumTarget.None);
 
+        var validator = new ChecksumValidator();
         using var body = new MemoryStream(Encoding.ASCII.GetBytes("123456789"));
-        var ok = ChecksumValidator.Validate(blob, declared, body, out var toStore, out var err);
+        var ok = validator.Validate(blob, declared, body, out var toStore, out var err);
 
         Assert.True(ok);
         Assert.Null(err);
@@ -265,7 +266,7 @@ public sealed class ChecksumAlgorithmsTests
             ChecksumTarget.None);
 
         using var mismatchBody = new MemoryStream();
-        var failed = ChecksumValidator.Validate(blob, mismatch, mismatchBody, out _, out var mismatchErr);
+        var failed = validator.Validate(blob, mismatch, mismatchBody, out _, out var mismatchErr);
 
         Assert.False(failed);
         Assert.IsType<BadDigestError>(mismatchErr);

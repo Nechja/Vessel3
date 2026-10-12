@@ -6,8 +6,12 @@ using Vessel3.Protocols.Oci.Serialization;
 
 namespace Vessel3.Protocols.Oci.Actions;
 
-internal sealed class TagsAction(IContainerRepoCatalog catalog) : IOciAction
+internal sealed class TagsAction(
+    IContainerRepoCatalog catalog,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.Tags;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -21,7 +25,7 @@ internal sealed class TagsAction(IContainerRepoCatalog catalog) : IOciAction
         {
             var code = err is NoSuchContainerRepoError ? OciErrorCodes.NameUnknown : OciErrorCodes.InternalError;
             var status = err is NoSuchContainerRepoError ? StatusCodes.Status404NotFound : StatusCodes.Status500InternalServerError;
-            await OciResponseWriter.WriteOciError(ctx, status, code, err.Message);
+            await responseWriter.WriteOciError(ctx, status, code, err.Message);
             return;
         }
 

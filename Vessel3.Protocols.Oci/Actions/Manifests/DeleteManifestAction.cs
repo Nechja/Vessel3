@@ -7,8 +7,11 @@ namespace Vessel3.Protocols.Oci.Actions.Manifests;
 
 internal sealed class DeleteManifestAction(
     IContainerRepoCatalog catalog,
-    IWebhookEventPublisher? publisher = null) : IOciAction
+    IWebhookEventPublisher? publisher = null,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.DeleteManifest;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -19,7 +22,7 @@ internal sealed class DeleteManifestAction(
         var delResult = catalog.DeleteManifest(repo, reference);
         if (!delResult.TryGetValue(out var deleted, out var err))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.ManifestUnknown, err.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.ManifestUnknown, err.Message);
             return;
         }
 
