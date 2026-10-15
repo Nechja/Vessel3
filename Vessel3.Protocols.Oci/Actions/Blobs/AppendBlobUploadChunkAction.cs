@@ -4,8 +4,12 @@ using Vessel3.Protocols.Oci.Serialization;
 
 namespace Vessel3.Protocols.Oci.Actions.Blobs;
 
-internal sealed class AppendBlobUploadChunkAction(IContainerRepoCatalog catalog) : IOciAction
+internal sealed class AppendBlobUploadChunkAction(
+    IContainerRepoCatalog catalog,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.AppendBlobUploadChunk;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -16,7 +20,7 @@ internal sealed class AppendBlobUploadChunkAction(IContainerRepoCatalog catalog)
         var sessionResult = catalog.GetUploadSession(uploadId);
         if (!sessionResult.TryGetValue(out var session, out var err))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUploadUnknown, err.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUploadUnknown, err.Message);
             return;
         }
 

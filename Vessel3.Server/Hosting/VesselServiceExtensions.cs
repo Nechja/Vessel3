@@ -82,6 +82,8 @@ internal static class VesselServiceExtensions
         services.AddSingleton<ICompactor, Compactor>();
         services.AddHostedService<CompactionService>();
         services.AddSingleton<IBucketLister, BucketLister>();
+        services.AddSingleton<IChecksumValidator, ChecksumValidator>();
+        services.AddSingleton<IWebhookYamlSerializer, WebhookYamlSerializer>();
         services.AddSingleton<IPreconditionEvaluator, PreconditionEvaluator>();
         services.AddSingleton<IAdminService, AdminService>();
 
@@ -89,13 +91,14 @@ internal static class VesselServiceExtensions
         {
             var options = sp.GetRequiredService<WebhookStoreOptions>();
             var clock = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            var serializer = sp.GetRequiredService<IWebhookYamlSerializer>();
             var store = new SqliteWebhookStore(options, clock);
 
             var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, "webhooks.yaml");
             if (File.Exists(yamlPath))
             {
                 var yamlContent = File.ReadAllText(yamlPath);
-                var loaded = YamlWebhookLoader.LoadFromYaml(yamlContent, clock);
+                var loaded = serializer.LoadFromYaml(yamlContent, clock);
                 if (loaded.TryGetValue(out var staticWebhooks, out _))
                 {
                     foreach (var sw in staticWebhooks)

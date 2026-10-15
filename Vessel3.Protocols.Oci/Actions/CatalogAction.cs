@@ -5,8 +5,12 @@ using Vessel3.Protocols.Oci.Serialization;
 
 namespace Vessel3.Protocols.Oci.Actions;
 
-internal sealed class CatalogAction(IContainerRepoCatalog catalog) : IOciAction
+internal sealed class CatalogAction(
+    IContainerRepoCatalog catalog,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.Catalog;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -17,7 +21,7 @@ internal sealed class CatalogAction(IContainerRepoCatalog catalog) : IOciAction
         var listResult = catalog.ListRepos(limit, last);
         if (!listResult.TryGetValue(out var repos, out var err))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status500InternalServerError, OciErrorCodes.InternalError, err.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status500InternalServerError, OciErrorCodes.InternalError, err.Message);
             return;
         }
 

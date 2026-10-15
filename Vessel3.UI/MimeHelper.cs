@@ -1,8 +1,10 @@
+using System.Collections.Frozen;
+
 namespace Vessel3.UI;
 
 public static class MimeHelper
 {
-    private static readonly Dictionary<string, string> Extensions = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenDictionary<string, string> Extensions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         { ".html", "text/html" },
         { ".htm", "text/html" },
@@ -46,7 +48,7 @@ public static class MimeHelper
         { ".webm", "video/webm" },
         { ".mp3", "audio/mpeg" },
         { ".wav", "audio/wav" }
-    };
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     public static string GetMimeType(string fileName, string? browserContentType = null)
     {

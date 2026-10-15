@@ -11,6 +11,7 @@ internal sealed class DeleteContainerAction(
     IAzureErrorXmlWriter errorXml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.DeleteContainer;
+    public BucketCapability RequiredCapability => BucketCapability.Admin;
 
     public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {

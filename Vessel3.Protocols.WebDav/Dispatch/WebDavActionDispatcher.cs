@@ -28,7 +28,7 @@ internal sealed class WebDavActionDispatcher(
 
         if (!string.IsNullOrEmpty(target.Bucket) && RequiresBucketAuthorization(target))
         {
-            var capability = ResolveCapability(target.Operation);
+            var capability = action.RequiredCapability;
             if (registry.AuthorizeAccess(target.Bucket, caller, capability) is Result.Failure f)
             {
                 return new WebDavErrorResult(f.Error);
@@ -47,25 +47,6 @@ internal sealed class WebDavActionDispatcher(
         trace?.MarkHandled();
         return result;
     }
-
-    private static BucketCapability ResolveCapability(WebDavOperationKind op) => op switch
-    {
-        WebDavOperationKind.Options or
-        WebDavOperationKind.Propfind or
-        WebDavOperationKind.Get or
-        WebDavOperationKind.Head => BucketCapability.Read,
-
-        WebDavOperationKind.Put or
-        WebDavOperationKind.Delete or
-        WebDavOperationKind.Mkcol or
-        WebDavOperationKind.Move or
-        WebDavOperationKind.Copy or
-        WebDavOperationKind.Lock or
-        WebDavOperationKind.Unlock or
-        WebDavOperationKind.Proppatch => BucketCapability.Write,
-
-        _ => BucketCapability.Admin
-    };
 
     private static bool RequiresBucketAuthorization(WebDavRequestTarget target) =>
         !(target.Operation is WebDavOperationKind.Mkcol && string.IsNullOrEmpty(target.Path));

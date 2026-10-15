@@ -31,7 +31,7 @@ internal sealed class AzureActionDispatcher(
 
         if (!string.IsNullOrEmpty(target.Container) && target.Operation is not AzureOperationKind.CreateContainer)
         {
-            var capability = ResolveCapability(target.Operation);
+            var capability = action.RequiredCapability;
             if (registry.AuthorizeAccess(target.Container, caller, capability) is Result.Failure f)
             {
                 return new AzureErrorResult(f.Error, errorXml);
@@ -50,28 +50,4 @@ internal sealed class AzureActionDispatcher(
         trace?.MarkHandled();
         return result;
     }
-
-    private static BucketCapability ResolveCapability(AzureOperationKind op) => op switch
-    {
-        AzureOperationKind.ListContainers or
-        AzureOperationKind.GetContainerProperties or
-        AzureOperationKind.GetContainerAcl or
-        AzureOperationKind.GetContainerMetadata or
-        AzureOperationKind.ListBlobs or
-        AzureOperationKind.GetBlob or
-        AzureOperationKind.HeadBlob or
-        AzureOperationKind.GetBlobMetadata or
-        AzureOperationKind.GetBlobTags or
-        AzureOperationKind.GetBlockList => BucketCapability.Read,
-
-        AzureOperationKind.PutBlob or
-        AzureOperationKind.DeleteBlob or
-        AzureOperationKind.CopyBlob or
-        AzureOperationKind.PutBlock or
-        AzureOperationKind.PutBlockList or
-        AzureOperationKind.SetBlobMetadata or
-        AzureOperationKind.PutBlobTags => BucketCapability.Write,
-
-        _ => BucketCapability.Admin
-    };
 }

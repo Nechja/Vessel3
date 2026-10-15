@@ -51,28 +51,34 @@ if (scenario is "list-growth")
     return 0;
 }
 
-var summary = scenario switch
+var scenarioRunners = new Dictionary<string, Func<Task<LatencySummary>>>(StringComparer.OrdinalIgnoreCase)
 {
-    "wildcard"        => await Scenarios.Wildcard(opts),
-    "put-small"       => await Scenarios.PutSmall(s3, opts),
-    "put-large"       => await Scenarios.PutLarge(s3, opts),
-    "get"             => await Scenarios.Get(s3, opts),
-    "multipart"       => await Scenarios.Multipart(s3, opts),
-    "mixed"           => await Scenarios.Mixed(s3, opts),
-    "list"            => await Scenarios.List(s3, opts),
-    "bulk-delete"     => await Scenarios.BulkDelete(s3, opts),
-    "loki"            => await Scenarios.Loki(s3, opts),
-    "loki-single"     => await Scenarios.LokiSingleDelete(s3, opts),
-    "native-put"      => await Scenarios.NativePut(vessel, opts),
-    "native-get"      => await Scenarios.NativeGet(vessel, opts),
-    "native-list"     => await Scenarios.NativeList(vessel, opts),
-    "azure-put"       => await Scenarios.AzurePut(azure, opts),
-    "azure-get"       => await Scenarios.AzureGet(azure, opts),
-    "azure-list"      => await Scenarios.AzureList(azure, opts),
-    "webdav-propfind" => await Scenarios.WebDavPropfind(webdavHttp, opts),
-    "webdav-get"      => await Scenarios.WebDavGet(webdavHttp, opts),
-    _                 => throw new ArgumentException($"unknown scenario: {scenario}"),
+    ["wildcard"] = () => Scenarios.Wildcard(opts),
+    ["put-small"] = () => Scenarios.PutSmall(s3, opts),
+    ["put-large"] = () => Scenarios.PutLarge(s3, opts),
+    ["get"] = () => Scenarios.Get(s3, opts),
+    ["multipart"] = () => Scenarios.Multipart(s3, opts),
+    ["mixed"] = () => Scenarios.Mixed(s3, opts),
+    ["list"] = () => Scenarios.List(s3, opts),
+    ["bulk-delete"] = () => Scenarios.BulkDelete(s3, opts),
+    ["loki"] = () => Scenarios.Loki(s3, opts),
+    ["loki-single"] = () => Scenarios.LokiSingleDelete(s3, opts),
+    ["native-put"] = () => Scenarios.NativePut(vessel, opts),
+    ["native-get"] = () => Scenarios.NativeGet(vessel, opts),
+    ["native-list"] = () => Scenarios.NativeList(vessel, opts),
+    ["azure-put"] = () => Scenarios.AzurePut(azure, opts),
+    ["azure-get"] = () => Scenarios.AzureGet(azure, opts),
+    ["azure-list"] = () => Scenarios.AzureList(azure, opts),
+    ["webdav-propfind"] = () => Scenarios.WebDavPropfind(webdavHttp, opts),
+    ["webdav-get"] = () => Scenarios.WebDavGet(webdavHttp, opts),
 };
+
+if (!scenarioRunners.TryGetValue(scenario, out var runScenario))
+{
+    throw new ArgumentException($"unknown scenario: {scenario}");
+}
+
+var summary = await runScenario();
 
 if (json) PrintJson(scenario, opts, summary);
 else PrintTable(scenario, opts, summary);

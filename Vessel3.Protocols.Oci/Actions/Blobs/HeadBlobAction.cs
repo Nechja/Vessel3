@@ -5,19 +5,23 @@ using Vessel3.Storage;
 
 namespace Vessel3.Protocols.Oci.Actions.Blobs;
 
-internal sealed class HeadBlobAction(IBlobPool blobs) : IOciAction
+internal sealed class HeadBlobAction(
+    IBlobPool blobs,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.HeadBlob;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
     {
         var digest = target.Reference ?? "";
-        var cleanSha = OciResponseWriter.CleanSha(digest);
+        var cleanSha = responseWriter.CleanSha(digest);
 
         var openResult = await blobs.Open(cleanSha, ctx.RequestAborted);
         if (!openResult.TryGetValue(out var stream, out _))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUnknown, $"Blob unknown: {digest}");
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status404NotFound, OciErrorCodes.BlobUnknown, $"Blob unknown: {digest}");
             return;
         }
 

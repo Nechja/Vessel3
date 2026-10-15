@@ -1,7 +1,11 @@
-
 namespace Vessel3.Storage.Lifecycle;
 
 internal sealed record LifecycleReport(int Expired, int MarkersReaped, int NoncurrentExpired = 0);
+
+internal sealed record ExpirationPlan(
+    List<AllVersionsEntry.Put> CurrentVersionsToExpire,
+    List<AllVersionsEntry.Marker> DeleteMarkersToReap,
+    List<AllVersionsEntry> NoncurrentVersionsToExpire);
 
 internal interface ILifecycleSweeper
 {
@@ -22,77 +26,114 @@ internal sealed class LifecycleSweeper(IBucketRegistry registry) : ILifecycleSwe
 
             foreach (var bucket in registry.OpenBuckets())
             {
-                if (bucket.Lifecycle is not { } cfg) continue;
+                if (bucket.Lifecycle is not { } config) continue;
 
-                var (puts, markers, noncurrent) = Evaluate(bucket, cfg, now);
-
-                foreach (var p in puts)
-                    if (bucket.ExpireCurrentVersion(p.Key, p.VersionId, p.At)) expired++;
-
-                foreach (var m in markers)
-                    if (bucket.ReapExpiredDeleteMarker(m.Key, m.VersionId)) reaped++;
-
-                foreach (var nc in noncurrent)
-                    if (bucket.HardDeleteVersion(nc.Key, nc.VersionId, bypassGovernance: false) is Result<DeleteOutcome>.Success)
-                        noncurrentExpired++;
+                var plan = PlanBucketExpirations(bucket, config, now);
+                expired += ExpireCurrentVersions(bucket, plan.CurrentVersionsToExpire);
+                reaped += ReapDeleteMarkers(bucket, plan.DeleteMarkersToReap);
+                noncurrentExpired += ExpireNoncurrentVersions(bucket, plan.NoncurrentVersionsToExpire);
             }
 
             return new LifecycleReport(expired, reaped, noncurrentExpired);
         }
     }
 
-    private static (List<AllVersionsEntry.Put> Puts, List<AllVersionsEntry.Marker> Markers, List<AllVersionsEntry> Noncurrent)
-        Evaluate(Bucket bucket, LifecycleConfig cfg, DateTimeOffset now)
+    private static int ExpireCurrentVersions(Bucket bucket, List<AllVersionsEntry.Put> currentVersions)
     {
-        List<AllVersionsEntry.Put> puts = [];
-        List<AllVersionsEntry.Marker> markers = [];
-        List<AllVersionsEntry> noncurrent = [];
-        HashSet<(string Key, string VersionId)> seenNoncurrent = [];
+        var count = 0;
+        foreach (var put in currentVersions)
+            if (bucket.ExpireCurrentVersion(put.Key, put.VersionId, put.At)) count++;
+        return count;
+    }
 
-        foreach (var rule in cfg.Rules)
+    private static int ReapDeleteMarkers(Bucket bucket, List<AllVersionsEntry.Marker> markers)
+    {
+        var count = 0;
+        foreach (var marker in markers)
+            if (bucket.ReapExpiredDeleteMarker(marker.Key, marker.VersionId)) count++;
+        return count;
+    }
+
+    private static int ExpireNoncurrentVersions(Bucket bucket, List<AllVersionsEntry> noncurrentVersions)
+    {
+        var count = 0;
+        foreach (var noncurrent in noncurrentVersions)
+            if (bucket.HardDeleteVersion(noncurrent.Key, noncurrent.VersionId, bypassGovernance: false) is Result<DeleteOutcome>.Success)
+                count++;
+        return count;
+    }
+
+    private static ExpirationPlan PlanBucketExpirations(Bucket bucket, LifecycleConfig config, DateTimeOffset now)
+    {
+        List<AllVersionsEntry.Put> currentVersions = [];
+        List<AllVersionsEntry.Marker> deleteMarkers = [];
+        List<AllVersionsEntry> noncurrentVersions = [];
+        HashSet<(string Key, string VersionId)> visitedNoncurrent = [];
+
+        foreach (var rule in config.Rules)
         {
             if (!rule.Enabled) continue;
             var prefix = string.IsNullOrEmpty(rule.Prefix) ? null : rule.Prefix;
 
-            string? currentKey = null;
-            DateTimeOffset successorAt = default;
+            string? activeKey = null;
+            DateTimeOffset successorTimestamp = default;
 
             foreach (var entry in EnumerateAllVersions(bucket, prefix))
             {
-                if (entry.Key != currentKey)
+                if (entry.Key != activeKey)
                 {
-                    currentKey = entry.Key;
-                    successorAt = entry.At;
+                    activeKey = entry.Key;
+                    successorTimestamp = entry.At;
                 }
 
                 if (entry.IsLatest)
                 {
-                    if (rule.ExpirationDays is { } days
-                        && entry is AllVersionsEntry.Put put
-                        && now - put.At >= TimeSpan.FromDays(days))
-                    {
-                        puts.Add(put);
-                    }
-                    else if (rule.ExpiredObjectDeleteMarker
-                        && entry is AllVersionsEntry.Marker mk
-                        && bucket.Index.CountVersions(mk.Key) is 1)
-                    {
-                        markers.Add(mk);
-                    }
+                    EvaluateLatestEntry(rule, entry, bucket, now, currentVersions, deleteMarkers);
                     continue;
                 }
 
-                if (rule.NoncurrentDays is { } noncurrentDays
-                    && now - successorAt >= TimeSpan.FromDays(noncurrentDays)
-                    && seenNoncurrent.Add((entry.Key, entry.VersionId)))
-                {
-                    noncurrent.Add(entry);
-                }
-                successorAt = entry.At;
+                EvaluateNoncurrentEntry(rule, entry, successorTimestamp, now, visitedNoncurrent, noncurrentVersions);
+                successorTimestamp = entry.At;
             }
         }
 
-        return (puts, markers, noncurrent);
+        return new ExpirationPlan(currentVersions, deleteMarkers, noncurrentVersions);
+    }
+
+    private static void EvaluateLatestEntry(
+        LifecycleRule rule,
+        AllVersionsEntry entry,
+        Bucket bucket,
+        DateTimeOffset now,
+        List<AllVersionsEntry.Put> currentVersions,
+        List<AllVersionsEntry.Marker> deleteMarkers)
+    {
+        if (rule.ExpirationDays is { } days && entry is AllVersionsEntry.Put put && now - put.At >= TimeSpan.FromDays(days))
+        {
+            currentVersions.Add(put);
+            return;
+        }
+
+        if (rule.ExpiredObjectDeleteMarker && entry is AllVersionsEntry.Marker marker && bucket.Index.CountVersions(marker.Key) is 1)
+        {
+            deleteMarkers.Add(marker);
+        }
+    }
+
+    private static void EvaluateNoncurrentEntry(
+        LifecycleRule rule,
+        AllVersionsEntry entry,
+        DateTimeOffset successorTimestamp,
+        DateTimeOffset now,
+        HashSet<(string Key, string VersionId)> visitedNoncurrent,
+        List<AllVersionsEntry> noncurrentVersions)
+    {
+        if (rule.NoncurrentDays is not { } noncurrentDays) return;
+        if (now - successorTimestamp < TimeSpan.FromDays(noncurrentDays)) return;
+        if (visitedNoncurrent.Add((entry.Key, entry.VersionId)))
+        {
+            noncurrentVersions.Add(entry);
+        }
     }
 
     private static IEnumerable<AllVersionsEntry> EnumerateAllVersions(Bucket bucket, string? prefix)
@@ -101,7 +142,7 @@ internal sealed class LifecycleSweeper(IBucketRegistry registry) : ILifecycleSwe
         while (true)
         {
             var (entries, truncated) = bucket.Index.ListAllVersions(prefix, keyMarker, 1000);
-            foreach (var e in entries) yield return e;
+            foreach (var entry in entries) yield return entry;
             if (!truncated || entries.Count is 0) yield break;
             keyMarker = entries[^1].Key;
         }

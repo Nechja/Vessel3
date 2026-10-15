@@ -17,8 +17,17 @@ internal interface IObjectStore
     Result<PutTaggingOutcome> DeleteTagging(string bucket, string key, string? versionId);
 }
 
-internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool blobs, IPreconditionEvaluator preconditions, IGcGate gcGate, IWebhookEventPublisher? publisher = null, ILogger<ObjectStore>? logger = null) : IObjectStore
+internal sealed partial class ObjectStore(
+    IBucketRegistry registry,
+    IBlobPool blobs,
+    IPreconditionEvaluator preconditions,
+    IGcGate gcGate,
+    IWebhookEventPublisher? publisher = null,
+    ILogger<ObjectStore>? logger = null,
+    IChecksumValidator? checksumValidator = null) : IObjectStore
 {
+    private readonly IChecksumValidator checksumValidator = checksumValidator ?? ChecksumValidator.Instance;
+
     public async Task<Result<PutOutcome>> Put(ObjectPutRequest req)
     {
         using var lease = await gcGate.Writing();
@@ -35,7 +44,7 @@ internal sealed partial class ObjectStore(IBucketRegistry registry, IBlobPool bl
             return digestErr;
         }
 
-        return !ChecksumValidator.Validate(blob, req.Checksums, req.Body, out var toStore, out var checksumErr)
+        return !checksumValidator.Validate(blob, req.Checksums, req.Body, out var toStore, out var checksumErr)
             ? checksumErr
             : RecordPut(req, blob, toStore);
     }

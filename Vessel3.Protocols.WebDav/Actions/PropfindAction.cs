@@ -13,6 +13,7 @@ internal sealed class PropfindAction(
     IWebDavXmlWriter xml) : IWebDavAction
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Propfind;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public async Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
     {

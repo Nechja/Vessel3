@@ -11,6 +11,7 @@ internal sealed class HeadBlobAction(
     IAzureErrorXmlWriter errorXml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.HeadBlob;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {

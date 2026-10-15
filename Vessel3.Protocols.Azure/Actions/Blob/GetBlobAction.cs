@@ -12,6 +12,7 @@ internal sealed class GetBlobAction(
     IAzureErrorXmlWriter errorXml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.GetBlob;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {

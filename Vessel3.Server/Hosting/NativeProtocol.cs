@@ -1,4 +1,5 @@
 using Vessel3.Protocols.Native;
+using Vessel3.Protocols.Native.Adapters;
 using Vessel3.Protocols.Native.Endpoints;
 using Vessel3.Server.Configuration;
 
@@ -20,6 +21,12 @@ internal sealed class NativeProtocol : IVesselProtocol
         }
 
         services.AddSingleton<NativeAuthMiddleware>();
+        services.AddSingleton<NativeBucketAdapter>();
+        services.AddSingleton<NativeObjectAdapter>();
+        services.AddSingleton<NativeIdentityAdapter>();
+        services.AddSingleton<NativeAdminAdapter>();
+        services.AddSingleton<NativeWebhookAdapter>();
+        services.AddSingleton<NativeEventStreamAdapter>();
     }
 
     public void ConfigurePipeline(IApplicationBuilder app, VesselConfig config)

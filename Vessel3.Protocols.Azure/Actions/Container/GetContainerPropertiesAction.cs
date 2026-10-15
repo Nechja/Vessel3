@@ -11,6 +11,7 @@ internal sealed class GetContainerPropertiesAction(
     IAzureErrorXmlWriter errorXml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.GetContainerProperties;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {

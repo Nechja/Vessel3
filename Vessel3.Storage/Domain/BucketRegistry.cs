@@ -127,10 +127,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         lock (createDeleteGate)
         {
             if (Directory.Exists(path)) return false;
-            if (fileSync.CreateDirectoryDurable(path) is Result.Failure f) return f.Error;
-            var b = OpenLocked(bucket, path);
-            if (ownerId is not null && b is not null)
-                b.SetOwner(ownerId);
+            if (fileSync.CreateDirectoryDurable(path) is Result.Failure failure) return failure.Error;
+            var targetBucket = OpenLocked(bucket, path);
+            if (ownerId is not null && targetBucket is not null)
+                targetBucket.SetOwner(ownerId);
         }
         publisher?.Publish(VesselEvents.BucketCreated(bucket, ownerId));
         return true;
@@ -154,11 +154,11 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         {
             if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
 
-            var b = OpenLocked(bucket, path);
-            if (b is not null && !b.TrySealForDelete()) return new BucketNotEmptyError(bucket);
+            var targetBucket = OpenLocked(bucket, path);
+            if (targetBucket is not null && !targetBucket.TrySealForDelete()) return new BucketNotEmptyError(bucket);
 
-            if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
-                lazy.Value.Dispose();
+            if (openBuckets.TryRemove(bucket, out var lazyBucket) && lazyBucket.IsValueCreated)
+                lazyBucket.Value.Dispose();
 
             Directory.Delete(path, recursive: true);
         }
@@ -166,30 +166,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         return Result.Ok;
     }
 
-    public Result Delete(string bucket, CallerIdentity caller)
-    {
-        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
-
-        var path = Path.Combine(bucketsRoot, bucket);
-        lock (createDeleteGate)
-        {
-            if (!Directory.Exists(path)) return new NoSuchBucketError(bucket);
-
-            var b = OpenLocked(bucket, path);
-            if (b is null) return new NoSuchBucketError(bucket);
-
-            if (BucketPolicy.Authorize(caller, b, BucketCapability.Admin) is Result.Failure f)
-                return f.Error;
-
-            if (!b.TrySealForDelete()) return new BucketNotEmptyError(bucket);
-
-            if (openBuckets.TryRemove(bucket, out var lazy) && lazy.IsValueCreated)
-                lazy.Value.Dispose();
-
-            Directory.Delete(path, recursive: true);
-        }
-        return Result.Ok;
-    }
+    public Result Delete(string bucket, CallerIdentity caller) =>
+        AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure failure
+            ? failure.Error
+            : Delete(bucket);
 
     public Result<bool> Exists(string bucket) =>
         IsValidName(bucket)
@@ -421,22 +401,27 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         WithBucketValue(bucket, b => b.Versioning);
 
     public Result<PutTaggingOutcome> PutTagging(string bucket, string key, string? versionId, IReadOnlyDictionary<string, string> tags) =>
-        WithKey<PutTaggingOutcome>(bucket, key, b =>
+        WithKey<PutTaggingOutcome>(bucket, key, targetBucket =>
         {
-            var resolved = versionId;
-            if (resolved is null)
-            {
-                if (!b.GetCurrentPut(key).TryGetValue(out var cur, out var err))
-                    return err;
-                resolved = cur.VersionId;
-            }
-            else
-            {
-                if (!b.GetVersion(key, resolved).TryGetValue(out _, out var err))
-                    return err;
-            }
-            return b.AppendPutTagging(key, resolved, tags);
+            var resolveResult = ResolveTargetVersionId(targetBucket, key, versionId);
+            return !resolveResult.TryGetValue(out var targetVersionId, out var error)
+                ? error
+                : targetBucket.AppendPutTagging(key, targetVersionId, tags);
         });
+
+    private static Result<string> ResolveTargetVersionId(Bucket bucket, string key, string? versionId)
+    {
+        if (versionId is null)
+        {
+            return bucket.GetCurrentPut(key).TryGetValue(out var currentPut, out var currentError)
+                ? currentPut.VersionId
+                : currentError;
+        }
+
+        return bucket.GetVersion(key, versionId).TryGetValue(out var specificVersion, out var versionError)
+            ? specificVersion.VersionId
+            : versionError;
+    }
 
     public VersionKind? GetCurrentKind(string bucket, string key) =>
         !IsValidName(bucket) || string.IsNullOrEmpty(key) ? null : Open(bucket)?.Index.GetCurrentKind(key);

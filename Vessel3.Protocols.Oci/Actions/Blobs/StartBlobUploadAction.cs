@@ -7,8 +7,11 @@ namespace Vessel3.Protocols.Oci.Actions.Blobs;
 
 internal sealed class StartBlobUploadAction(
     IContainerRepoCatalog catalog,
-    IBlobPool blobs) : IOciAction
+    IBlobPool blobs,
+    IOciResponseWriter? responseWriter = null) : IOciAction
 {
+    private readonly IOciResponseWriter responseWriter = responseWriter ?? OciResponseWriter.Instance;
+
     public OciOperationKind Operation => OciOperationKind.StartBlobUpload;
 
     public async Task Execute(OciRequestTarget target, HttpContext ctx)
@@ -23,7 +26,7 @@ internal sealed class StartBlobUploadAction(
         var sessionResult = catalog.StartUploadSession(repo);
         if (!sessionResult.TryGetValue(out var session, out var sessionErr))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, sessionErr.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, sessionErr.Message);
             return;
         }
 
@@ -35,18 +38,18 @@ internal sealed class StartBlobUploadAction(
 
     private async Task SingleShotUpload(string repo, string declaredDigest, HttpContext ctx)
     {
-        var cleanDeclaredSha = OciResponseWriter.CleanSha(declaredDigest);
+        var cleanDeclaredSha = responseWriter.CleanSha(declaredDigest);
         var writeResult = await blobs.Write(ctx.Request.Body, ctx.Request.ContentLength, ChecksumIntent.None, ctx.RequestAborted);
         if (!writeResult.TryGetValue(out var storedBlob, out var writeErr))
         {
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, writeErr.Message);
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.BlobUploadInvalid, writeErr.Message);
             return;
         }
 
         if (!string.Equals(storedBlob.Sha, cleanDeclaredSha, StringComparison.OrdinalIgnoreCase))
         {
             await blobs.Delete(storedBlob.Sha, ctx.RequestAborted);
-            await OciResponseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} did not match actual sha256:{storedBlob.Sha}");
+            await responseWriter.WriteOciError(ctx, StatusCodes.Status400BadRequest, OciErrorCodes.DigestInvalid, $"Declared digest {declaredDigest} did not match actual sha256:{storedBlob.Sha}");
             return;
         }
 
