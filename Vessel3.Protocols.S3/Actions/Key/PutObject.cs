@@ -144,15 +144,26 @@ internal sealed class PutObject(
                 "COMPLIANCE" => RetentionMode.Compliance,
                 _ => null,
             };
-            return mode is null
-                ? new MalformedXmlError($"unknown x-amz-object-lock-mode '{lockModeHeader}'")
-                : !DateTimeOffset.TryParse(lockUntilHeader, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var until)
-                    ? new MalformedXmlError($"unparseable x-amz-object-lock-retain-until-date '{lockUntilHeader}'")
-                    : (Result<Retention?>)new Retention(mode.Value, until);
+
+            if (mode is null)
+            {
+                return new MalformedXmlError($"unknown x-amz-object-lock-mode '{lockModeHeader}'");
+            }
+
+            if (!DateTimeOffset.TryParse(lockUntilHeader, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var until))
+            {
+                return new MalformedXmlError($"unparseable x-amz-object-lock-retain-until-date '{lockUntilHeader}'");
+            }
+
+            return new Retention(mode.Value, until);
         }
-        return registry.GetObjectLock(bucket) is Result<ObjectLockConfig?>.Success { Value: { Enabled: true, Default: { } def } }
-            ? new Retention(def.Mode, def.ResolveUntil(DateTimeOffset.UtcNow))
-            : (Result<Retention?>)(Retention?)null;
+
+        if (registry.GetObjectLock(bucket) is Result<ObjectLockConfig?>.Success { Value: { Enabled: true, Default: { } defaultRetention } })
+        {
+            return new Retention(defaultRetention.Mode, defaultRetention.ResolveUntil(DateTimeOffset.UtcNow));
+        }
+
+        return (Retention?)null;
     }
 }

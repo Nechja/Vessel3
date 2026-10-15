@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -121,48 +122,40 @@ internal sealed class WebhookYamlSerializer : IWebhookYamlSerializer
                 IsStatic: true);
         }
 
+        private static readonly FrozenDictionary<string, Action<WebhookEntryBuilder, string>> PropertyParsers =
+            new Dictionary<string, Action<WebhookEntryBuilder, string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["id"] = (builder, value) => { builder.Id = StripQuotes(value); builder.ListProperty = null; },
+                ["name"] = (builder, value) => { builder.Name = StripQuotes(value); builder.ListProperty = null; },
+                ["url"] = (builder, value) => { builder.Url = StripQuotes(value); builder.ListProperty = null; },
+                ["secret"] = (builder, value) => { builder.Secret = string.IsNullOrEmpty(value) ? null : StripQuotes(value); builder.ListProperty = null; },
+                ["active"] = (builder, value) => { builder.IsActive = IsTruthy(value); builder.ListProperty = null; },
+                ["enabled"] = (builder, value) => { builder.IsActive = IsTruthy(value); builder.ListProperty = null; },
+                ["events"] = (builder, _) => builder.ListProperty = "events",
+                ["resources"] = (builder, _) => builder.ListProperty = "resources",
+                ["repositories"] = (builder, _) => builder.ListProperty = "resources",
+            }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsTruthy(string value) =>
+            value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || value == "1";
+
         public void ParseKeyValue(string line)
         {
             var colonIndex = line.IndexOf(':');
             if (colonIndex <= 0) return;
 
-            var key = line[..colonIndex].Trim().ToLowerInvariant();
+            var key = line[..colonIndex].Trim();
             var value = line[(colonIndex + 1)..].Trim();
 
-            switch (key)
+            if (PropertyParsers.TryGetValue(key, out var parser))
             {
-                case "id":
-                    Id = StripQuotes(value);
-                    ListProperty = null;
-                    break;
-                case "name":
-                    Name = StripQuotes(value);
-                    ListProperty = null;
-                    break;
-                case "url":
-                    Url = StripQuotes(value);
-                    ListProperty = null;
-                    break;
-                case "secret":
-                    Secret = string.IsNullOrEmpty(value) ? null : StripQuotes(value);
-                    ListProperty = null;
-                    break;
-                case "active":
-                case "enabled":
-                    IsActive = value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("yes", StringComparison.OrdinalIgnoreCase) || value == "1";
-                    ListProperty = null;
-                    break;
-                case "events":
-                    ListProperty = "events";
-                    break;
-                case "resources":
-                case "repositories":
-                    ListProperty = "resources";
-                    break;
-                default:
-                    ListProperty = null;
-                    break;
+                parser(this, value);
+                return;
             }
+
+            ListProperty = null;
         }
     }
 

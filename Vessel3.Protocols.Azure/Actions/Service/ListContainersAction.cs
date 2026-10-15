@@ -10,6 +10,7 @@ internal sealed class ListContainersAction(
     IAzureXmlWriter xml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.ListContainers;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {

@@ -24,78 +24,81 @@ internal sealed class MoveAction(
             return new WebDavErrorResult(new InvalidRequestError("Destination header is required for MOVE"));
         }
 
-        var (destBucket, destKey) = WebDavRequestParser.ParseDestination(target.Destination);
-        if (string.IsNullOrEmpty(destBucket) || string.IsNullOrEmpty(destKey))
+        var (destinationBucket, destinationKey) = WebDavRequestParser.ParseDestination(target.Destination);
+        if (string.IsNullOrEmpty(destinationBucket) || string.IsNullOrEmpty(destinationKey))
         {
             return new WebDavErrorResult(new InvalidRequestError("Invalid Destination URI"));
         }
 
-        var srcKey = target.Path.TrimStart('/');
-        var cleanDestKey = destKey.TrimStart('/');
+        var sourceKey = target.Path.TrimStart('/');
+        var cleanDestinationKey = destinationKey.TrimStart('/');
 
-        var destExists = objects.Stat(destBucket, cleanDestKey) is Result<ObjectStat>.Success;
-        if (destExists && !target.Overwrite)
+        var destinationExists = objects.Stat(destinationBucket, cleanDestinationKey) is Result<ObjectStat>.Success;
+        if (destinationExists && !target.Overwrite)
         {
-            return new WebDavErrorResult(new PreconditionFailedError($"Destination {destBucket}/{cleanDestKey} already exists and Overwrite is F"));
+            return new WebDavErrorResult(new PreconditionFailedError($"Destination {destinationBucket}/{cleanDestinationKey} already exists and Overwrite is F"));
         }
 
-        var copyRes = await objects.Copy(destBucket, cleanDestKey, target.Bucket, srcKey);
-        if (copyRes is Result<CopyOutcome>.Success)
+        var transferResult = await TransferResource(target.Bucket, sourceKey, destinationBucket, cleanDestinationKey);
+        if (transferResult is Result.Failure failure)
         {
-            objects.Delete(target.Bucket, srcKey);
-        }
-        else
-        {
-            var srcPrefix = srcKey.TrimEnd('/') + "/";
-            var destPrefix = cleanDestKey.TrimEnd('/') + "/";
-            var moveRes = await MoveCollection(target.Bucket, srcPrefix, destBucket, destPrefix);
-            if (moveRes.TryGetError(out var err))
-            {
-                return new WebDavErrorResult(err);
-            }
+            return new WebDavErrorResult(failure.Error);
         }
 
         ctx.Response.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
         ctx.Response.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;
 
-        return Results.StatusCode(destExists ? StatusCodes.Status204NoContent : StatusCodes.Status201Created);
+        return Results.StatusCode(destinationExists ? StatusCodes.Status204NoContent : StatusCodes.Status201Created);
     }
 
-    private async Task<Result> MoveCollection(string srcBucket, string srcPrefix, string destBucket, string destPrefix)
+    private async Task<Result> TransferResource(string sourceBucket, string sourceKey, string destinationBucket, string destinationKey)
     {
-        var listReq = new ListRequest(srcBucket, srcPrefix, null, null, 1000);
-        string? token = null;
-        var anyMoved = false;
+        var copyResult = await objects.Copy(destinationBucket, destinationKey, sourceBucket, sourceKey);
+        if (copyResult is Result<CopyOutcome>.Success)
+        {
+            objects.Delete(sourceBucket, sourceKey);
+            return Result.Ok;
+        }
+
+        var sourcePrefix = sourceKey.TrimEnd('/') + "/";
+        var destinationPrefix = destinationKey.TrimEnd('/') + "/";
+        return await MoveCollection(sourceBucket, sourcePrefix, destinationBucket, destinationPrefix);
+    }
+
+    private async Task<Result> MoveCollection(string sourceBucket, string sourcePrefix, string destinationBucket, string destinationPrefix)
+    {
+        var listRequest = new ListRequest(sourceBucket, sourcePrefix, null, null, 1000);
+        string? continuationToken = null;
+        var hasMovedAny = false;
 
         do
         {
-            var listRes = lister.List(listReq, token);
-            if (!listRes.TryGetValue(out var page, out var err))
+            var listResult = lister.List(listRequest, continuationToken);
+            if (!listResult.TryGetValue(out var page, out var error))
             {
-                return anyMoved ? Result.Ok : err;
+                return hasMovedAny ? Result.Ok : error;
             }
 
             foreach (var entry in page.Entries)
             {
-                var relative = entry.Key[srcPrefix.Length..];
-                var itemDestKey = destPrefix + relative;
-                var itemRes = await objects.Copy(destBucket, itemDestKey, srcBucket, entry.Key);
-                if (itemRes is Result<CopyOutcome>.Success)
+                var relativePath = entry.Key[sourcePrefix.Length..];
+                var itemDestinationKey = destinationPrefix + relativePath;
+                if (await objects.Copy(destinationBucket, itemDestinationKey, sourceBucket, entry.Key) is Result<CopyOutcome>.Success)
                 {
-                    objects.Delete(srcBucket, entry.Key);
-                    anyMoved = true;
+                    objects.Delete(sourceBucket, entry.Key);
+                    hasMovedAny = true;
                 }
             }
 
-            token = page.NextContinuationToken;
-        } while (!string.IsNullOrEmpty(token));
+            continuationToken = page.NextContinuationToken;
+        } while (!string.IsNullOrEmpty(continuationToken));
 
-        if (!anyMoved)
+        if (!hasMovedAny)
         {
-            return new NoSuchKeyError(srcPrefix);
+            return new NoSuchKeyError(sourcePrefix);
         }
 
-        objects.Delete(srcBucket, srcPrefix);
+        objects.Delete(sourceBucket, sourcePrefix);
         return Result.Ok;
     }
 }

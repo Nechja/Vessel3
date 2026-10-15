@@ -12,32 +12,43 @@ internal sealed class HeadObject(
     public Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
         if (!objects.Stat(bucket, key, ctx.VersionId()).TryGetValue(out var stat, out var err))
+        {
             return Task.FromResult(http.Map(err));
-
-        var res = ctx.Response;
-        var readPre = S3HeaderCodec.ExtractReadPreconditions(ctx.Request.Headers);
-        var precond = preconditions.Evaluate(readPre, stat.Etag, stat.LastModified);
-        if (precond is Precondition.NotModified)
-        {
-            return Task.FromResult<IResult>(Results.StatusCode(304));
         }
 
-        if (precond is Precondition.Failed)
+        if (EvaluatePreconditions(preconditions, ctx.Request, stat) is { } preconditionResult)
         {
-            return Task.FromResult<IResult>(Results.StatusCode(412));
+            return Task.FromResult(preconditionResult);
         }
 
-        res.ContentLength = stat.Size;
-        res.ContentType = stat.ContentType;
-        res.Headers.ETag = $"\"{stat.Etag}\"";
-        ChecksumHeaders.Emit(res.Headers, stat.Checksums, fallbackSha256Hex: stat.Sha256);
-        res.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
-        foreach (var (metaKey, metaValue) in stat.Metadata)
-        {
-            res.Headers[$"{S3Headers.UserMetaPrefix}{metaKey}"] = metaValue;
-        }
-
-        S3HeaderCodec.EmitSystemHeaders(res.Headers, stat.SystemHeaders);
+        EmitHeaders(ctx.Response, stat);
         return Task.FromResult<IResult>(Results.Empty);
+    }
+
+    private static IResult? EvaluatePreconditions(IPreconditionEvaluator evaluator, HttpRequest request, ObjectStat stat)
+    {
+        var readPreconditions = S3HeaderCodec.ExtractReadPreconditions(request.Headers);
+        var evaluation = evaluator.Evaluate(readPreconditions, stat.Etag, stat.LastModified);
+        return evaluation switch
+        {
+            Precondition.NotModified => Results.StatusCode(304),
+            Precondition.Failed => Results.StatusCode(412),
+            _ => null,
+        };
+    }
+
+    private static void EmitHeaders(HttpResponse response, ObjectStat stat)
+    {
+        response.ContentLength = stat.Size;
+        response.ContentType = stat.ContentType;
+        response.Headers.ETag = $"\"{stat.Etag}\"";
+        ChecksumHeaders.Emit(response.Headers, stat.Checksums, fallbackSha256Hex: stat.Sha256);
+        response.Headers.LastModified = stat.LastModified.ToString("R", CultureInfo.InvariantCulture);
+        foreach (var (key, value) in stat.Metadata)
+        {
+            response.Headers[$"{S3Headers.UserMetaPrefix}{key}"] = value;
+        }
+
+        S3HeaderCodec.EmitSystemHeaders(response.Headers, stat.SystemHeaders);
     }
 }

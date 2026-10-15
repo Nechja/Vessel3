@@ -9,6 +9,7 @@ namespace Vessel3.Protocols.WebDav.Actions;
 internal sealed class HeadBlobAction(IObjectStore objects) : IWebDavAction
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Head;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx) =>
         Task.FromResult(ExecuteCore(target, ctx));

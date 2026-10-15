@@ -11,31 +11,15 @@ internal sealed class EventsClient(VesselHttpTransport transport) : IEventsClien
         string? resourceFilter = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var path = VesselRoutes.EventsStream;
-        List<string> queryParams = new(2);
-        if (!string.IsNullOrWhiteSpace(topicFilter))
-        {
-            queryParams.Add($"topics={Uri.EscapeDataString(topicFilter)}");
-        }
-        if (!string.IsNullOrWhiteSpace(resourceFilter))
-        {
-            queryParams.Add($"resource={Uri.EscapeDataString(resourceFilter)}");
-        }
-        if (queryParams.Count > 0)
-        {
-            path += "?" + string.Join('&', queryParams);
-        }
+        var uri = BuildEventsUri(topicFilter, resourceFilter);
+        using var request = transport.CreateRequest(HttpMethod.Get, uri);
+        using var response = await transport.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
 
-        using var req = transport.CreateRequest(HttpMethod.Get, path);
-        using var res = await transport.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        res.EnsureSuccessStatusCode();
-
-        await using var stream = await res.Content.ReadAsStreamAsync(ct);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
 
-        string? eventType = null;
-        string? eventId = null;
-        string? data = null;
+        string? currentData = null;
 
         while (!ct.IsCancellationRequested)
         {
@@ -47,59 +31,66 @@ internal sealed class EventsClient(VesselHttpTransport transport) : IEventsClien
 
             if (string.IsNullOrEmpty(line))
             {
-                var payload = data;
-                eventType = null;
-                eventId = null;
-                data = null;
+                var payload = currentData;
+                currentData = null;
 
-                if (string.IsNullOrEmpty(payload))
+                if (!string.IsNullOrEmpty(payload) && DeserializeEvent(payload) is { } eventDto)
                 {
-                    continue;
+                    yield return eventDto;
                 }
-
-                VesselEventDto? evt = null;
-                try
-                {
-                    evt = JsonSerializer.Deserialize(payload, VesselJsonContext.Default.VesselEventDto);
-                }
-                catch
-                {
-                }
-
-                if (evt is not null)
-                {
-                    yield return evt;
-                }
-
                 continue;
             }
 
-            if (line.StartsWith(':'))
+            var (field, value) = ParseSseLine(line);
+            if (string.Equals(field, "data", StringComparison.Ordinal))
             {
-                continue;
+                currentData = value;
             }
+        }
+    }
 
-            var colonIndex = line.IndexOf(':');
-            if (colonIndex <= 0)
-            {
-                continue;
-            }
+    private static string BuildEventsUri(string? topicFilter, string? resourceFilter)
+    {
+        List<string> queryParameters = new(2);
+        if (!string.IsNullOrWhiteSpace(topicFilter))
+        {
+            queryParameters.Add($"topics={Uri.EscapeDataString(topicFilter)}");
+        }
+        if (!string.IsNullOrWhiteSpace(resourceFilter))
+        {
+            queryParameters.Add($"resource={Uri.EscapeDataString(resourceFilter)}");
+        }
 
-            var field = line[..colonIndex].Trim();
-            var value = line[(colonIndex + 1)..].TrimStart();
+        return queryParameters.Count > 0
+            ? $"{VesselRoutes.EventsStream}?{string.Join('&', queryParameters)}"
+            : VesselRoutes.EventsStream;
+    }
 
-            switch (field)
-            {
-                case "event":
-                    eventType = value;
-                    break;
-                case "id":
-                    eventId = value;
-                    break;
-                case "data":
-                    data = value;
-                    break;
-            }
+    private static (string? Field, string? Value) ParseSseLine(string line)
+    {
+        if (line.StartsWith(':'))
+        {
+            return (null, null);
+        }
+
+        var colonIndex = line.IndexOf(':');
+        if (colonIndex <= 0)
+        {
+            return (null, null);
+        }
+
+        return (line[..colonIndex].Trim(), line[(colonIndex + 1)..].TrimStart());
+    }
+
+    private static VesselEventDto? DeserializeEvent(string payload)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize(payload, VesselJsonContext.Default.VesselEventDto);
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 }

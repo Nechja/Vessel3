@@ -10,6 +10,7 @@ namespace Vessel3.Protocols.WebDav.Actions;
 internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
 {
     public WebDavOperationKind Operation => WebDavOperationKind.Get;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public async Task<IResult> Execute(WebDavRequestTarget target, HttpContext ctx)
     {

@@ -1,54 +1,65 @@
 #pragma warning disable CA5350
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 
 namespace Vessel3.Storage;
 
 internal static class ChecksumAlgorithms
 {
-
-    public static bool TryParseName(string name, out ChecksumAlgorithm algo)
-    {
-        bool ok;
-        (ok, algo) = name.Trim().ToUpperInvariant() switch
+    private static readonly FrozenDictionary<string, ChecksumAlgorithm> AlgorithmNames =
+        new Dictionary<string, ChecksumAlgorithm>(StringComparer.OrdinalIgnoreCase)
         {
-            "CRC32"  => (true, ChecksumAlgorithm.Crc32),
-            "CRC32C" => (true, ChecksumAlgorithm.Crc32C),
-            "SHA1"   => (true, ChecksumAlgorithm.Sha1),
-            "SHA256" => (true, ChecksumAlgorithm.Sha256),
-            _        => (false, default),
-        };
-        return ok;
-    }
+            ["CRC32"] = ChecksumAlgorithm.Crc32,
+            ["CRC32C"] = ChecksumAlgorithm.Crc32C,
+            ["SHA1"] = ChecksumAlgorithm.Sha1,
+            ["SHA256"] = ChecksumAlgorithm.Sha256,
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenDictionary<ChecksumAlgorithm, Func<IEnumerable<string>, string>> CompositeCalculators =
+        new Dictionary<ChecksumAlgorithm, Func<IEnumerable<string>, string>>
+        {
+            [ChecksumAlgorithm.Sha1] = parts => CompositeIncrementalHash(HashAlgorithmName.SHA1, parts),
+            [ChecksumAlgorithm.Sha256] = parts => CompositeIncrementalHash(HashAlgorithmName.SHA256, parts),
+            [ChecksumAlgorithm.Crc32] = CompositeCrc32,
+            [ChecksumAlgorithm.Crc32C] = CompositeCrc32C,
+        }.ToFrozenDictionary();
+
+    public static bool TryParseName(string name, out ChecksumAlgorithm algorithm) =>
+        AlgorithmNames.TryGetValue(name.Trim(), out algorithm);
 
     public static (string Crc32, string Crc32C, string Sha1, string Sha256) ComputeAll(ReadOnlySpan<byte> data)
     {
-        var c32 = CrcUInt32ToHex(System.IO.Hashing.Crc32.HashToUInt32(data));
-        var c32c = CrcUInt32ToHex(Crc32C.HashToUInt32(data));
-        var s1 = Convert.ToHexStringLower(SHA1.HashData(data));
-        var s256 = Convert.ToHexStringLower(SHA256.HashData(data));
-        return (c32, c32c, s1, s256);
+        var crc32 = CrcUInt32ToHex(System.IO.Hashing.Crc32.HashToUInt32(data));
+        var crc32C = CrcUInt32ToHex(Crc32C.HashToUInt32(data));
+        var sha1 = Convert.ToHexStringLower(SHA1.HashData(data));
+        var sha256 = Convert.ToHexStringLower(SHA256.HashData(data));
+        return (crc32, crc32C, sha1, sha256);
     }
 
-    public static string CrcUInt32ToHex(uint v)
+    public static string CrcUInt32ToHex(uint value)
     {
-        ReadOnlySpan<byte> dst = [
-            (byte)((v >> 24) & 0xFF),
-            (byte)((v >> 16) & 0xFF),
-            (byte)((v >> 8) & 0xFF),
-            (byte)(v & 0xFF),
+        ReadOnlySpan<byte> destination = [
+            (byte)((value >> 24) & 0xFF),
+            (byte)((value >> 16) & 0xFF),
+            (byte)((value >> 8) & 0xFF),
+            (byte)(value & 0xFF),
         ];
-        return Convert.ToHexStringLower(dst);
+        return Convert.ToHexStringLower(destination);
     }
 
     public static string HexToBase64(string hex) =>
         string.IsNullOrEmpty(hex) ? "" : Convert.ToBase64String(Convert.FromHexString(hex));
 
-    public static string? Base64ToHex(string b64)
+    public static string? Base64ToHex(string base64)
     {
-        if (string.IsNullOrEmpty(b64)) return null;
+        if (string.IsNullOrEmpty(base64))
+        {
+            return null;
+        }
+
         try
         {
-            return Convert.ToHexStringLower(Convert.FromBase64String(b64));
+            return Convert.ToHexStringLower(Convert.FromBase64String(base64));
         }
         catch (FormatException)
         {
@@ -56,36 +67,43 @@ internal static class ChecksumAlgorithms
         }
     }
 
-    public static string Composite(ChecksumAlgorithm algo, IEnumerable<string> partHexValues)
+    public static string Composite(ChecksumAlgorithm algorithm, IEnumerable<string> partHexValues)
     {
-        switch (algo)
+        if (CompositeCalculators.TryGetValue(algorithm, out var calculator))
         {
-            case ChecksumAlgorithm.Sha1:
-            {
-                using var h = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-                foreach (var hex in partHexValues) h.AppendData(Convert.FromHexString(hex));
-                return Convert.ToHexStringLower(h.GetHashAndReset());
-            }
-            case ChecksumAlgorithm.Sha256:
-            {
-                using var h = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                foreach (var hex in partHexValues) h.AppendData(Convert.FromHexString(hex));
-                return Convert.ToHexStringLower(h.GetHashAndReset());
-            }
-            case ChecksumAlgorithm.Crc32:
-            {
-                var h = new System.IO.Hashing.Crc32();
-                foreach (var hex in partHexValues) h.Append(Convert.FromHexString(hex));
-                return CrcUInt32ToHex(h.GetCurrentHashAsUInt32());
-            }
-            case ChecksumAlgorithm.Crc32C:
-            {
-                var h = new Crc32C();
-                foreach (var hex in partHexValues) h.Append(Convert.FromHexString(hex));
-                return CrcUInt32ToHex(h.GetCurrentHashAndReset());
-            }
-            default:
-                throw new ArgumentOutOfRangeException(nameof(algo));
+            return calculator(partHexValues);
         }
+
+        throw new ArgumentOutOfRangeException(nameof(algorithm));
+    }
+
+    private static string CompositeIncrementalHash(HashAlgorithmName algorithmName, IEnumerable<string> partHexValues)
+    {
+        using var incrementalHash = IncrementalHash.CreateHash(algorithmName);
+        foreach (var hex in partHexValues)
+        {
+            incrementalHash.AppendData(Convert.FromHexString(hex));
+        }
+        return Convert.ToHexStringLower(incrementalHash.GetHashAndReset());
+    }
+
+    private static string CompositeCrc32(IEnumerable<string> partHexValues)
+    {
+        var hasher = new System.IO.Hashing.Crc32();
+        foreach (var hex in partHexValues)
+        {
+            hasher.Append(Convert.FromHexString(hex));
+        }
+        return CrcUInt32ToHex(hasher.GetCurrentHashAsUInt32());
+    }
+
+    private static string CompositeCrc32C(IEnumerable<string> partHexValues)
+    {
+        var hasher = new Crc32C();
+        foreach (var hex in partHexValues)
+        {
+            hasher.Append(Convert.FromHexString(hex));
+        }
+        return CrcUInt32ToHex(hasher.GetCurrentHashAndReset());
     }
 }

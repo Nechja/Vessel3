@@ -6,16 +6,27 @@ internal sealed class CompleteMultipartUpload(IMultipartStore multipart, IS3XmlR
 
     public async Task<IResult> Invoke(string bucket, string key, HttpContext ctx)
     {
-        var uploadId = ctx.Request.Query.TryGetValue("uploadId", out var uid) && uid.Count > 0 ? uid[0] ?? string.Empty : string.Empty;
-        if (!(await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted)).TryGetValue(out var parsedParts, out var err))
-            return http.Map(err);
+        var uploadId = ctx.Request.Query.TryGetValue("uploadId", out var uploadIdValues) && uploadIdValues.Count > 0
+            ? uploadIdValues[0] ?? string.Empty
+            : string.Empty;
 
-        var sdkAlgo = ctx.Request.Headers.TryGetValue("x-amz-sdk-checksum-algorithm", out var algoVal) && algoVal.Count > 0 ? algoVal[0] ?? string.Empty : string.Empty;
-        var compositeAlgo = ResolveCompositeAlgo(sdkAlgo, parsedParts);
+        var readResult = await reader.ReadCompleteMultipartUploadRequest(ctx.Request.Body, ctx.RequestAborted);
+        if (!readResult.TryGetValue(out var parsedParts, out var readError))
+        {
+            return http.Map(readError);
+        }
 
-        var completed = await multipart.Complete(uploadId, parsedParts, compositeAlgo, ctx.RequestAborted);
-        if (!completed.TryGetValue(out var outcome, out var completeErr))
-            return http.Map(completeErr);
+        var sdkAlgorithmName = ctx.Request.Headers.TryGetValue("x-amz-sdk-checksum-algorithm", out var algorithmValues) && algorithmValues.Count > 0
+            ? algorithmValues[0] ?? string.Empty
+            : string.Empty;
+
+        var compositeAlgorithm = ResolveCompositeAlgo(sdkAlgorithmName, parsedParts);
+
+        var completionResult = await multipart.Complete(uploadId, parsedParts, compositeAlgorithm, ctx.RequestAborted);
+        if (!completionResult.TryGetValue(out var outcome, out var completionError))
+        {
+            return http.Map(completionError);
+        }
 
         ctx.Response.ContentType = "application/xml";
         var partsCount = parsedParts.Count;
@@ -24,17 +35,27 @@ internal sealed class CompleteMultipartUpload(IMultipartStore multipart, IS3XmlR
             "application/xml");
     }
 
-    private static ChecksumAlgorithm? ResolveCompositeAlgo(string sdkAlgo, IReadOnlyList<CompletedPart> parts)
+    private static ChecksumAlgorithm? ResolveCompositeAlgo(string sdkAlgorithmName, IReadOnlyList<CompletedPart> parts)
     {
-        if (!string.IsNullOrEmpty(sdkAlgo) && ChecksumAlgorithms.TryParseName(sdkAlgo, out var a)) return a;
-        foreach (var p in parts)
+        if (!string.IsNullOrEmpty(sdkAlgorithmName) && ChecksumAlgorithms.TryParseName(sdkAlgorithmName, out var algorithm))
         {
-            if (p.Sums is null) continue;
-            if (p.Sums.Crc32 is not null) return ChecksumAlgorithm.Crc32;
-            if (p.Sums.Crc32C is not null) return ChecksumAlgorithm.Crc32C;
-            if (p.Sums.Sha1 is not null) return ChecksumAlgorithm.Sha1;
-            if (p.Sums.Sha256 is not null) return ChecksumAlgorithm.Sha256;
+            return algorithm;
         }
+
+        foreach (var part in parts)
+        {
+            var match = part.Sums switch
+            {
+                { Crc32: not null } => ChecksumAlgorithm.Crc32,
+                { Crc32C: not null } => ChecksumAlgorithm.Crc32C,
+                { Sha1: not null } => ChecksumAlgorithm.Sha1,
+                { Sha256: not null } => ChecksumAlgorithm.Sha256,
+                _ => (ChecksumAlgorithm?)null,
+            };
+
+            if (match is not null) return match;
+        }
+
         return null;
     }
 }

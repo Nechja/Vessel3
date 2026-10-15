@@ -13,48 +13,57 @@ internal sealed class ExpireCurrentVersionWorkItem(string key, string expectedCu
             return false;
         }
 
-        if (!bucket.Index.GetCurrentPut(key).TryGetValue(out var cur, out _)
-            || cur.VersionId != expectedCurrentVersionId
-            || cur.At != expectedAt)
+        if (!bucket.Index.GetCurrentPut(key).TryGetValue(out var currentPut, out _)
+            || currentPut.VersionId != expectedCurrentVersionId
+            || currentPut.At != expectedAt)
         {
             Result = false;
             return false;
         }
 
-        var (ret, hold) = bucket.Index.GetObjectLockStatus(key, cur.VersionId);
-        if (hold || (ret is not null && ret.RetainUntilDate > DateTimeOffset.UtcNow))
+        var (retention, hasLegalHold) = bucket.Index.GetObjectLockStatus(key, currentPut.VersionId);
+        if (hasLegalHold || (retention is not null && retention.RetainUntilDate > DateTimeOffset.UtcNow))
         {
             Result = false;
             return false;
         }
 
-        switch (bucket.Versioning)
-        {
-            case VersioningStatus.Enabled:
-                batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, Ulid.NewUlid().ToString()));
-                eventCount = 1;
-                break;
-            case VersioningStatus.Suspended:
-                if (bucket.Index.LatestVersionId(key) is "null")
-                {
-                    batchEvents.Add(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null"));
-                    batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null"));
-                    eventCount = 2;
-                }
-                else
-                {
-                    batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null"));
-                    eventCount = 1;
-                }
-                break;
-            default:
-                batchEvents.Add(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, cur.VersionId));
-                eventCount = 1;
-                break;
-        }
-
+        eventCount = AppendExpirationEvents(bucket, batchEvents, currentPut.VersionId);
         Result = true;
         return true;
+    }
+
+    private int AppendExpirationEvents(Bucket bucket, List<VersionEvent> batchEvents, string currentVersionId) =>
+        bucket.Versioning switch
+        {
+            VersioningStatus.Enabled => AppendEnabledEvents(batchEvents),
+            VersioningStatus.Suspended => AppendSuspendedEvents(bucket, batchEvents),
+            _ => AppendUnversionedEvents(batchEvents, currentVersionId),
+        };
+
+    private int AppendEnabledEvents(List<VersionEvent> batchEvents)
+    {
+        batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, Ulid.NewUlid().ToString()));
+        return 1;
+    }
+
+    private int AppendSuspendedEvents(Bucket bucket, List<VersionEvent> batchEvents)
+    {
+        if (bucket.Index.LatestVersionId(key) is "null")
+        {
+            batchEvents.Add(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, "null"));
+            batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null"));
+            return 2;
+        }
+
+        batchEvents.Add(new DeleteMarkerEvent(0, DateTimeOffset.UtcNow, key, "null"));
+        return 1;
+    }
+
+    private int AppendUnversionedEvents(List<VersionEvent> batchEvents, string currentVersionId)
+    {
+        batchEvents.Add(new HardDeleteEvent(0, DateTimeOffset.UtcNow, key, currentVersionId));
+        return 1;
     }
 
     public override void OnCommitted(Bucket bucket, IReadOnlyList<VersionEvent> appliedEvents, int startIndex, int count)

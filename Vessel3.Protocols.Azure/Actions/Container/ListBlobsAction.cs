@@ -12,6 +12,7 @@ internal sealed class ListBlobsAction(
     IAzureErrorXmlWriter errorXml) : IAzureAction
 {
     public AzureOperationKind Operation => AzureOperationKind.ListBlobs;
+    public BucketCapability RequiredCapability => BucketCapability.Read;
 
     public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
