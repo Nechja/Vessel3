@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml;
+using Vessel3.IO;
 using Vessel3.Storage;
 
 namespace Vessel3.Protocols.Azure.Serialization;
@@ -40,9 +41,8 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
         IEnumerable<BucketInfo> containers,
         CancellationToken ct)
     {
-        var count = (containers as IReadOnlyCollection<BucketInfo>)?.Count ?? 16;
-        using var ms = new MemoryStream(Math.Max(512, count * 350));
-        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, AzureXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(null, "EnumerationResults", null);
@@ -92,7 +92,7 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteListBlobs(
@@ -106,8 +106,8 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
         ListPage page,
         CancellationToken ct)
     {
-        using var ms = new MemoryStream(Math.Max(512, page.Entries.Count * 300));
-        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, AzureXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(null, "EnumerationResults", null);
@@ -175,13 +175,13 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteServiceProperties(Stream output, CancellationToken ct)
     {
-        using var ms = new MemoryStream(1024);
-        using (var w = XmlWriter.Create(ms, AzureXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, AzureXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(null, "StorageServiceProperties", null);
@@ -220,6 +220,6 @@ internal sealed class AzureXmlWriter : IAzureXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 }

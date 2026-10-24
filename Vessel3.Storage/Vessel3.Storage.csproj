@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
+    <ProjectReference Include="..\Vessel3.IO\Vessel3.IO.csproj" />
   </ItemGroup>
 
   <ItemGroup>

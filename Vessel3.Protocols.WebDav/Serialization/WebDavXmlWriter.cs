@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml;
+using Vessel3.IO;
 
 namespace Vessel3.Protocols.WebDav.Serialization;
 
@@ -7,9 +8,8 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
 {
     public async Task WriteMultistatus(Stream output, IEnumerable<WebDavResourceEntry> entries, CancellationToken ct)
     {
-        var count = (entries as IReadOnlyCollection<WebDavResourceEntry>)?.Count ?? 16;
-        using var ms = new MemoryStream(Math.Max(512, count * 384));
-        using (var w = XmlWriter.Create(ms, WebDavXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, WebDavXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Multistatus, WebDavXmlDefaults.DavNamespace);
@@ -24,13 +24,13 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteLockDiscovery(Stream output, string lockRoot, string lockToken, string? owner, CancellationToken ct)
     {
-        using var ms = new MemoryStream(1024);
-        using (var w = XmlWriter.Create(ms, WebDavXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, WebDavXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Prop, WebDavXmlDefaults.DavNamespace);
@@ -67,13 +67,13 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteProppatchResponse(Stream output, string href, CancellationToken ct)
     {
-        using var ms = new MemoryStream(512);
-        using (var w = XmlWriter.Create(ms, WebDavXmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var w = XmlWriter.Create(buffer, WebDavXmlDefaults.WriterSettings))
         {
             w.WriteStartDocument();
             w.WriteStartElement(WebDavXmlDefaults.DavPrefix, WebDavXmlElements.Multistatus, WebDavXmlDefaults.DavNamespace);
@@ -90,7 +90,7 @@ internal sealed class WebDavXmlWriter : IWebDavXmlWriter
             w.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     private static void WriteResponseElement(XmlWriter w, WebDavResourceEntry entry)

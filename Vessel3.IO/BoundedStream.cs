@@ -1,4 +1,4 @@
-namespace Vessel3.Storage;
+namespace Vessel3.IO;
 
 internal sealed class BoundedStream(Stream inner, long limit) : Stream
 {
@@ -9,7 +9,11 @@ internal sealed class BoundedStream(Stream inner, long limit) : Stream
     public override bool CanSeek => false;
     public override bool CanWrite => false;
     public override long Length => total;
-    public override long Position { get => total - remaining; set => throw new NotSupportedException(); }
+    public override long Position
+    {
+        get => total - remaining;
+        set => throw new NotSupportedException();
+    }
 
     public override int Read(byte[] buffer, int offset, int count)
     {

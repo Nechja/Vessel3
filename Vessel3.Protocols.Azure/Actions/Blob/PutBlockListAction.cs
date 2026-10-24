@@ -1,5 +1,7 @@
 using System.Xml;
+using System.Xml.Linq;
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Headers;
 using Vessel3.Protocols.Azure.Serialization;
@@ -28,13 +30,10 @@ internal sealed class PutBlockListAction(
             return new AzureErrorResult(new InvalidResourceNameError("No staged blocks found for blob"), errorXml);
         }
 
-        using var bodyStream = new MemoryStream();
-        await context.Request.Body.CopyToAsync(bodyStream, context.RequestAborted);
-        bodyStream.Position = 0;
-
-        if (!TryParseBlockListXml(bodyStream, out var blockIds))
+        var parseResult = await ParseBlockList(context.Request.Body, context.RequestAborted);
+        if (!parseResult.TryGetValue(out var blockIds, out var parseError))
         {
-            return new AzureErrorResult(new InvalidResourceNameError("Malformed BlockList XML"), errorXml);
+            return new AzureErrorResult(parseError, errorXml);
         }
 
         var listChunksResult = stager.ListChunks(session.SessionId);
@@ -75,28 +74,37 @@ internal sealed class PutBlockListAction(
         return Results.StatusCode(StatusCodes.Status201Created);
     }
 
-    private static bool TryParseBlockListXml(Stream stream, out List<string> blockIds)
+    private static async Task<Result<List<string>>> ParseBlockList(Stream stream, CancellationToken ct)
     {
-        blockIds = [];
         try
         {
-            var document = System.Xml.Linq.XDocument.Load(stream);
-            if (document.Root is null) return true;
+            using var reader = XmlReader.Create(stream, AzureXmlDefaults.ReaderSettings);
+            var document = await XDocument.LoadAsync(reader, LoadOptions.None, ct);
+            if (document.Root is null)
+            {
+                return new List<string>();
+            }
 
+            List<string> blockIds = [];
             foreach (var element in document.Root.Elements())
             {
-                if (element.Name.LocalName is not ("Latest" or "Uncommitted" or "Committed")) continue;
+                if (element.Name.LocalName is not ("Latest" or "Uncommitted" or "Committed"))
+                {
+                    continue;
+                }
+
                 var blockId = element.Value.Trim();
                 if (!string.IsNullOrEmpty(blockId))
                 {
                     blockIds.Add(blockId);
                 }
             }
-            return true;
+
+            return blockIds;
         }
         catch (XmlException)
         {
-            return false;
+            return new InvalidResourceNameError("Malformed BlockList XML");
         }
     }
 

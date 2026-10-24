@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Vessel3.IO;
 
 namespace Vessel3.Storage;
 
@@ -209,7 +210,16 @@ internal sealed partial class ObjectStore(
     {
         var sums = new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null);
         if (put.Parts is { } parts)
-            return new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
+        {
+            var segments = parts.Select(p => new StreamSegment(p.Size, async token =>
+            {
+                var openResult = await blobs.Open(p.BlobSha, token);
+                return openResult is Result<Stream>.Success ok
+                    ? ok.Value
+                    : throw new InvalidOperationException($"missing blob for part {p.Number}: {p.BlobSha}");
+            })).ToList();
+            return new StoredObject(new ConcatStream(segments), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
+        }
 
         var openResult = await blobs.Open(put.BlobSha, ct);
         return !openResult.TryGetValue(out var stream, out var err)

@@ -5,6 +5,7 @@ namespace Vessel3.Client;
 
 internal sealed class ObjectsClient(VesselHttpTransport transport) : IObjectsClient
 {
+    private const int BufferSize = 65536;
     public const int DefaultPartSize = 5 * 1024 * 1024;
 
     public async Task<Result<ObjectsPageDto>> ListObjects(
@@ -102,7 +103,7 @@ internal sealed class ObjectsClient(VesselHttpTransport transport) : IObjectsCli
     {
         var uploadStream = progress is not null ? new ProgressStream(content, progress) : content;
         using var req = transport.CreateRequest(HttpMethod.Put, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/objects/{VesselHttpTransport.EscapeKey(key)}");
-        req.Content = new StreamContent(uploadStream, 81920);
+        req.Content = new StreamContent(uploadStream, BufferSize);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType ?? VesselMediaTypes.OctetStream);
 
         if (metadata is not null)
@@ -154,7 +155,7 @@ internal sealed class ObjectsClient(VesselHttpTransport transport) : IObjectsCli
     {
         var path = $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/uploads/{VesselHttpTransport.EscapeKey(key)}?uploadId={Uri.EscapeDataString(uploadId)}&partNumber={partNumber}";
         using var req = transport.CreateRequest(HttpMethod.Put, path);
-        req.Content = new StreamContent(content, 81920);
+        req.Content = new StreamContent(content, BufferSize);
         req.Content.Headers.ContentLength = length;
         req.Content.Headers.ContentType = new MediaTypeHeaderValue(VesselMediaTypes.OctetStream);
         using var res = await transport.SendAsync(req, ct);
