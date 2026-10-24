@@ -17,14 +17,22 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AwsSdkVersion Condition="'$(AwsSdkVersion)' == ''">3.7.*</AwsSdkVersion>
+    <AwsSdkVersion Condition="'$(AwsSdkVersion)' == ''">3</AwsSdkVersion>
     <DefineConstants Condition="$(AwsSdkVersion.StartsWith('3'))">$(DefineConstants);AWSSDK_V3</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup Condition="$(AwsSdkVersion.StartsWith('3'))">
+    <PackageReference Include="AWSSDK.S3" Version="3.7.511.8" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="3.7.504.50" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!$(AwsSdkVersion.StartsWith('3'))">
+    <PackageReference Include="AWSSDK.S3" Version="4.0.104.1" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.100.13" />
+  </ItemGroup>
+
   <ItemGroup>
-    <PackageReference Include="AWSSDK.S3" Version="$(AwsSdkVersion)" />
-    <PackageReference Include="AWSSDK.SecurityToken" Version="$(AwsSdkVersion)" />
-    <PackageReference Include="System.IO.Hashing" Version="*" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.*" />
   </ItemGroup>
 
 </Project>

@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.0" />
   </ItemGroup>
 
 </Project>

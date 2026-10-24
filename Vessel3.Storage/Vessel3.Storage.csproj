@@ -11,12 +11,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
-    <PackageReference Include="Ulid" Version="*" />
-    <PackageReference Include="System.IO.Hashing" Version="*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="*" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="Ulid" Version="1.4.1" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.*" />
   </ItemGroup>
 
   <ItemGroup>
