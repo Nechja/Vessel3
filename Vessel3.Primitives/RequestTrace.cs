@@ -20,7 +20,13 @@ internal sealed class RequestTrace
     public string? Key { get; set; }
     public long HandledTicks { get; private set; }
 
-    public void MarkHandled() => HandledTicks = Stopwatch.GetTimestamp() - StartedAt;
+    public void MarkHandled()
+    {
+        if (HandledTicks == 0)
+        {
+            HandledTicks = Stopwatch.GetTimestamp() - StartedAt;
+        }
+    }
     public static void SetAction(string action)
     {
         if (current.Value is { } trace) trace.Action = action;

@@ -1,6 +1,6 @@
-using System.Buffers;
 using System.Globalization;
 using Microsoft.Extensions.Primitives;
+using Microsoft.Net.Http.Headers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -27,28 +27,20 @@ internal sealed class GetObject(
 
         EmitMetadataHeaders(ctx.Response, ok);
 
-        if (ApplyByteRange(ctx.Request, ctx.Response, ok, out var isRanged) is { } rangeError)
+        if (ApplyByteRange(ctx.Request, ctx.Response, ok) is { } rangeError)
         {
             ok.Body.Dispose();
             return rangeError;
         }
 
-        if (isRanged)
-        {
-            return Results.File(
-                ok.Body,
-                ok.ContentType,
-                lastModified: ok.LastModified,
-                enableRangeProcessing: true);
-        }
+        ChecksumHeaders.Emit(ctx.Response.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
 
-        EmitPayloadHeaders(ctx.Response, ok);
-        await using (ok.Body)
-        {
-            await StreamResponseBodyAsync(ok.Body, ctx.Response.Body, ok.Size, ctx.RequestAborted);
-        }
-
-        return Results.Empty;
+        return Results.File(
+            ok.Body,
+            ok.ContentType,
+            lastModified: ok.LastModified,
+            entityTag: new EntityTagHeaderValue($"\"{ok.Etag}\""),
+            enableRangeProcessing: true);
     }
 
     private static IResult? EvaluatePreconditions(IPreconditionEvaluator evaluator, HttpRequest request, StoredObject ok)
@@ -73,9 +65,8 @@ internal sealed class GetObject(
         S3HeaderCodec.EmitSystemHeaders(response.Headers, ok.SystemHeaders);
     }
 
-    private static IResult? ApplyByteRange(HttpRequest request, HttpResponse response, StoredObject ok, out bool isRanged)
+    private static IResult? ApplyByteRange(HttpRequest request, HttpResponse response, StoredObject ok)
     {
-        isRanged = false;
         if (!request.Headers.TryGetValue("Range", out var rangeHeader) || StringValues.IsNullOrEmpty(rangeHeader))
         {
             return null;
@@ -92,42 +83,9 @@ internal sealed class GetObject(
                 return null;
             case S3ByteRange.Normal normal:
                 request.Headers.Range = $"bytes={normal.Start.ToString(CultureInfo.InvariantCulture)}-{normal.End.ToString(CultureInfo.InvariantCulture)}";
-                isRanged = true;
                 return null;
             default:
                 return null;
-        }
-    }
-
-    private static void EmitPayloadHeaders(HttpResponse response, StoredObject ok)
-    {
-        ChecksumHeaders.Emit(response.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
-        response.StatusCode = 200;
-        response.ContentLength = ok.Size;
-        response.ContentType = ok.ContentType;
-        response.Headers.LastModified = ok.LastModified.ToString("R", CultureInfo.InvariantCulture);
-        response.Headers.AcceptRanges = "bytes";
-    }
-
-    private static async Task StreamResponseBodyAsync(Stream source, Stream destination, long size, CancellationToken ct)
-    {
-        if (size <= 0)
-        {
-            return;
-        }
-
-        var buffer = ArrayPool<byte>.Shared.Rent(81920);
-        try
-        {
-            int bytesRead;
-            while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, 81920), ct)) > 0)
-            {
-                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }

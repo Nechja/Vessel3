@@ -40,6 +40,7 @@ internal sealed class WebsiteServingMiddleware(
             {
                 RequestTrace.SetAction(HttpMethods.IsHead(ctx.Request.Method) ? "WebsiteHead" : "WebsiteGet");
                 var res = await websiteService.Serve(siteBucket, subPath, ctx);
+                RequestTrace.Current?.MarkHandled();
                 await res.ExecuteAsync(ctx);
                 return;
             }
@@ -65,6 +66,7 @@ internal sealed class WebsiteServingMiddleware(
                     vhBucket,
                     ctx.Request.Path.Value ?? "/",
                     ctx);
+                RequestTrace.Current?.MarkHandled();
                 await res.ExecuteAsync(ctx);
                 return;
             }

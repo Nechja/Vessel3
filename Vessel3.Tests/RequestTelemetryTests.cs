@@ -212,6 +212,43 @@ public class RequestTelemetryTests
     }
 
     [Fact]
+    public async Task LogRequest_FastHandledSlowNetworkStreaming_DoesNotTriggerSlowServerWarning()
+    {
+        var (mw, log) = Build(slowMs: 20);
+
+        await mw.InvokeAsync(Context(), async ctx =>
+        {
+            RequestTrace.Current!.Action = "GetObject";
+            RequestTrace.Current.Bucket = "mimir-blocks";
+            RequestTrace.Current.MarkHandled();
+            await Task.Delay(35, TestContext.Current.CancellationToken);
+            ctx.Response.StatusCode = 200;
+        });
+
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public async Task LogRequest_SlowHandled_LogsSlowServerWarning()
+    {
+        var (mw, log) = Build(slowMs: 20);
+
+        await mw.InvokeAsync(Context(), async ctx =>
+        {
+            RequestTrace.Current!.Action = "GetObject";
+            RequestTrace.Current.Bucket = "mimir-blocks";
+            await Task.Delay(35, TestContext.Current.CancellationToken);
+            RequestTrace.Current.MarkHandled();
+            ctx.Response.StatusCode = 200;
+        });
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("action=GetObject", entry.Message);
+        Assert.Contains("bucket=mimir-blocks", entry.Message);
+    }
+
+    [Fact]
     public async Task LogAccess_Enabled_EmitsInformationAccessLogWithFullContext()
     {
         var (mw, log) = Build(slowMs: 1000, accessLog: true);

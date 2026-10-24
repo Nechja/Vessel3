@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
 using Vessel3.Primitives;
 using Vessel3.Protocols.Native.Headers;
 using Vessel3.Protocols.Native.Serialization;
@@ -66,30 +67,15 @@ internal sealed class NativeObjectAdapter(
             return error.ToHttpResult();
         }
 
-        var res = context.Response;
-        NativeHeaderCodec.ApplyObjectHeaders(res.Headers, storedObject, versionId);
-        res.ContentType = storedObject.ContentType ?? "application/octet-stream";
-        res.ContentLength = storedObject.Size;
+        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, storedObject, versionId);
 
-        await using (storedObject.Body)
-        {
-            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(81920);
-            try
-            {
-                while (true)
-                {
-                    var read = await storedObject.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), context.RequestAborted);
-                    if (read == 0) break;
-                    await res.Body.WriteAsync(buffer.AsMemory(0, read), context.RequestAborted);
-                }
-            }
-            finally
-            {
-                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
-
-        return Results.Empty;
+        RequestTrace.Current?.MarkHandled();
+        return Results.Stream(
+            storedObject.Body,
+            contentType: storedObject.ContentType ?? "application/octet-stream",
+            lastModified: storedObject.LastModified,
+            entityTag: new EntityTagHeaderValue($"\"{storedObject.Etag}\""),
+            enableRangeProcessing: true);
     }
 
     public IResult HeadObject(string bucket, string key, HttpContext context)

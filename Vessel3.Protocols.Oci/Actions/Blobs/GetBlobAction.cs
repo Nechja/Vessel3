@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -25,13 +26,8 @@ internal sealed class GetBlobAction(
             return;
         }
 
-        await using (stream)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            ctx.Response.ContentType = OciMediaTypes.OctetStream;
-            ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, $"sha256:{cleanSha}");
-            ctx.Response.ContentLength = stream.Length;
-            await stream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
-        }
+        ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, $"sha256:{cleanSha}");
+        RequestTrace.Current?.MarkHandled();
+        await Results.Stream(stream, contentType: OciMediaTypes.OctetStream, enableRangeProcessing: true).ExecuteAsync(ctx);
     }
 }

@@ -202,7 +202,9 @@ internal sealed partial class RequestTelemetry(
 
     private void LogSlowOrError(HttpContext ctx, RequestTrace trace, int status, Exception? failure, long elapsed, bool aborted, long reqBytes, long resBytes)
     {
-        var serverTicks = Math.Max(0, elapsed - trace.Ticks(Stage.Body));
+        var serverTicks = trace.HandledTicks > 0
+            ? Math.Max(0, trace.HandledTicks - trace.Ticks(Stage.Body))
+            : Math.Max(0, elapsed - trace.Ticks(Stage.Body));
         if (status < 500 && serverTicks < slowTicks)
         {
             return;
