@@ -20,7 +20,7 @@ internal sealed class PutObject(
 
         if (!await CheckWritePreconditions(bucket, key, request, cancellationToken))
         {
-            return Results.StatusCode(412);
+            return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
         }
 
         var (body, declaredLength) = RequestBodyDecoder.Decode(request);
@@ -60,7 +60,7 @@ internal sealed class PutObject(
         Result<PutOutcome> result;
         try
         {
-            var actor = context.Items.TryGetValue("CallerIdentity", out var callerItem) && callerItem is CallerIdentity callerIdentity
+            var actor = context.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var callerItem) && callerItem is CallerIdentity callerIdentity
                 ? callerIdentity.Username
                 : "anonymous";
             var putRequest = CreatePutRequest(

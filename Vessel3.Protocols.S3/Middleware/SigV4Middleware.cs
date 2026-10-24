@@ -12,15 +12,10 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
 
         RequestTrace.SetContext(protocol: "s3");
 
-        if (ctx.Items.ContainsKey("AnonymousAllowed"))
+        if (ctx.Items.ContainsKey(VesselContextKeys.AnonymousAllowed))
         {
-            var hasAuth = ctx.Request.Headers.ContainsKey("Authorization")
-                || ctx.Request.Query.ContainsKey("X-Amz-Signature");
-            if (!hasAuth)
-            {
-                await next(ctx);
-                return;
-            }
+            await next(ctx);
+            return;
         }
 
         if (!verifier.Verify(ctx.Request).TryGetValue(out var sigCtx, out var err))
@@ -29,10 +24,10 @@ internal sealed class SigV4Middleware(ISigV4Verifier verifier, IHttpResultMapper
             return;
         }
 
-        ctx.Items["sigctx"] = sigCtx;
+        ctx.Items[VesselContextKeys.SigV4Context] = sigCtx;
         if (sigCtx.Caller is not null)
         {
-            ctx.Items["CallerIdentity"] = sigCtx.Caller;
+            ctx.Items[VesselContextKeys.CallerIdentity] = sigCtx.Caller;
             RequestTrace.SetContext(actor: sigCtx.Caller.Username);
         }
         await next(ctx);

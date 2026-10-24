@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Vessel3.IO;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -57,7 +58,7 @@ internal sealed class PutManifestAction(
         ctx.Response.Headers.Append(OciHeaders.Location, $"/v2/{repo}/manifests/{outcome.Digest}");
         ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, outcome.Digest);
 
-        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
+        var actor = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
         publisher?.Publish(VesselEvents.ContainerImagePushed(
             repo, reference, outcome.Digest, mediaType, payload.Length, actor, ctx.Request.Host.Value));
     }

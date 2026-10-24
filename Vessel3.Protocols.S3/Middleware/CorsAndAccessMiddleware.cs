@@ -27,7 +27,7 @@ internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry, IS3Subre
 
     private string? ResolveBucket(HttpContext ctx)
     {
-        if (ctx.Items.TryGetValue("VirtualHostBucket", out var vhObj) && vhObj is string vhBucket)
+        if (ctx.Items.TryGetValue(VesselContextKeys.VirtualHostBucket, out var vhObj) && vhObj is string vhBucket)
         {
             return vhBucket;
         }
@@ -138,7 +138,7 @@ internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry, IS3Subre
         var sub = subresourceResolver.ResolveBucket(ctx.Request.Query);
         if (sub is S3BucketSubresource.None or S3BucketSubresource.Location)
         {
-            ctx.Items["AnonymousAllowed"] = true;
+            ctx.Items[VesselContextKeys.AnonymousAllowed] = true;
         }
     }
 }

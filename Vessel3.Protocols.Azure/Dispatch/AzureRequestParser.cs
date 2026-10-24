@@ -130,52 +130,103 @@ internal static class AzureRequestParser
                 ? ResolveContainerOperation(method, restype, comp)
                 : ResolveBlobOperation(method, comp, headers);
 
-    private static AzureOperationKind ResolveServiceOperation(string method, string restype, string comp) =>
-        (HttpMethods.IsGet(method), HttpMethods.IsPut(method), restype.ToLowerInvariant(), comp.ToLowerInvariant()) switch
-        {
-            (true, false, "", "list") => AzureOperationKind.ListContainers,
-            (true, false, "service", "properties") => AzureOperationKind.GetServiceProperties,
-            (false, true, "service", "properties") => AzureOperationKind.SetServiceProperties,
-            (true, false, "account", "properties") => AzureOperationKind.GetAccountInfo,
-            _ => AzureOperationKind.Unknown
-        };
+    private static AzureOperationKind ResolveServiceOperation(string method, string restype, string comp)
+    {
+        var r = restype.ToLowerInvariant();
+        var c = comp.ToLowerInvariant();
 
-    private static AzureOperationKind ResolveContainerOperation(string method, string restype, string comp) =>
-        (HttpMethods.IsGet(method), HttpMethods.IsHead(method), HttpMethods.IsPut(method), HttpMethods.IsDelete(method), restype.ToLowerInvariant(), comp.ToLowerInvariant()) switch
+        if (HttpMethods.IsGet(method))
         {
-            (false, false, true, false, "container", "") => AzureOperationKind.CreateContainer,
-            (false, false, false, true, "container", "") => AzureOperationKind.DeleteContainer,
-            (true, _, false, false, "container", "") or (_, true, false, false, "container", "") => AzureOperationKind.GetContainerProperties,
-            (true, false, false, false, _, "list") => AzureOperationKind.ListBlobs,
-            (true, false, false, false, _, "metadata") => AzureOperationKind.GetContainerMetadata,
-            (false, false, true, false, _, "metadata") => AzureOperationKind.SetContainerMetadata,
-            (true, false, false, false, _, "acl") => AzureOperationKind.GetContainerAcl,
-            (false, false, true, false, _, "acl") => AzureOperationKind.SetContainerAcl,
-            (true, _, false, false, "", "") or (_, true, false, false, "", "") => AzureOperationKind.GetContainerProperties,
-            _ => AzureOperationKind.Unknown
-        };
+            return (r, c) switch
+            {
+                ("", "list") => AzureOperationKind.ListContainers,
+                ("service", "properties") => AzureOperationKind.GetServiceProperties,
+                ("account", "properties") => AzureOperationKind.GetAccountInfo,
+                _ => AzureOperationKind.Unknown
+            };
+        }
 
-    private static AzureOperationKind ResolveBlobOperation(string method, string comp, IHeaderDictionary headers) =>
-        HttpMethods.IsPut(method)
-            ? comp.ToLowerInvariant() switch
+        if (HttpMethods.IsPut(method) && r is "service" && c is "properties")
+        {
+            return AzureOperationKind.SetServiceProperties;
+        }
+
+        return AzureOperationKind.Unknown;
+    }
+
+    private static AzureOperationKind ResolveContainerOperation(string method, string restype, string comp)
+    {
+        var r = restype.ToLowerInvariant();
+        var c = comp.ToLowerInvariant();
+
+        if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method))
+        {
+            return (r, c) switch
+            {
+                (_, "list") => AzureOperationKind.ListBlobs,
+                (_, "metadata") => AzureOperationKind.GetContainerMetadata,
+                (_, "acl") => AzureOperationKind.GetContainerAcl,
+                ("container", "") or ("", "") => AzureOperationKind.GetContainerProperties,
+                _ => AzureOperationKind.Unknown
+            };
+        }
+
+        if (HttpMethods.IsPut(method))
+        {
+            return (r, c) switch
+            {
+                ("container", "") => AzureOperationKind.CreateContainer,
+                (_, "metadata") => AzureOperationKind.SetContainerMetadata,
+                (_, "acl") => AzureOperationKind.SetContainerAcl,
+                _ => AzureOperationKind.Unknown
+            };
+        }
+
+        if (HttpMethods.IsDelete(method) && r is "container" && c is "")
+        {
+            return AzureOperationKind.DeleteContainer;
+        }
+
+        return AzureOperationKind.Unknown;
+    }
+
+    private static AzureOperationKind ResolveBlobOperation(string method, string comp, IHeaderDictionary headers)
+    {
+        var lowerComp = comp.ToLowerInvariant();
+
+        if (HttpMethods.IsPut(method))
+        {
+            return lowerComp switch
             {
                 "block" => AzureOperationKind.PutBlock,
                 "blocklist" => AzureOperationKind.PutBlockList,
                 "metadata" => AzureOperationKind.SetBlobMetadata,
                 "tags" => AzureOperationKind.PutBlobTags,
                 _ => headers.ContainsKey("x-ms-copy-source") ? AzureOperationKind.CopyBlob : AzureOperationKind.PutBlob
-            }
-            : HttpMethods.IsGet(method)
-                ? comp.ToLowerInvariant() switch
-                {
-                    "blocklist" => AzureOperationKind.GetBlockList,
-                    "metadata" => AzureOperationKind.GetBlobMetadata,
-                    "tags" => AzureOperationKind.GetBlobTags,
-                    _ => AzureOperationKind.GetBlob
-                }
-                : HttpMethods.IsHead(method)
-                    ? AzureOperationKind.HeadBlob
-                    : HttpMethods.IsDelete(method)
-                        ? AzureOperationKind.DeleteBlob
-                        : AzureOperationKind.Unknown;
+            };
+        }
+
+        if (HttpMethods.IsGet(method))
+        {
+            return lowerComp switch
+            {
+                "blocklist" => AzureOperationKind.GetBlockList,
+                "metadata" => AzureOperationKind.GetBlobMetadata,
+                "tags" => AzureOperationKind.GetBlobTags,
+                _ => AzureOperationKind.GetBlob
+            };
+        }
+
+        if (HttpMethods.IsHead(method))
+        {
+            return AzureOperationKind.HeadBlob;
+        }
+
+        if (HttpMethods.IsDelete(method))
+        {
+            return AzureOperationKind.DeleteBlob;
+        }
+
+        return AzureOperationKind.Unknown;
+    }
 }

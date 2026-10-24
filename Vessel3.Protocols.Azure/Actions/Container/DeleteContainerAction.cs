@@ -20,7 +20,7 @@ internal sealed class DeleteContainerAction(
             return Task.FromResult<IResult>(new AzureErrorResult(new InvalidResourceNameError("Container name is required"), errorXml));
         }
 
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
+        var caller = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci
             ? ci
             : CallerIdentity.System;
 

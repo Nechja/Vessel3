@@ -49,8 +49,8 @@ internal sealed class GetObject(
         var evaluation = evaluator.Evaluate(readPreconditions, ok.Etag, ok.LastModified);
         return evaluation switch
         {
-            Precondition.NotModified => Results.StatusCode(304),
-            Precondition.Failed => Results.StatusCode(412),
+            Precondition.NotModified => Results.StatusCode(StatusCodes.Status304NotModified),
+            Precondition.Failed => Results.StatusCode(StatusCodes.Status412PreconditionFailed),
             _ => null,
         };
     }
@@ -73,19 +73,30 @@ internal sealed class GetObject(
         }
 
         var parsedRange = S3ByteRange.Parse(rangeHeader.ToString(), ok.Size);
-        switch (parsedRange)
+        return parsedRange switch
         {
-            case S3ByteRange.Unsatisfiable:
-                response.Headers["Content-Range"] = $"bytes */{ok.Size.ToString(CultureInfo.InvariantCulture)}";
-                return Results.StatusCode(416);
-            case S3ByteRange.Ignored:
-                request.Headers.Remove("Range");
-                return null;
-            case S3ByteRange.Normal normal:
-                request.Headers.Range = $"bytes={normal.Start.ToString(CultureInfo.InvariantCulture)}-{normal.End.ToString(CultureInfo.InvariantCulture)}";
-                return null;
-            default:
-                return null;
-        }
+            S3ByteRange.Unsatisfiable => HandleUnsatisfiable(response, ok.Size),
+            S3ByteRange.Ignored => HandleIgnored(request),
+            S3ByteRange.Normal normal => HandleNormal(request, normal),
+            _ => null,
+        };
+    }
+
+    private static IResult HandleUnsatisfiable(HttpResponse response, long size)
+    {
+        response.Headers["Content-Range"] = $"bytes */{size.ToString(CultureInfo.InvariantCulture)}";
+        return Results.StatusCode(StatusCodes.Status416RangeNotSatisfiable);
+    }
+
+    private static IResult? HandleIgnored(HttpRequest request)
+    {
+        request.Headers.Remove("Range");
+        return null;
+    }
+
+    private static IResult? HandleNormal(HttpRequest request, S3ByteRange.Normal normal)
+    {
+        request.Headers.Range = $"bytes={normal.Start.ToString(CultureInfo.InvariantCulture)}-{normal.End.ToString(CultureInfo.InvariantCulture)}";
+        return null;
     }
 }

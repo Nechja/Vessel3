@@ -29,7 +29,7 @@ internal sealed class PutBlobAction(IObjectStore objects) : IWebDavAction
         var req = ctx.Request;
         var contentType = req.ContentType ?? WebDavMediaTypes.OctetStream;
 
-        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
+        var actor = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
         var putReq = new ObjectPutRequest(
             Bucket: target.Bucket,
             Key: cleanPath,

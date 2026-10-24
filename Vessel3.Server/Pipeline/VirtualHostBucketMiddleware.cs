@@ -6,7 +6,7 @@ internal sealed class VirtualHostBucketMiddleware(IVirtualHostResolver resolver)
     {
         if (resolver.TryExtractBucket(ctx.Request.Host.Value, out var vhBucket))
         {
-            ctx.Items["VirtualHostBucket"] = vhBucket;
+            ctx.Items[VesselContextKeys.VirtualHostBucket] = vhBucket;
         }
 
         await next(ctx);

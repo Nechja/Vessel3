@@ -31,8 +31,8 @@ internal sealed class HeadObject(
         var evaluation = evaluator.Evaluate(readPreconditions, stat.Etag, stat.LastModified);
         return evaluation switch
         {
-            Precondition.NotModified => Results.StatusCode(304),
-            Precondition.Failed => Results.StatusCode(412),
+            Precondition.NotModified => Results.StatusCode(StatusCodes.Status304NotModified),
+            Precondition.Failed => Results.StatusCode(StatusCodes.Status412PreconditionFailed),
             _ => null,
         };
     }

@@ -37,7 +37,7 @@ internal sealed class ContainerRepoAuthMiddleware(
 
         if (options.IsUnauthenticated && string.IsNullOrEmpty(authHeader) && !context.Request.Headers.ContainsKey("X-Vessel-Key"))
         {
-            context.Items["CallerIdentity"] = CallerIdentity.System;
+            context.Items[VesselContextKeys.CallerIdentity] = CallerIdentity.System;
             await next(context);
             return;
         }
@@ -81,7 +81,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             return true;
         }
 
-        context.Items["CallerIdentity"] = caller;
+        context.Items[VesselContextKeys.CallerIdentity] = caller;
         if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
         {
             await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
@@ -101,7 +101,7 @@ internal sealed class ContainerRepoAuthMiddleware(
                 ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
                 : CallerIdentity.System;
 
-            context.Items["CallerIdentity"] = caller;
+            context.Items[VesselContextKeys.CallerIdentity] = caller;
             context.Items["OciScopes"] = scopes ?? [];
 
             if (!IsOperationAuthorized(context, caller, scopes))
@@ -119,7 +119,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             var verified = await tokenAuthenticator.AuthenticateToken(token, context.RequestAborted);
             if (verified.TryGetValue(out var oidcCaller, out _))
             {
-                context.Items["CallerIdentity"] = oidcCaller;
+                context.Items[VesselContextKeys.CallerIdentity] = oidcCaller;
                 if (!oidcCaller.CanWrite && IsWriteMethod(context.Request.Method))
                 {
                     await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
@@ -150,7 +150,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             return;
         }
 
-        context.Items["CallerIdentity"] = caller;
+        context.Items[VesselContextKeys.CallerIdentity] = caller;
 
         if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
         {

@@ -86,9 +86,9 @@ internal sealed partial class RequestTelemetry(
     private static int ResolveStatusCode(HttpContext ctx, Exception? failure, bool aborted) => failure switch
     {
         null => ctx.Response.StatusCode,
-        _ when aborted => 499,
+        _ when aborted => CustomStatusCodes.ClientClosedRequest,
         BadHttpRequestException badHttp => badHttp.StatusCode,
-        _ => 500,
+        _ => StatusCodes.Status500InternalServerError,
     };
 
     private static void ResolveActor(HttpContext ctx, RequestTrace trace)
@@ -98,7 +98,7 @@ internal sealed partial class RequestTelemetry(
             return;
         }
 
-        if (ctx.Items.TryGetValue("CallerIdentity", out var obj) && obj is CallerIdentity caller)
+        if (ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var obj) && obj is CallerIdentity caller)
         {
             trace.Actor = caller.Username;
         }

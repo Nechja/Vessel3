@@ -1,9 +1,26 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 
 namespace Vessel3.Protocols.WebDav.Dispatch;
 
 internal static class WebDavRequestParser
 {
+    private static readonly FrozenDictionary<string, WebDavOperationKind> Operations =
+        new Dictionary<string, WebDavOperationKind>(StringComparer.OrdinalIgnoreCase)
+        {
+            [HttpMethods.Get] = WebDavOperationKind.Get,
+            [HttpMethods.Head] = WebDavOperationKind.Head,
+            [HttpMethods.Put] = WebDavOperationKind.Put,
+            [HttpMethods.Delete] = WebDavOperationKind.Delete,
+            [HttpMethods.Options] = WebDavOperationKind.Options,
+            ["PROPFIND"] = WebDavOperationKind.Propfind,
+            ["MKCOL"] = WebDavOperationKind.Mkcol,
+            ["MOVE"] = WebDavOperationKind.Move,
+            ["COPY"] = WebDavOperationKind.Copy,
+            ["LOCK"] = WebDavOperationKind.Lock,
+            ["UNLOCK"] = WebDavOperationKind.Unlock,
+            ["PROPPATCH"] = WebDavOperationKind.Proppatch,
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     public static bool IsWebDavRequest(HttpRequest req)
     {
         var path = req.Path.Value ?? "/";
@@ -96,22 +113,8 @@ internal static class WebDavRequestParser
         _ => path
     };
 
-    private static WebDavOperationKind ResolveOperation(string method) => method switch
-    {
-        _ when HttpMethods.IsGet(method) => WebDavOperationKind.Get,
-        _ when HttpMethods.IsHead(method) => WebDavOperationKind.Head,
-        _ when HttpMethods.IsPut(method) => WebDavOperationKind.Put,
-        _ when HttpMethods.IsDelete(method) => WebDavOperationKind.Delete,
-        _ when HttpMethods.IsOptions(method) => WebDavOperationKind.Options,
-        _ when string.Equals(method, "PROPFIND", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Propfind,
-        _ when string.Equals(method, "MKCOL", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Mkcol,
-        _ when string.Equals(method, "MOVE", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Move,
-        _ when string.Equals(method, "COPY", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Copy,
-        _ when string.Equals(method, "LOCK", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Lock,
-        _ when string.Equals(method, "UNLOCK", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Unlock,
-        _ when string.Equals(method, "PROPPATCH", StringComparison.OrdinalIgnoreCase) => WebDavOperationKind.Proppatch,
-        _ => WebDavOperationKind.Unknown
-    };
+    private static WebDavOperationKind ResolveOperation(string method) =>
+        Operations.GetValueOrDefault(method, WebDavOperationKind.Unknown);
 
     private static int ResolveDepth(Microsoft.Extensions.Primitives.StringValues depthHeader, WebDavOperationKind operation)
     {

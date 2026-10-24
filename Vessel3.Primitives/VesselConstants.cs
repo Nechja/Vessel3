@@ -34,3 +34,17 @@ public static class VesselRoutes
     public const string EventsStream = "v1/events/stream";
     public const string OciCatalog = "v2/_catalog";
 }
+
+public static class VesselContextKeys
+{
+    public const string CallerIdentity = "CallerIdentity";
+    public const string VirtualHostBucket = "VirtualHostBucket";
+    public const string AzureRequestId = "AzureRequestId";
+    public const string SigV4Context = "sigctx";
+    public const string AnonymousAllowed = "AnonymousAllowed";
+}
+
+public static class CustomStatusCodes
+{
+    public const int ClientClosedRequest = 499;
+}
