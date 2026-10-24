@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Vessel3.Primitives;
 using Vessel3.Server;
 using Vessel3.Server.Telemetry;
 using Xunit;
@@ -256,7 +257,7 @@ public class RequestTelemetryTests
         ctx.Request.Method = "PUT";
         ctx.Request.Path = "/photos/vacation.jpg";
         ctx.Request.Headers["x-request-id"] = "req-custom-12345";
-        ctx.Items["CallerIdentity"] = new CallerIdentity("usr_1", "alice", UserRole.Admin, "AK1");
+        ctx.Items[VesselContextKeys.CallerIdentity] = new CallerIdentity("usr_1", "alice", UserRole.Admin, "AK1");
 
         await mw.InvokeAsync(ctx, innerCtx =>
         {
@@ -264,7 +265,7 @@ public class RequestTelemetryTests
             RequestTrace.Current!.Action = "PutObject";
             RequestTrace.Current.Bucket = "photos";
             RequestTrace.Current.Key = "vacation.jpg";
-            innerCtx.Response.StatusCode = 200;
+            innerCtx.Response.StatusCode = StatusCodes.Status200OK;
             return Task.CompletedTask;
         });
 

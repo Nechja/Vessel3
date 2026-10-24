@@ -4,13 +4,13 @@ namespace Vessel3.Server.Pipeline;
 
 internal sealed class AdminHostRedirectMiddleware(IVirtualHostResolver resolver) : IMiddleware
 {
-    private static readonly FrozenSet<string> BypassRoutes =
-    [
+    private static readonly FrozenSet<string> BypassRoutes = new[]
+    {
         WellKnownRoutes.Metrics,
         WellKnownRoutes.Healthz,
         WellKnownRoutes.Livez,
         WellKnownRoutes.Readyz,
-    ].ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {

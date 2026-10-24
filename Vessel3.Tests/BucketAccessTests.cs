@@ -115,7 +115,7 @@ public class BucketAccessTests : IDisposable
         Assert.IsType<S3ErrorResult>(delBRes);
 
         var adminCtx = new DefaultHttpContext();
-        adminCtx.Items["CallerIdentity"] = CallerIdentity.System;
+        adminCtx.Items[VesselContextKeys.CallerIdentity] = CallerIdentity.System;
 
         var putAdminRes = await keyDispatcher.Dispatch(HttpMethods.Put, "ro-bucket", "file.txt", adminCtx);
         var errPutAdmin = Assert.IsType<S3ErrorResult>(putAdminRes);
@@ -152,13 +152,13 @@ public class BucketAccessTests : IDisposable
         pubCtx.Request.Method = "GET";
         pubCtx.Request.Path = "/pub-bucket/photo.jpg";
         await middleware.InvokeAsync(pubCtx, _ => Task.CompletedTask);
-        Assert.True(pubCtx.Items.ContainsKey("AnonymousAllowed"));
+        Assert.True(pubCtx.Items.ContainsKey(VesselContextKeys.AnonymousAllowed));
 
         var privCtx = new DefaultHttpContext();
         privCtx.Request.Method = "GET";
         privCtx.Request.Path = "/priv-bucket/photo.jpg";
         await middleware.InvokeAsync(privCtx, _ => Task.CompletedTask);
-        Assert.False(privCtx.Items.ContainsKey("AnonymousAllowed"));
+        Assert.False(privCtx.Items.ContainsKey(VesselContextKeys.AnonymousAllowed));
     }
 
     [Fact]

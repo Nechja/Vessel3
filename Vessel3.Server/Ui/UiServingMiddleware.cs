@@ -30,7 +30,7 @@ internal sealed class UiServingMiddleware(
 
         if (basicGate && !UiEndpoints.BasicAuthOk(context.Request.Headers.Authorization.ToString(), config.AccessKey!, config.SecretKey!))
         {
-            context.Response.StatusCode = 401;
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
             return;
         }
@@ -60,7 +60,7 @@ internal sealed class UiServingMiddleware(
             return;
         }
 
-        context.Response.StatusCode = 405;
+        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
     }
 
     private async Task ServeConfig(HttpContext context)
@@ -81,7 +81,7 @@ internal sealed class UiServingMiddleware(
         {
             if (UiEndpoints.IsAssetPath(path))
             {
-                context.Response.StatusCode = 404;
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
             fileInfo = assets.GetFileInfo("index.html");
@@ -91,7 +91,7 @@ internal sealed class UiServingMiddleware(
         context.Response.Headers.CacheControl = "no-cache";
         if (context.Request.Headers.IfNoneMatch.ToString() == etag)
         {
-            context.Response.StatusCode = 304;
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
             return;
         }
 

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Serialization;
 
 namespace Vessel3.Protocols.Azure.Headers;
@@ -12,7 +13,7 @@ internal static class AzureHeaderCodec
         var res = ctx.Response;
         var req = ctx.Request;
 
-        var requestId = ctx.Items.TryGetValue("AzureRequestId", out var r) && r is string reqId
+        var requestId = ctx.Items.TryGetValue(VesselContextKeys.AzureRequestId, out var r) && r is string reqId
             ? reqId
             : Guid.NewGuid().ToString();
 
