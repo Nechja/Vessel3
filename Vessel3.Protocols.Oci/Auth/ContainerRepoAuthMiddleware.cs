@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -167,7 +166,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
             string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
         {
-            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret)))
+            if (!CryptographicCompare.FixedTimeEquals(options.RootSecretKey, secret))
                 return new OciUnauthorizedError("Invalid access key or secret");
 
             return CallerIdentity.System;
@@ -176,9 +175,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (!identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
             return new OciUnauthorizedError("Invalid credentials");
 
-        var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-        var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-        if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
+        if (!CryptographicCompare.FixedTimeEquals(keyEntry.SecretKey, secret))
             return new OciUnauthorizedError("Invalid access key or secret");
 
         return identity.AuthenticateAccessKey(key);

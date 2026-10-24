@@ -1,8 +1,8 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Storage;
 
@@ -60,13 +60,13 @@ internal sealed class TokenAction(
     {
         if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
             string.Equals(key, options.RootAccessKey, StringComparison.Ordinal) &&
-            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret)))
+            CryptographicCompare.FixedTimeEquals(options.RootSecretKey, secret))
         {
             return ("admin", true);
         }
 
         if (identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _) &&
-            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(keyEntry.SecretKey), Encoding.UTF8.GetBytes(secret)) &&
+            CryptographicCompare.FixedTimeEquals(keyEntry.SecretKey, secret) &&
             identity.AuthenticateAccessKey(key).TryGetValue(out var caller, out _))
         {
             return (caller.UserId, caller.CanWrite);

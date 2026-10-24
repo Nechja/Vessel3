@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Vessel3.IO;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -21,9 +22,18 @@ internal sealed class PutManifestAction(
         var repo = target.Repo ?? "";
         var reference = target.Reference ?? "";
 
-        using var ms = new MemoryStream();
-        await ctx.Request.Body.CopyToAsync(ms, ctx.RequestAborted);
-        var payload = ms.ToArray();
+        byte[] payload;
+        if (ctx.Request.ContentLength is > 0 and <= 4 * 1024 * 1024)
+        {
+            payload = new byte[(int)ctx.Request.ContentLength.Value];
+            await ctx.Request.Body.ReadExactlyAsync(payload, ctx.RequestAborted);
+        }
+        else
+        {
+            using var ms = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(ms, SohBuffer.BlockSize, ctx.RequestAborted);
+            payload = ms.ToArray();
+        }
 
         if (payload.Length == 0)
         {

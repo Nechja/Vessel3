@@ -200,7 +200,7 @@ internal sealed partial class BucketIndex
 
     public async IAsyncEnumerable<string> ReferencedBlobs([EnumeratorCancellation] CancellationToken ct = default)
     {
-        const int pageSize = 10000;
+        const int pageSize = 2000;
         long after = 0;
         while (true)
         {

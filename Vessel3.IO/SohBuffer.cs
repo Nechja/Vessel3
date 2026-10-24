@@ -11,7 +11,9 @@ internal static class SohBuffer
 
 internal readonly struct RentedBuffer(int size = SohBuffer.BlockSize) : IDisposable
 {
-    public byte[] Array { get; } = ArrayPool<byte>.Shared.Rent(size);
+    public byte[] Array { get; } = size <= SohBuffer.BlockSize
+        ? ArrayPool<byte>.Shared.Rent(size)
+        : throw new ArgumentOutOfRangeException(nameof(size), size, "Buffer size must not exceed SohBuffer.BlockSize");
     public int Length { get; } = size;
 
     public Memory<byte> Memory => Array.AsMemory(0, Length);

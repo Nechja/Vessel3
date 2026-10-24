@@ -28,7 +28,9 @@ internal sealed class NativeObjectAdapter(
         var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"]);
         var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"]);
         var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"]);
-        var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0 ? parsedLimit : 1000;
+        var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0
+            ? Math.Clamp(parsedLimit, 1, 1000)
+            : 1000;
 
         var result = lister.List(new ListRequest(bucket, prefix, delimiter, marker, limit), continuationToken: null);
         if (!result.TryGetValue(out var page, out var error))
@@ -36,8 +38,8 @@ internal sealed class NativeObjectAdapter(
             return error.ToHttpResult();
         }
 
-        var objectsList = new List<ObjectSummaryDto>(page.Entries.Count);
-        var prefixes = new List<string>();
+        List<ObjectSummaryDto> objectsList = new(page.Entries.Count);
+        List<string> prefixes = [];
         foreach (var entry in page.Entries)
         {
             if (entry is ListEntry.Contents contents)
