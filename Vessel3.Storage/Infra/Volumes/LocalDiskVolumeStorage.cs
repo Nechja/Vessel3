@@ -20,7 +20,9 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
             tmpDirEnsured = true;
         }
 
-        var tempPath = Path.Combine(volume.TmpDir, Guid.NewGuid().ToString("N"));
+        Span<char> id = stackalloc char[32];
+        Guid.NewGuid().TryFormat(id, out _, "N");
+        var tempPath = Path.Join(volume.TmpDir.AsSpan(), id);
         var moved = false;
 
         try
@@ -215,7 +217,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
     }
 
     private string PathFor(string sha) =>
-        Path.Combine(volume.BlobsRoot, sha[..2], sha[2..4], sha);
+        Path.Join(volume.BlobsRoot.AsSpan(), sha.AsSpan(0, 2), sha.AsSpan(2, 2), sha.AsSpan());
 
     private static bool IsLikelySha(string name) =>
         name.Length == 64 && name.All(IsHexLower);

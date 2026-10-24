@@ -35,7 +35,7 @@ internal sealed class CommitBlobUploadAction(
         if (ctx.Request.ContentLength is > 0)
         {
             await using var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, SohBuffer.BlockSize, useAsync: true);
-            await ctx.Request.Body.CopyToAsync(fileStream, ctx.RequestAborted);
+            await ctx.Request.Body.CopyToAsync(fileStream, SohBuffer.BlockSize, ctx.RequestAborted);
         }
 
         var cleanDeclaredSha = responseWriter.CleanSha(declaredDigest);

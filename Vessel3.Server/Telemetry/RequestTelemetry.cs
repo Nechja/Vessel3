@@ -143,7 +143,18 @@ internal sealed partial class RequestTelemetry(
 
         if (!ctx.Response.HasStarted)
         {
-            ctx.Response.Headers["traceparent"] = $"00-{activity.TraceId.ToHexString()}-{activity.SpanId.ToHexString()}-01";
+            ctx.Response.Headers["traceparent"] = string.Create(55, activity, static (span, act) =>
+            {
+                "00-".CopyTo(span);
+                Span<byte> traceBytes = stackalloc byte[16];
+                act.TraceId.CopyTo(traceBytes);
+                Convert.TryToHexStringLower(traceBytes, span[3..35], out _);
+                span[35] = '-';
+                Span<byte> spanBytes = stackalloc byte[8];
+                act.SpanId.CopyTo(spanBytes);
+                Convert.TryToHexStringLower(spanBytes, span[36..52], out _);
+                "-01".CopyTo(span[52..]);
+            });
         }
     }
 
@@ -237,24 +248,9 @@ internal sealed partial class RequestTelemetry(
             return default;
         }
 
-        var traceParentValue = traceParentHeader.ToString();
-        var parts = traceParentValue.Split('-');
-        if (parts.Length < 4 || parts[1].Length != 32 || parts[2].Length != 16)
-        {
-            return default;
-        }
-
-        try
-        {
-            var traceId = ActivityTraceId.CreateFromString(parts[1].AsSpan());
-            var spanId = ActivitySpanId.CreateFromString(parts[2].AsSpan());
-            var flags = parts[3] == "01" ? ActivityTraceFlags.Recorded : ActivityTraceFlags.None;
-            return new ActivityContext(traceId, spanId, flags, isRemote: true);
-        }
-        catch
-        {
-            return default;
-        }
+        return ActivityContext.TryParse(traceParentHeader.ToString(), null, out var context)
+            ? context
+            : default;
     }
 
     private static string ResolveTraceId(HttpContext ctx)
@@ -262,9 +258,18 @@ internal sealed partial class RequestTelemetry(
         var headers = ctx.Request.Headers;
         if (headers.TryGetValue("traceparent", out var traceParentHeader) && !string.IsNullOrEmpty(traceParentHeader))
         {
-            var traceParentValue = traceParentHeader.ToString();
-            var parts = traceParentValue.Split('-');
-            return parts.Length >= 4 && parts[1].Length == 32 ? parts[1] : traceParentValue;
+            var raw = traceParentHeader.ToString();
+            var span = raw.AsSpan();
+            if (span.Length >= 35 && span.Length >= 3 && span[2] == '-')
+            {
+                var nextDash = span[3..].IndexOf('-');
+                if (nextDash == 32)
+                {
+                    return span.Slice(3, 32).ToString();
+                }
+            }
+
+            return raw;
         }
 
         if (headers.TryGetValue("x-request-id", out var requestId) && !string.IsNullOrEmpty(requestId))

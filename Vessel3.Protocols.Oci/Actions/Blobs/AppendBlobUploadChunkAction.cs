@@ -27,7 +27,7 @@ internal sealed class AppendBlobUploadChunkAction(
 
         await using (var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, SohBuffer.BlockSize, useAsync: true))
         {
-            await ctx.Request.Body.CopyToAsync(fileStream, ctx.RequestAborted);
+            await ctx.Request.Body.CopyToAsync(fileStream, SohBuffer.BlockSize, ctx.RequestAborted);
         }
 
         var fileInfo = new FileInfo(session.TempFilePath);

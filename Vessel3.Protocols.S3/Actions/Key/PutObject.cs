@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Primitives;
+using Vessel3.IO;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -97,7 +98,7 @@ internal sealed class PutObject(
         var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
         if (preconditions.EvaluateForWrite(writeConditions, currentEtag) is Precondition.Failed)
         {
-            await request.Body.CopyToAsync(Stream.Null, cancellationToken);
+            await request.Body.CopyToAsync(Stream.Null, SohBuffer.BlockSize, cancellationToken);
             return false;
         }
 
