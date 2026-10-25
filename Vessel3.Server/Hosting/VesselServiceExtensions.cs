@@ -42,15 +42,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IDurableWrite, DurableWrite>();
 
         var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot)];
-        if (volumes.Count <= 1)
-        {
-            services.AddSingleton<IBlobLocationCatalog>(NullBlobLocationCatalog.Instance);
-        }
-        else
-        {
-            services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
-        }
-
+        services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
         services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(volumes, sp.GetRequiredService<IFileSync>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
@@ -95,17 +87,11 @@ internal static class VesselServiceExtensions
             var store = new SqliteWebhookStore(options, clock);
 
             var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, "webhooks.yaml");
-            if (File.Exists(yamlPath))
+            if (File.Exists(yamlPath)
+                && serializer.LoadFromYaml(File.ReadAllText(yamlPath), clock).TryGetValue(out var staticWebhooks, out _))
             {
-                var yamlContent = File.ReadAllText(yamlPath);
-                var loaded = serializer.LoadFromYaml(yamlContent, clock);
-                if (loaded.TryGetValue(out var staticWebhooks, out _))
-                {
-                    foreach (var sw in staticWebhooks)
-                    {
-                        store.UpsertStaticWebhook(sw);
-                    }
-                }
+                foreach (var sw in staticWebhooks)
+                    store.UpsertStaticWebhook(sw);
             }
 
             return store;

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
@@ -139,18 +140,25 @@ internal sealed record VesselConfig(
         return string.IsNullOrEmpty(value) ? defaultValue : !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static LogLevel ReadLogLevel(string name, LogLevel fallback) =>
-        Environment.GetEnvironmentVariable(name)?.ToLowerInvariant() switch
+    private static readonly FrozenDictionary<string, LogLevel> LogLevelByName =
+        new Dictionary<string, LogLevel>(StringComparer.OrdinalIgnoreCase)
         {
-            "trace" => LogLevel.Trace,
-            "debug" => LogLevel.Debug,
-            "info" or "information" => LogLevel.Information,
-            "warn" or "warning" => LogLevel.Warning,
-            "error" => LogLevel.Error,
-            "critical" => LogLevel.Critical,
-            "none" => LogLevel.None,
-            _ => fallback
-        };
+            ["trace"] = LogLevel.Trace,
+            ["debug"] = LogLevel.Debug,
+            ["info"] = LogLevel.Information,
+            ["information"] = LogLevel.Information,
+            ["warn"] = LogLevel.Warning,
+            ["warning"] = LogLevel.Warning,
+            ["error"] = LogLevel.Error,
+            ["critical"] = LogLevel.Critical,
+            ["none"] = LogLevel.None,
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static LogLevel ReadLogLevel(string name, LogLevel fallback)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return raw is not null && LogLevelByName.TryGetValue(raw, out var level) ? level : fallback;
+    }
 
     private static string? ReadString(string name, string? fallback = null)
     {
@@ -183,6 +191,17 @@ internal sealed record VesselConfig(
                 .Distinct()];
     }
 
+    private static readonly FrozenDictionary<string, VolumeCapabilities> CapabilityByName =
+        new Dictionary<string, VolumeCapabilities>(StringComparer.OrdinalIgnoreCase)
+        {
+            [nameof(VolumeCapabilities.None)] = VolumeCapabilities.None,
+            [nameof(VolumeCapabilities.Ingest)] = VolumeCapabilities.Ingest,
+            [nameof(VolumeCapabilities.OnDemand)] = VolumeCapabilities.OnDemand,
+            [nameof(VolumeCapabilities.ReadOnly)] = VolumeCapabilities.ReadOnly,
+            [nameof(VolumeCapabilities.Mirrored)] = VolumeCapabilities.Mirrored,
+            [nameof(VolumeCapabilities.Remote)] = VolumeCapabilities.Remote,
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
     internal static bool TryParseVolumes(
         string? raw,
         string dataRoot,
@@ -198,34 +217,40 @@ internal sealed record VesselConfig(
 
         List<StorageVolume> list = [];
         HashSet<string> seenIds = new(StringComparer.OrdinalIgnoreCase);
-        var parts = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var rawSpan = raw.AsSpan();
+        Span<Range> tokens = stackalloc Range[5];
 
-        foreach (var part in parts)
+        foreach (var entryRange in rawSpan.SplitAny(",;"))
         {
-            var tokens = part.Split(':', StringSplitOptions.TrimEntries);
-            if (tokens.Length < 2)
+            var partSpan = rawSpan[entryRange].Trim();
+            if (partSpan.IsEmpty)
+                continue;
+
+            var tokenCount = partSpan.Split(tokens, ':', StringSplitOptions.TrimEntries);
+            if (tokenCount < 2)
             {
                 volumes = null;
-                error = $"Invalid volume entry '{part}': expected at least 'id:path'";
+                error = $"Invalid volume entry '{partSpan}': expected at least 'id:path'";
                 return false;
             }
 
-            var id = tokens[0];
-            var path = tokens[1];
-            if (string.IsNullOrWhiteSpace(id))
+            var idSpan = partSpan[tokens[0]];
+            var pathSpan = partSpan[tokens[1]];
+            if (idSpan.IsEmpty)
             {
                 volumes = null;
-                error = $"Invalid volume entry '{part}': volume id cannot be empty";
+                error = $"Invalid volume entry '{partSpan}': volume id cannot be empty";
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(path))
+            if (pathSpan.IsEmpty)
             {
                 volumes = null;
-                error = $"Invalid volume entry '{part}': volume path cannot be empty";
+                error = $"Invalid volume entry '{partSpan}': volume path cannot be empty";
                 return false;
             }
 
+            var id = idSpan.ToString();
             if (!seenIds.Add(id))
             {
                 volumes = null;
@@ -233,31 +258,17 @@ internal sealed record VesselConfig(
                 return false;
             }
 
-            var pool = tokens.Length > 2 && !string.IsNullOrWhiteSpace(tokens[2]) ? tokens[2] : "default";
-            var flags = VolumeCapabilities.None;
+            var poolSpan = tokenCount > 2 ? partSpan[tokens[2]] : [];
+            var pool = poolSpan.IsEmpty ? "default" : poolSpan.ToString();
+            var flagsSpan = tokenCount > 3 ? partSpan[tokens[3]] : [];
 
-            if (tokens.Length > 3 && !string.IsNullOrWhiteSpace(tokens[3]))
+            if (!TryParseCapabilities(flagsSpan, idSpan, out var flags, out error))
             {
-                var flagTokens = tokens[3].Split('+', StringSplitOptions.TrimEntries);
-                foreach (var ft in flagTokens)
-                {
-                    if (string.IsNullOrWhiteSpace(ft)) continue;
-                    if (!Enum.TryParse<VolumeCapabilities>(ft, ignoreCase: true, out var parsedFlag))
-                    {
-                        volumes = null;
-                        error = $"Invalid volume capability '{ft}' for volume '{id}'";
-                        return false;
-                    }
-                    flags |= parsedFlag;
-                }
+                volumes = null;
+                return false;
             }
 
-            if (flags == VolumeCapabilities.None)
-            {
-                flags = VolumeCapabilities.Ingest;
-            }
-
-            list.Add(new StorageVolume(id, path, pool, flags));
+            list.Add(new StorageVolume(id, pathSpan.ToString(), pool, flags));
         }
 
         if (list.Count == 0)
@@ -276,6 +287,41 @@ internal sealed record VesselConfig(
 
         volumes = list;
         error = null;
+        return true;
+    }
+
+    private static bool TryParseCapabilities(
+        ReadOnlySpan<char> flagsSpan,
+        ReadOnlySpan<char> volumeId,
+        out VolumeCapabilities flags,
+        [NotNullWhen(false)] out string? error)
+    {
+        flags = VolumeCapabilities.None;
+        error = null;
+        if (flagsSpan.IsEmpty)
+        {
+            flags = VolumeCapabilities.Ingest;
+            return true;
+        }
+
+        var capLookup = CapabilityByName.GetAlternateLookup<ReadOnlySpan<char>>();
+        Span<Range> flagRanges = stackalloc Range[8];
+        var flagCount = flagsSpan.Split(flagRanges, '+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        for (var i = 0; i < flagCount; i++)
+        {
+            var ft = flagsSpan[flagRanges[i]];
+            if (!capLookup.TryGetValue(ft, out var parsedFlag))
+            {
+                error = $"Invalid volume capability '{ft}' for volume '{volumeId}'";
+                return false;
+            }
+            flags |= parsedFlag;
+        }
+
+        if (flags == VolumeCapabilities.None)
+            flags = VolumeCapabilities.Ingest;
+
         return true;
     }
 
