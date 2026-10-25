@@ -132,6 +132,7 @@ internal sealed class PooledBufferStream : Stream
             segments.Clear();
             currentSegmentIndex = -1;
             currentSegmentOffset = 0;
+            totalBytesWritten = 0;
             readPosition = 0;
         }
 

@@ -53,7 +53,7 @@ internal sealed class HttpRemoteBlobReader(
             pooled.Position = 0;
             return pooled;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             if (pooled is not null)
                 await pooled.DisposeAsync();
@@ -72,7 +72,7 @@ internal sealed class HttpRemoteBlobReader(
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             return response.IsSuccessStatusCode;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             return false;
         }

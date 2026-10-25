@@ -77,10 +77,12 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
     {
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null
-            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage)
-            && (await locatedStorage.OpenBlob(sha, ct)).TryGetValue(out var locatedStream, out _))
+            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage))
         {
-            return locatedStream;
+            if ((await locatedStorage.OpenBlob(sha, ct)).TryGetValue(out var locatedStream, out _))
+                return locatedStream;
+
+            catalog.RemoveLocation(sha);
         }
 
         foreach (var storage in registry.LocalStorages)
@@ -131,10 +133,12 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
     {
         var locatedVolumeId = catalog.LocateBlob(sha);
         if (locatedVolumeId is not null
-            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage)
-            && await locatedStorage.BlobExists(sha, ct))
+            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage))
         {
-            return true;
+            if (await locatedStorage.BlobExists(sha, ct))
+                return true;
+
+            catalog.RemoveLocation(sha);
         }
 
         foreach (var storage in registry.LocalStorages)
@@ -191,15 +195,21 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public DateTime? GetLastWriteUtc(string sha)
     {
-        if (catalog.LocateBlob(sha) is { } locatedVolumeId
-            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage)
-            && locatedStorage.GetLastWriteUtc(sha) is { } locatedMtime)
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null
+            && registry.TryGetOnlineLocalStorage(locatedVolumeId, out var locatedStorage))
         {
-            return locatedMtime;
+            if (locatedStorage.GetLastWriteUtc(sha) is { } locatedMtime)
+                return locatedMtime;
+
+            catalog.RemoveLocation(sha);
         }
 
         foreach (var storage in registry.LocalStorages)
         {
+            if (string.Equals(storage.VolumeId, locatedVolumeId, StringComparison.Ordinal))
+                continue;
+
             if (storage.GetLastWriteUtc(sha) is { } mtime)
             {
                 catalog.RecordLocation(sha, storage.VolumeId);
