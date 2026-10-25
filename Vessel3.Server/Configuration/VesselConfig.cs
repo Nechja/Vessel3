@@ -95,7 +95,7 @@ internal sealed record VesselConfig(
         var otelServiceName = ReadString("VESSEL3_OTEL_SERVICE_NAME", "vessel3")!;
         var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
 
-        if (!TryReadVolumes("VESSEL3_VOLUMES", dataRoot, out var volumes, out error))
+        if (!TryReadVolumes("VESSEL3_VOLUMES", dataRoot, out var volumes, out error, nodeId))
         {
             config = null;
             return false;
@@ -244,11 +244,12 @@ internal sealed record VesselConfig(
         string? raw,
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
-        [NotNullWhen(false)] out string? error)
+        [NotNullWhen(false)] out string? error,
+        string? nodeId = null)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
             error = null;
             return true;
         }
@@ -306,12 +307,12 @@ internal sealed record VesselConfig(
                 return false;
             }
 
-            list.Add(new StorageVolume(id, pathSpan.ToString(), pool, flags));
+            list.Add(new StorageVolume(id, pathSpan.ToString(), pool, flags, NodeId: nodeId));
         }
 
         if (list.Count == 0)
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
             error = null;
             return true;
         }
@@ -367,6 +368,7 @@ internal sealed record VesselConfig(
         string name,
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
-        [NotNullWhen(false)] out string? error) =>
-        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error);
+        [NotNullWhen(false)] out string? error,
+        string? nodeId = null) =>
+        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error, nodeId);
 }

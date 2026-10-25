@@ -2,52 +2,33 @@ using System.Collections.Frozen;
 
 namespace Vessel3.Storage;
 
-internal sealed class ClusterMembership(
-    ClusterMembershipOptions options,
-    ILocalVolumeAdvertiser volumeAdvertiser,
-    IEnumerable<IClusterTopologyListener>? listeners = null,
-    TimeProvider? clock = null) : IClusterMembership
+internal sealed class ClusterMembership : IClusterMembership
 {
-    private static readonly FrozenDictionary<PeerStatus, int> StatusPrecedence =
-        new Dictionary<PeerStatus, int>
-        {
-            [PeerStatus.Alive] = 0,
-            [PeerStatus.Suspect] = 1,
-            [PeerStatus.Dead] = 2,
-            [PeerStatus.Left] = 3,
-        }.ToFrozenDictionary();
-
-    private static readonly FrozenDictionary<int, Func<PeerNodeState, PeerNodeState, DateTimeOffset, bool, PeerNodeState>> VersionRules =
-        new Dictionary<int, Func<PeerNodeState, PeerNodeState, DateTimeOffset, bool, PeerNodeState>>
-        {
-            [1] = static (_, incoming, now, _) => incoming with { LastSeenUtc = now },
-            [-1] = static (current, _, _, _) => current,
-            [0] = ResolveSameIncarnation,
-        }.ToFrozenDictionary();
-
-    private static readonly FrozenDictionary<PeerStatus, Func<PeerNodeState, DateTimeOffset, ClusterMembershipOptions, PeerNodeState>> SweepHandlers =
-        new Dictionary<PeerStatus, Func<PeerNodeState, DateTimeOffset, ClusterMembershipOptions, PeerNodeState>>
-        {
-            [PeerStatus.Alive] = static (peer, now, opts) =>
-                now - peer.LastSeenUtc >= opts.SuspectTimeout
-                    ? peer with { Status = PeerStatus.Suspect, LastSeenUtc = now }
-                    : peer,
-            [PeerStatus.Suspect] = static (peer, now, opts) =>
-                now - peer.LastSeenUtc >= opts.DeadTimeout
-                    ? peer with { Status = PeerStatus.Dead, LastSeenUtc = now }
-                    : peer,
-            [PeerStatus.Dead] = static (peer, _, _) => peer,
-            [PeerStatus.Left] = static (peer, _, _) => peer,
-        }.ToFrozenDictionary();
-
-    private readonly TimeProvider time = clock ?? TimeProvider.System;
-    private readonly IReadOnlyList<IClusterTopologyListener> topologyListeners = listeners is null ? [] : [.. listeners];
+    private readonly ClusterMembershipOptions options;
+    private readonly IVolumeRegistry? volumeRegistry;
+    private readonly Func<IReadOnlyList<AdvertisedVolume>> advertisedVolumesProvider;
+    private readonly TimeProvider time;
     private readonly Lock gate = new();
 
-    private long localIncarnation = Math.Max(1L, (clock ?? TimeProvider.System).GetUtcNow().ToUnixTimeMilliseconds());
+    private long localIncarnation;
+    private long topologySequence;
     private PeerStatus localStatus = PeerStatus.Alive;
-    private IReadOnlyList<AdvertisedVolume> lastAdvertisedVolumes = volumeAdvertiser.GetAdvertisedVolumes();
+    private IReadOnlyList<AdvertisedVolume> lastAdvertisedVolumes;
     private volatile MembershipSnapshot current = MembershipSnapshot.Empty;
+
+    public ClusterMembership(
+        ClusterMembershipOptions options,
+        IVolumeRegistry? volumeRegistry = null,
+        TimeProvider? clock = null,
+        Func<IReadOnlyList<AdvertisedVolume>>? localVolumes = null)
+    {
+        this.options = options;
+        this.volumeRegistry = volumeRegistry;
+        time = clock ?? TimeProvider.System;
+        advertisedVolumesProvider = localVolumes ?? (() => this.volumeRegistry?.LocalAdvertisedVolumes ?? []);
+        localIncarnation = Math.Max(1L, time.GetUtcNow().ToUnixTimeMilliseconds());
+        lastAdvertisedVolumes = advertisedVolumesProvider();
+    }
 
     public PeerNodeState LocalNode
     {
@@ -70,9 +51,7 @@ internal sealed class ClusterMembership(
         var now = time.GetUtcNow();
         lock (gate)
         {
-            var local = BuildLocalNodeLocked(now);
-            IReadOnlyList<PeerNodeState> members = [local, .. current.PeerList];
-            return new(local.NodeId, local.Endpoint, local.Incarnation, members);
+            return BuildOutboundMessageLocked(now);
         }
     }
 
@@ -81,13 +60,16 @@ internal sealed class ClusterMembership(
         ArgumentNullException.ThrowIfNull(incoming);
 
         var now = time.GetUtcNow();
-        List<PeerNodeState>? topologyChanged = null;
+        var nowTicks = now.UtcTicks;
+        var topologyChanged = false;
+        PeerTopologySnapshot? topologyToSync = null;
         GossipMessage reply;
 
         lock (gate)
         {
             var snap = current;
-            Dictionary<string, PeerNodeState>? mutated = null;
+            Dictionary<string, PeerNodeState>? mutatedPeers = null;
+            Dictionary<string, long>? mutatedContacts = null;
 
             foreach (var member in incoming.Members)
             {
@@ -96,42 +78,57 @@ internal sealed class ClusterMembership(
 
                 if (string.Equals(member.NodeId, options.NodeId, StringComparison.Ordinal))
                 {
-                    RefuteIfNeededLocked(member);
+                    if (SwimProtocol.ShouldRefuteSelf(localIncarnation, localStatus, member))
+                        localIncarnation = Math.Max(localIncarnation, member.Incarnation) + 1;
                     continue;
                 }
 
                 var isDirectSender = string.Equals(member.NodeId, incoming.SenderNodeId, StringComparison.Ordinal);
-                var existing = (mutated is not null && mutated.TryGetValue(member.NodeId, out var m))
+                var existing = mutatedPeers is not null && mutatedPeers.TryGetValue(member.NodeId, out var m)
                     ? m
                     : snap.PeersById.GetValueOrDefault(member.NodeId);
 
-                var resolved = existing is null
-                    ? member with { LastSeenUtc = now }
-                    : ResolvePeerState(existing, member, now, isDirectSender);
-
-                if (existing is not null && existing.Equals(resolved))
-                    continue;
-
-                mutated ??= new(snap.PeersById, StringComparer.Ordinal);
-                mutated[member.NodeId] = resolved;
-
-                if (existing is null || !existing.HasSameTopology(resolved))
+                if (existing is null)
                 {
-                    topologyChanged ??= [];
-                    topologyChanged.Add(resolved);
+                    var added = member with { LastSeenUtc = now };
+                    mutatedPeers ??= new(snap.PeersById, StringComparer.Ordinal);
+                    mutatedPeers[member.NodeId] = added;
+                    mutatedContacts ??= CloneContacts(snap);
+                    mutatedContacts[member.NodeId] = nowTicks;
+                    topologyChanged = true;
+                    continue;
+                }
+
+                var (resolved, refreshContact) = SwimProtocol.ResolvePeerState(existing, member, now, isDirectSender);
+
+                if (!ReferenceEquals(existing, resolved) && !existing.HasSameState(resolved))
+                {
+                    mutatedPeers ??= new(snap.PeersById, StringComparer.Ordinal);
+                    mutatedPeers[member.NodeId] = resolved;
+                    mutatedContacts ??= CloneContacts(snap);
+                    mutatedContacts[member.NodeId] = nowTicks;
+                    if (!existing.HasSameTopology(resolved))
+                        topologyChanged = true;
+                }
+                else if (refreshContact && snap.PeerIndexById.TryGetValue(member.NodeId, out var idx))
+                {
+                    Volatile.Write(ref snap.ContactTicks[idx], nowTicks);
                 }
             }
 
-            if (mutated is not null)
-                current = CreateSnapshot(mutated);
+            if (mutatedPeers is not null)
+            {
+                var nextVersion = topologyChanged ? ++topologySequence : snap.TopologyVersion;
+                current = CreateSnapshot(mutatedPeers, mutatedContacts!, nextVersion);
+                if (topologyChanged)
+                    topologyToSync = new(current.TopologyVersion, current.PeerList);
+            }
 
-            var local = BuildLocalNodeLocked(now);
-            IReadOnlyList<PeerNodeState> members = [local, .. current.PeerList];
-            reply = new(local.NodeId, local.Endpoint, local.Incarnation, members);
+            reply = BuildOutboundMessageLocked(now);
         }
 
-        if (topologyChanged is not null)
-            NotifyTopologyUpdated(topologyChanged);
+        if (topologyToSync is { } syncSnap)
+            volumeRegistry?.SyncPeerTopology(syncSnap);
 
         return reply;
     }
@@ -139,34 +136,45 @@ internal sealed class ClusterMembership(
     public IReadOnlyList<PeerNodeState> SweepTimeouts()
     {
         var now = time.GetUtcNow();
+        var nowTicks = now.UtcTicks;
         List<PeerNodeState>? transitioned = null;
+        PeerTopologySnapshot? topologyToSync = null;
 
         lock (gate)
         {
             var snap = current;
-            Dictionary<string, PeerNodeState>? mutated = null;
+            Dictionary<string, PeerNodeState>? mutatedPeers = null;
+            Dictionary<string, long>? mutatedContacts = null;
 
-            foreach (var peer in snap.PeerList)
+            for (var i = 0; i < snap.PeerList.Count; i++)
             {
-                var next = SweepHandlers[peer.Status](peer, now, options);
-                if (ReferenceEquals(next, peer))
+                var peer = snap.PeerList[i];
+                var contactTicks = Volatile.Read(ref snap.ContactTicks[i]);
+                var elapsed = TimeSpan.FromTicks(nowTicks - contactTicks);
+                var nextStatus = SwimProtocol.EvaluateTimeoutStatus(peer.Status, elapsed, options);
+                if (nextStatus == peer.Status)
                     continue;
 
-                mutated ??= new(snap.PeersById, StringComparer.Ordinal);
-                mutated[peer.NodeId] = next;
+                var nextPeer = peer with { Status = nextStatus, LastSeenUtc = now };
+                mutatedPeers ??= new(snap.PeersById, StringComparer.Ordinal);
+                mutatedPeers[peer.NodeId] = nextPeer;
+                mutatedContacts ??= CloneContacts(snap);
+                mutatedContacts[peer.NodeId] = nowTicks;
                 transitioned ??= [];
-                transitioned.Add(next);
+                transitioned.Add(nextPeer);
             }
 
-            if (mutated is not null)
-                current = CreateSnapshot(mutated);
+            if (mutatedPeers is not null)
+            {
+                current = CreateSnapshot(mutatedPeers, mutatedContacts!, ++topologySequence);
+                topologyToSync = new(current.TopologyVersion, current.PeerList);
+            }
         }
 
-        if (transitioned is null)
-            return [];
+        if (topologyToSync is { } syncSnap)
+            volumeRegistry?.SyncPeerTopology(syncSnap);
 
-        NotifyTopologyUpdated(transitioned);
-        return transitioned;
+        return transitioned ?? [];
     }
 
     public bool MarkPeerSuspect(string nodeId)
@@ -176,7 +184,8 @@ internal sealed class ClusterMembership(
             return false;
 
         var now = time.GetUtcNow();
-        PeerNodeState? updated = null;
+        var nowTicks = now.UtcTicks;
+        PeerTopologySnapshot topologyToSync;
 
         lock (gate)
         {
@@ -184,15 +193,19 @@ internal sealed class ClusterMembership(
             if (!snap.PeersById.TryGetValue(nodeId, out var existing) || existing.Status is not PeerStatus.Alive)
                 return false;
 
-            updated = existing with { Status = PeerStatus.Suspect, LastSeenUtc = now };
-            Dictionary<string, PeerNodeState> mutated = new(snap.PeersById, StringComparer.Ordinal)
+            var updated = existing with { Status = PeerStatus.Suspect, LastSeenUtc = now };
+            Dictionary<string, PeerNodeState> mutatedPeers = new(snap.PeersById, StringComparer.Ordinal)
             {
                 [nodeId] = updated
             };
-            current = CreateSnapshot(mutated);
+            var mutatedContacts = CloneContacts(snap);
+            mutatedContacts[nodeId] = nowTicks;
+
+            current = CreateSnapshot(mutatedPeers, mutatedContacts, ++topologySequence);
+            topologyToSync = new(current.TopologyVersion, current.PeerList);
         }
 
-        NotifyTopologyUpdated([updated]);
+        volumeRegistry?.SyncPeerTopology(topologyToSync);
         return true;
     }
 
@@ -205,85 +218,83 @@ internal sealed class ClusterMembership(
         }
     }
 
+    private GossipMessage BuildOutboundMessageLocked(DateTimeOffset now)
+    {
+        var local = BuildLocalNodeLocked(now);
+        IReadOnlyList<PeerNodeState> members = [local, .. current.PeerList];
+        return new(local.NodeId, local.Endpoint, local.Incarnation, members);
+    }
+
     private PeerNodeState BuildLocalNodeLocked(DateTimeOffset now)
     {
-        var volumes = volumeAdvertiser.GetAdvertisedVolumes();
-        if (!PeerNodeState.VolumesEqual(lastAdvertisedVolumes, volumes))
+        var volumes = advertisedVolumesProvider();
+        if (!ReferenceEquals(lastAdvertisedVolumes, volumes) && !PeerNodeState.VolumesEqual(lastAdvertisedVolumes, volumes))
         {
             localIncarnation++;
+            lastAdvertisedVolumes = volumes;
+        }
+        else
+        {
             lastAdvertisedVolumes = volumes;
         }
 
         return new(
             options.NodeId,
-            options.LocalEndpoint,
+            options.NormalizedLocalEndpoint,
             localIncarnation,
             localStatus,
             now,
             lastAdvertisedVolumes);
     }
 
-    private void RefuteIfNeededLocked(PeerNodeState peerViewOfLocal)
+    private static Dictionary<string, long> CloneContacts(MembershipSnapshot snap)
     {
-        if (localStatus is not PeerStatus.Alive)
-            return;
+        Dictionary<string, long> map = new(snap.PeerList.Count, StringComparer.Ordinal);
+        for (var i = 0; i < snap.PeerList.Count; i++)
+            map[snap.PeerList[i].NodeId] = Volatile.Read(ref snap.ContactTicks[i]);
+        return map;
+    }
 
-        if (peerViewOfLocal.Incarnation > localIncarnation
-            || (peerViewOfLocal.Incarnation == localIncarnation && peerViewOfLocal.Status is not PeerStatus.Alive))
+    private static MembershipSnapshot CreateSnapshot(
+        Dictionary<string, PeerNodeState> peers,
+        Dictionary<string, long> contactsById,
+        long topologyVersion)
+    {
+        var frozenPeers = peers.ToFrozenDictionary(StringComparer.Ordinal);
+        IReadOnlyList<PeerNodeState> ordered = [.. peers.Values.OrderBy(static p => p.NodeId, StringComparer.Ordinal)];
+        Dictionary<string, int> indexMap = new(ordered.Count, StringComparer.Ordinal);
+        var contactTicks = new long[ordered.Count];
+
+        for (var i = 0; i < ordered.Count; i++)
         {
-            localIncarnation = Math.Max(localIncarnation, peerViewOfLocal.Incarnation) + 1;
+            var nodeId = ordered[i].NodeId;
+            indexMap[nodeId] = i;
+            contactTicks[i] = contactsById.TryGetValue(nodeId, out var ticks)
+                ? ticks
+                : ordered[i].LastSeenUtc.UtcTicks;
         }
-    }
 
-    private static PeerNodeState ResolvePeerState(
-        PeerNodeState current,
-        PeerNodeState incoming,
-        DateTimeOffset nowUtc,
-        bool isDirectSender)
-    {
-        var cmp = Math.Sign(incoming.Incarnation.CompareTo(current.Incarnation));
-        return VersionRules[cmp](current, incoming, nowUtc, isDirectSender);
-    }
-
-    private static PeerNodeState ResolveSameIncarnation(
-        PeerNodeState current,
-        PeerNodeState incoming,
-        DateTimeOffset nowUtc,
-        bool isDirectSender)
-    {
-        if (StatusPrecedence[incoming.Status] > StatusPrecedence[current.Status])
-            return incoming with { LastSeenUtc = nowUtc };
-
-        if (isDirectSender && current.Status is PeerStatus.Alive && incoming.Status is PeerStatus.Alive)
-            return incoming with { LastSeenUtc = nowUtc };
-
-        return current;
-    }
-
-    private static MembershipSnapshot CreateSnapshot(Dictionary<string, PeerNodeState> peers)
-    {
-        var frozen = peers.ToFrozenDictionary(StringComparer.Ordinal);
-        IReadOnlyList<PeerNodeState> ordered = [.. peers.Values.OrderBy(p => p.NodeId, StringComparer.Ordinal)];
-        return new(frozen, ordered);
-    }
-
-    private void NotifyTopologyUpdated(IReadOnlyList<PeerNodeState> updatedPeers)
-    {
-        if (topologyListeners.Count == 0)
-            return;
-
-        foreach (var peer in updatedPeers)
-        {
-            foreach (var listener in topologyListeners)
-                listener.OnPeerUpdated(peer);
-        }
+        return new(
+            frozenPeers,
+            indexMap.ToFrozenDictionary(StringComparer.Ordinal),
+            ordered,
+            contactTicks,
+            topologyVersion);
     }
 
     private sealed record MembershipSnapshot(
         FrozenDictionary<string, PeerNodeState> PeersById,
-        IReadOnlyList<PeerNodeState> PeerList)
+        FrozenDictionary<string, int> PeerIndexById,
+        IReadOnlyList<PeerNodeState> PeerList,
+        long[] ContactTicks,
+        long TopologyVersion)
     {
         public static MembershipSnapshot Empty { get; } =
-            new(FrozenDictionary<string, PeerNodeState>.Empty, []);
+            new(
+                FrozenDictionary<string, PeerNodeState>.Empty,
+                FrozenDictionary<string, int>.Empty,
+                [],
+                [],
+                0L);
     }
 }

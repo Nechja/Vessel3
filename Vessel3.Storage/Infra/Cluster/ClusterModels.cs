@@ -34,11 +34,15 @@ public sealed record PeerNodeState(
         && string.Equals(Endpoint, other.Endpoint, StringComparison.Ordinal)
         && VolumesEqual(Volumes, other.Volumes);
 
-    public bool Equals(PeerNodeState? other) =>
+    public bool HasSameState(PeerNodeState? other) =>
         other is not null
         && Incarnation == other.Incarnation
-        && LastSeenUtc.Equals(other.LastSeenUtc)
         && HasSameTopology(other);
+
+    public bool Equals(PeerNodeState? other) =>
+        other is not null
+        && LastSeenUtc.Equals(other.LastSeenUtc)
+        && HasSameState(other);
 
     public override int GetHashCode()
     {
@@ -68,6 +72,10 @@ public sealed record PeerNodeState(
     }
 }
 
+public readonly record struct PeerTopologySnapshot(
+    long Version,
+    IReadOnlyList<PeerNodeState> Peers);
+
 public sealed record GossipMessage(
     string SenderNodeId,
     string SenderEndpoint,
@@ -83,6 +91,11 @@ public sealed record ClusterMembershipOptions(
     TimeSpan DeadTimeout,
     string? ClusterSecret = null)
 {
+    public string NormalizedLocalEndpoint { get; } = LocalEndpoint.TrimEnd('/');
+
+    public IReadOnlyList<string> NormalizedSeedEndpoints { get; } =
+        [.. SeedEndpoints.Where(static s => !string.IsNullOrWhiteSpace(s)).Select(static s => s.TrimEnd('/'))];
+
     public bool IsClusterEnabled =>
-        !string.IsNullOrWhiteSpace(LocalEndpoint) || SeedEndpoints.Count > 0;
+        !string.IsNullOrWhiteSpace(NormalizedLocalEndpoint) || NormalizedSeedEndpoints.Count > 0;
 }

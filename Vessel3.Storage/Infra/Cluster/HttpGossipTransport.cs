@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -10,6 +11,8 @@ internal sealed class HttpGossipTransport(HttpClient httpClient, string? cluster
         CharSet = VesselMediaTypes.Utf8CharSet
     };
 
+    private readonly ConcurrentDictionary<string, Uri> gossipUris = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<Result<GossipMessage>> ExchangeGossip(
         string peerEndpoint,
         GossipMessage outbound,
@@ -18,10 +21,13 @@ internal sealed class HttpGossipTransport(HttpClient httpClient, string? cluster
         if (string.IsNullOrWhiteSpace(peerEndpoint))
             return new InvalidRequestError("Peer endpoint cannot be empty.");
 
-        var url = $"{peerEndpoint.TrimEnd('/')}/_cluster/gossip";
+        var uri = gossipUris.GetOrAdd(
+            peerEndpoint,
+            static ep => new Uri($"{ep.TrimEnd('/')}{VesselRoutes.ClusterGossipPath}", UriKind.Absolute));
+
         var payload = JsonSerializer.SerializeToUtf8Bytes(outbound, GossipJsonContext.Default.GossipMessage);
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = new ByteArrayContent(payload)
         };

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Vessel3.IO;
 
 namespace Vessel3.Server.Endpoints;
 
@@ -17,6 +18,9 @@ internal static class ClusterEndpoints
         ClusterMembershipOptions options,
         IClusterMembership membership)
     {
+        RequestTrace.SetContext(protocol: "cluster");
+        RequestTrace.SetAction("ClusterGossip");
+
         if (!IsAuthorized(ctx, options))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -43,6 +47,7 @@ internal static class ClusterEndpoints
             return;
         }
 
+        RequestTrace.SetContext(actor: incoming.SenderNodeId);
         var reply = membership.MergeGossip(incoming);
         ctx.Response.StatusCode = StatusCodes.Status200OK;
         ctx.Response.ContentType = VesselMediaTypes.Json;
@@ -57,69 +62,65 @@ internal static class ClusterEndpoints
         string sha,
         HttpContext ctx,
         ClusterMembershipOptions options,
-        IVolumeRegistry volumeRegistry)
+        IBlobPool blobPool)
     {
+        RequestTrace.SetContext(protocol: "cluster");
+        RequestTrace.SetTarget("ClusterHeadBlob", key: sha);
+
         if (!IsAuthorized(ctx, options))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
 
-        if (!HttpRemoteBlobReader.IsValidSha(sha))
+        if (!Sha256Hex.IsValid(sha))
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
-        foreach (var storage in volumeRegistry.LocalStorages)
-        {
-            if (await storage.BlobExists(sha, ctx.RequestAborted))
-            {
-                ctx.Response.StatusCode = StatusCodes.Status200OK;
-                return;
-            }
-        }
-
-        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        ctx.Response.StatusCode = await blobPool.ExistsOnLocalVolume(sha, ctx.RequestAborted)
+            ? StatusCodes.Status200OK
+            : StatusCodes.Status404NotFound;
     }
 
     private static async Task HandleGetBlob(
         string sha,
         HttpContext ctx,
         ClusterMembershipOptions options,
-        IVolumeRegistry volumeRegistry)
+        IBlobPool blobPool)
     {
+        RequestTrace.SetContext(protocol: "cluster");
+        RequestTrace.SetTarget("ClusterGetBlob", key: sha);
+
         if (!IsAuthorized(ctx, options))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
 
-        if (!HttpRemoteBlobReader.IsValidSha(sha))
+        if (!Sha256Hex.IsValid(sha))
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
-        foreach (var storage in volumeRegistry.LocalStorages)
+        var openResult = await blobPool.OpenLocalVolumeOnly(sha, ctx.RequestAborted);
+        if (!openResult.TryGetValue(out var stream, out _))
         {
-            var openResult = await storage.OpenBlob(sha, ctx.RequestAborted);
-            if (!openResult.TryGetValue(out var stream, out _))
-                continue;
-
-            await using (stream)
-            {
-                ctx.Response.StatusCode = StatusCodes.Status200OK;
-                ctx.Response.ContentType = VesselMediaTypes.OctetStream;
-                if (stream.CanSeek)
-                    ctx.Response.ContentLength = stream.Length;
-
-                await stream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
-                return;
-            }
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
         }
 
-        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        await using (stream)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status200OK;
+            ctx.Response.ContentType = VesselMediaTypes.OctetStream;
+            if (stream.CanSeek)
+                ctx.Response.ContentLength = stream.Length;
+
+            await stream.CopyToAsync(ctx.Response.Body, SohBuffer.BlockSize, ctx.RequestAborted);
+        }
     }
 
     private static bool IsAuthorized(HttpContext ctx, ClusterMembershipOptions options)

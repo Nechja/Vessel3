@@ -130,35 +130,33 @@ public sealed class ClusterMembershipTests : IDisposable
         var volA = new StorageVolume("vol-a", dirA, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-a");
         var volB = new StorageVolume("vol-b", dirB, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-b");
 
-        var regA = new VolumeRegistry([volA], sync);
         var regB = new VolumeRegistry([volB], sync);
-        var poolA = new BlobPool(regA, new MemoryBlobLocationCatalog());
         var poolB = new BlobPool(regB, new MemoryBlobLocationCatalog());
+
+        var poolsByEndpoint = new Dictionary<string, IBlobPool>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["http://node-b:8080"] = poolB,
+        };
+        var regA = new VolumeRegistry([volA], sync, remoteFactory: v => new InMemoryPeerBlobReader(v.Id, poolsByEndpoint.GetValueOrDefault(v.Path)));
+        var poolA = new BlobPool(regA, new MemoryBlobLocationCatalog());
 
         var payload = "cross-node gossip shared blob payload"u8.ToArray();
         var writeRes = await poolB.Write(new MemoryStream(payload), payload.Length, ChecksumIntent.All, CancellationToken.None);
         Assert.True(writeRes.TryGetValue(out var stored, out _));
 
-        var readerFactoryA = new InMemoryPeerBlobReaderFactory(new Dictionary<string, IBlobPool>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["http://node-b:8080"] = poolB,
-        });
-
-        var syncA = new RemoteVolumeTopologySynchronizer(regA, readerFactoryA);
         var membershipA = new ClusterMembership(
             new ClusterMembershipOptions("node-a", "http://node-a:8080", ["http://node-b:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null),
-            new LocalVolumeAdvertiser(regA),
-            [syncA],
+            regA,
             clock);
         var membershipB = new ClusterMembership(
             new ClusterMembershipOptions("node-b", "http://node-b:8080", ["http://node-a:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null),
-            new LocalVolumeAdvertiser(regB),
-            [],
+            regB,
             clock);
 
         membershipA.MergeGossip(membershipB.BuildOutboundMessage());
 
         Assert.True(await poolA.Exists(stored.Sha));
+        Assert.False(await poolA.ExistsOnLocalVolume(stored.Sha));
         var openRes = await poolA.Open(stored.Sha);
         Assert.True(openRes.TryGetValue(out var stream, out _));
         using (stream)
@@ -178,30 +176,30 @@ public sealed class ClusterMembershipTests : IDisposable
         Directory.CreateDirectory(dirA);
         Directory.CreateDirectory(dirB);
 
-        var regA = new VolumeRegistry([new StorageVolume("vol-a", dirA, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-a")], sync);
         var regB = new VolumeRegistry([new StorageVolume("vol-b", dirB, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-b")], sync);
-        var poolA = new BlobPool(regA, new MemoryBlobLocationCatalog());
         var poolB = new BlobPool(regB, new MemoryBlobLocationCatalog());
+
+        var poolsByEndpoint = new Dictionary<string, IBlobPool>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["http://node-b:8080"] = poolB,
+        };
+        var regA = new VolumeRegistry(
+            [new StorageVolume("vol-a", dirA, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-a")],
+            sync,
+            remoteFactory: v => new InMemoryPeerBlobReader(v.Id, poolsByEndpoint.GetValueOrDefault(v.Path)));
+        var poolA = new BlobPool(regA, new MemoryBlobLocationCatalog());
 
         var payload = "faulted peer blob payload"u8.ToArray();
         var writeRes = await poolB.Write(new MemoryStream(payload), payload.Length, ChecksumIntent.All, CancellationToken.None);
         Assert.True(writeRes.TryGetValue(out var stored, out _));
 
-        var readerFactoryA = new InMemoryPeerBlobReaderFactory(new Dictionary<string, IBlobPool>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["http://node-b:8080"] = poolB,
-        });
-
-        var syncA = new RemoteVolumeTopologySynchronizer(regA, readerFactoryA);
         var membershipA = new ClusterMembership(
             new ClusterMembershipOptions("node-a", "http://node-a:8080", ["http://node-b:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null),
-            new LocalVolumeAdvertiser(regA),
-            [syncA],
+            regA,
             clock);
         var membershipB = new ClusterMembership(
             new ClusterMembershipOptions("node-b", "http://node-b:8080", ["http://node-a:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null),
-            new LocalVolumeAdvertiser(regB),
-            [],
+            regB,
             clock);
 
         membershipA.MergeGossip(membershipB.BuildOutboundMessage());
@@ -212,15 +210,13 @@ public sealed class ClusterMembershipTests : IDisposable
     }
 
     [Fact]
-    public void ClusterTopology_PeerRemovesVolume_RemovesOrphanRemoteVolume()
+    public void ClusterTopology_PeerRemovesVolumeAndStaleVersion_RemovesOrphanAndIgnoresStaleSnapshot()
     {
         var clock = new FakeClusterClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var dirA = Path.Combine(testRoot, "node-a-orphan");
         Directory.CreateDirectory(dirA);
 
         var regA = new VolumeRegistry([new StorageVolume("vol-a", dirA, "default", VolumeCapabilities.Ingest, VolumeStatus.Online, NodeId: "node-a")], sync);
-        var readerFactoryA = new InMemoryPeerBlobReaderFactory(new Dictionary<string, IBlobPool>());
-        var syncA = new RemoteVolumeTopologySynchronizer(regA, readerFactoryA);
 
         var peerWithTwoVolumes = new PeerNodeState(
             "node-b",
@@ -233,7 +229,7 @@ public sealed class ClusterMembershipTests : IDisposable
                 new AdvertisedVolume("vol-b2", "default", VolumeCapabilities.Ingest, VolumeStatus.Online),
             ]);
 
-        syncA.OnPeerUpdated(peerWithTwoVolumes);
+        regA.SyncPeerTopology(new PeerTopologySnapshot(1, [peerWithTwoVolumes]));
         Assert.Equal(VolumeStatus.Online, regA.GetVolume("node-b:vol-b1")?.Status);
         Assert.Equal(VolumeStatus.Online, regA.GetVolume("node-b:vol-b2")?.Status);
 
@@ -243,8 +239,11 @@ public sealed class ClusterMembershipTests : IDisposable
             Volumes = [new AdvertisedVolume("vol-b1", "default", VolumeCapabilities.Ingest, VolumeStatus.Online)],
         };
 
-        syncA.OnPeerUpdated(peerWithOneVolume);
+        regA.SyncPeerTopology(new PeerTopologySnapshot(2, [peerWithOneVolume]));
         Assert.Equal(VolumeStatus.Online, regA.GetVolume("node-b:vol-b1")?.Status);
+        Assert.Null(regA.GetVolume("node-b:vol-b2"));
+
+        regA.SyncPeerTopology(new PeerTopologySnapshot(1, [peerWithTwoVolumes]));
         Assert.Null(regA.GetVolume("node-b:vol-b2"));
     }
 
@@ -265,14 +264,8 @@ public sealed class ClusterMembershipTests : IDisposable
         var writeRes = await poolB.Write(new MemoryStream(remotePayload), remotePayload.Length, ChecksumIntent.All, CancellationToken.None);
         Assert.True(writeRes.TryGetValue(out var remoteBlob, out _));
 
-        var readerFactoryA = new InMemoryPeerBlobReaderFactory(new Dictionary<string, IBlobPool>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["http://node-b:8080"] = poolB,
-        });
-
-        var adv = new AdvertisedVolume("vol-b", "default", VolumeCapabilities.Ingest, VolumeStatus.Online);
         var remoteVol = new StorageVolume("node-b:vol-b", "http://node-b:8080", "default", VolumeCapabilities.Remote | VolumeCapabilities.ReadOnly, VolumeStatus.Online, NodeId: "node-b");
-        regA.UpsertRemoteVolume(remoteVol, readerFactoryA.CreateReader("node-b", "http://node-b:8080", adv));
+        regA.UpsertRemoteVolume(remoteVol, new InMemoryPeerBlobReader("node-b:vol-b", poolB));
 
         Assert.True(await poolA.Exists(remoteBlob.Sha));
         var localShards = poolA.EnumerateShards().ToList();
@@ -295,9 +288,7 @@ public sealed class ClusterMembershipTests : IDisposable
         Assert.True(replyResult.TryGetValue(out var reply, out _));
         Assert.Equal("node-b", reply.SenderNodeId);
 
-        var adv = new AdvertisedVolume("vol-b", "default", VolumeCapabilities.Ingest, VolumeStatus.Online);
-        var factory = new HttpRemoteBlobReaderFactory(httpClient, "cluster-secret");
-        var reader = factory.CreateReader("node-b", "http://node-b:8080", adv);
+        var reader = new HttpRemoteBlobReader("node-b:vol-b", "http://node-b:8080", httpClient, "cluster-secret");
 
         Assert.True(await reader.BlobExists(validSha, CancellationToken.None));
         var openRes = await reader.OpenBlob(validSha, CancellationToken.None);
@@ -315,7 +306,7 @@ public sealed class ClusterMembershipTests : IDisposable
     }
 
     [Fact]
-    public async Task GossipCoordinator_RunCycle_ExchangesWithSeedsAndSyncsVolumes()
+    public async Task GossipService_RunCycle_ExchangesWithSeedsAndSyncsVolumes()
     {
         var clock = new FakeClusterClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var dirA = Path.Combine(testRoot, "coord-a");
@@ -329,17 +320,16 @@ public sealed class ClusterMembershipTests : IDisposable
         var optionsA = new ClusterMembershipOptions("node-a", "http://node-a:8080", ["http://node-b:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null);
         var optionsB = new ClusterMembershipOptions("node-b", "http://node-b:8080", ["http://node-a:8080"], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), null);
 
-        var syncA = new RemoteVolumeTopologySynchronizer(regA, new InMemoryPeerBlobReaderFactory(new Dictionary<string, IBlobPool>()));
-        var membershipA = new ClusterMembership(optionsA, new LocalVolumeAdvertiser(regA), [syncA], clock);
-        var membershipB = new ClusterMembership(optionsB, new LocalVolumeAdvertiser(regB), [], clock);
+        var membershipA = new ClusterMembership(optionsA, regA, clock);
+        var membershipB = new ClusterMembership(optionsB, regB, clock);
 
         var transport = new InMemoryGossipTransport(new Dictionary<string, IClusterMembership>(StringComparer.OrdinalIgnoreCase)
         {
             ["http://node-b:8080"] = membershipB,
         });
 
-        var coordinator = new GossipCoordinator(optionsA, membershipA, transport);
-        var exchanged = await coordinator.RunCycle(CancellationToken.None);
+        using var service = new GossipService(optionsA, membershipA, transport);
+        var exchanged = await service.RunCycle(CancellationToken.None);
 
         Assert.Equal(1, exchanged);
         var syncedVol = regA.GetVolume("node-b:vol-b");
@@ -363,7 +353,7 @@ public sealed class ClusterMembershipTests : IDisposable
 
     private static ClusterMembership CreateMembership(string nodeId, string endpointUrl, IReadOnlyList<string> volumeIds, TimeProvider clock)
     {
-        var advertiser = new FakeVolumeAdvertiser(volumeIds.Select(id => new AdvertisedVolume(id, "default", VolumeCapabilities.Ingest, VolumeStatus.Online)).ToList());
+        IReadOnlyList<AdvertisedVolume> volumes = [.. volumeIds.Select(static id => new AdvertisedVolume(id, "default", VolumeCapabilities.Ingest, VolumeStatus.Online))];
         var options = new ClusterMembershipOptions(
             nodeId,
             endpointUrl,
@@ -372,12 +362,7 @@ public sealed class ClusterMembershipTests : IDisposable
             TimeSpan.FromSeconds(5),
             TimeSpan.FromSeconds(15),
             null);
-        return new ClusterMembership(options, advertiser, [], clock);
-    }
-
-    private sealed class FakeVolumeAdvertiser(IReadOnlyList<AdvertisedVolume> volumes) : ILocalVolumeAdvertiser
-    {
-        public IReadOnlyList<AdvertisedVolume> GetAdvertisedVolumes() => volumes;
+        return new ClusterMembership(options, volumeRegistry: null, clock: clock, localVolumes: () => volumes);
     }
 
     private sealed class FakeClusterClock(DateTimeOffset initialUtc) : TimeProvider
@@ -385,14 +370,6 @@ public sealed class ClusterMembershipTests : IDisposable
         private DateTimeOffset currentUtc = initialUtc;
         public override DateTimeOffset GetUtcNow() => currentUtc;
         public void Advance(TimeSpan delta) => currentUtc = currentUtc.Add(delta);
-    }
-
-    private sealed class InMemoryPeerBlobReaderFactory(IReadOnlyDictionary<string, IBlobPool> poolsByEndpoint) : IRemoteBlobReaderFactory
-    {
-        public IBlobReader CreateReader(string nodeId, string peerEndpoint, AdvertisedVolume volume) =>
-            new InMemoryPeerBlobReader(
-                RemoteVolumeTopologySynchronizer.FormatRemoteVolumeId(nodeId, volume.VolumeId),
-                poolsByEndpoint.GetValueOrDefault(peerEndpoint));
     }
 
     private sealed class InMemoryPeerBlobReader(string volumeId, IBlobPool? remotePool) : IBlobReader

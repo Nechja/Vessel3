@@ -19,19 +19,3 @@ internal interface IGossipTransport
         GossipMessage outbound,
         CancellationToken ct = default);
 }
-
-internal interface IClusterTopologyListener
-{
-    void OnPeerUpdated(PeerNodeState peer);
-    void OnPeerRemoved(string nodeId, IReadOnlyList<AdvertisedVolume> previousVolumes);
-}
-
-internal interface ILocalVolumeAdvertiser
-{
-    IReadOnlyList<AdvertisedVolume> GetAdvertisedVolumes();
-}
-
-internal interface IRemoteBlobReaderFactory
-{
-    IBlobReader CreateReader(string nodeId, string peerEndpoint, AdvertisedVolume volume);
-}

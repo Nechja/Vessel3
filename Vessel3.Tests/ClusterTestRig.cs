@@ -95,7 +95,8 @@ internal sealed class ClusterTestRig : IAsyncDisposable
         builder.Services.AddVessel(config);
         builder.Services.AddSingleton<TimeProvider>(Clock);
         builder.Services.AddSingleton<IGossipTransport>(new HttpGossipTransport(nodeHttpClient, clusterSecret));
-        builder.Services.AddSingleton<IRemoteBlobReaderFactory>(new HttpRemoteBlobReaderFactory(nodeHttpClient, clusterSecret));
+        builder.Services.AddSingleton<Func<StorageVolume, IBlobReader>>(
+            v => new HttpRemoteBlobReader(v.Id, v.Path, nodeHttpClient, clusterSecret));
 
         var app = builder.Build();
         app.UseVesselPipeline(config);
@@ -118,7 +119,7 @@ internal sealed class ClusterTestRig : IAsyncDisposable
             app.Services.GetRequiredService<IVolumeRegistry>(),
             app.Services.GetRequiredService<IBlobPool>(),
             app.Services.GetRequiredService<IClusterMembership>(),
-            app.Services.GetRequiredService<GossipCoordinator>(),
+            app.Services.GetRequiredService<GossipService>(),
             app.Services.GetRequiredService<IGarbageCollector>());
 
         nodes[nodeId] = node;
@@ -141,7 +142,7 @@ internal sealed class ClusterTestRig : IAsyncDisposable
         {
             foreach (var node in nodes.Values.ToArray())
             {
-                await node.Coordinator.RunCycle(ct);
+                await node.GossipService.RunCycle(ct);
             }
         }
     }
@@ -194,7 +195,7 @@ internal sealed record ClusterTestNode(
     IVolumeRegistry VolumeRegistry,
     IBlobPool BlobPool,
     IClusterMembership Membership,
-    GossipCoordinator Coordinator,
+    GossipService GossipService,
     IGarbageCollector GarbageCollector);
 
 internal sealed class ClusterChaosRouter

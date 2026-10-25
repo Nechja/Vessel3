@@ -35,6 +35,8 @@ public static class VesselRoutes
     public const string Webhooks = "v1/webhooks";
     public const string EventsStream = "v1/events/stream";
     public const string OciCatalog = "v2/_catalog";
+    public const string ClusterGossipPath = "/_cluster/gossip";
+    public const string ClusterBlobsPrefix = "/_cluster/blobs/";
 }
 
 public static class VesselContextKeys

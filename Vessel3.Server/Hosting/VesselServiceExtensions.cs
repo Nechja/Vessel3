@@ -52,35 +52,33 @@ internal static class VesselServiceExtensions
         var resolvedNodeId = config.NodeId ?? config.Cluster?.NodeId ?? Environment.MachineName;
         var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot, resolvedNodeId)];
         services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
-        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(volumes, sp.GetRequiredService<IFileSync>()));
+        services.AddSingleton(static _ => new ClusterHttpClients());
+        services.AddSingleton<Func<StorageVolume, IBlobReader>>(sp =>
+        {
+            var clients = sp.GetRequiredService<ClusterHttpClients>();
+            var secret = sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret;
+            return volume => new HttpRemoteBlobReader(volume.Id, volume.Path, clients.BlobClient, secret);
+        });
+        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(
+            volumes,
+            sp.GetRequiredService<IFileSync>(),
+            remoteFactory: sp.GetRequiredService<Func<StorageVolume, IBlobReader>>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
             sp.GetRequiredService<IBlobLocationCatalog>()));
-        services.AddSingleton<ILocalVolumeAdvertiser>(sp => new LocalVolumeAdvertiser(
-            sp.GetRequiredService<IVolumeRegistry>()));
-        services.AddSingleton<IRemoteBlobReaderFactory>(sp => new HttpRemoteBlobReaderFactory(
-            new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
-            {
-                Timeout = TimeSpan.FromSeconds(15),
-            },
-            sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
-        services.AddSingleton<IClusterTopologyListener, RemoteVolumeTopologySynchronizer>();
         services.AddSingleton<IClusterMembership>(sp => new ClusterMembership(
             sp.GetRequiredService<ClusterMembershipOptions>(),
-            sp.GetRequiredService<ILocalVolumeAdvertiser>(),
-            sp.GetServices<IClusterTopologyListener>(),
+            sp.GetRequiredService<IVolumeRegistry>(),
             sp.GetService<TimeProvider>()));
         services.AddSingleton<IGossipTransport>(sp => new HttpGossipTransport(
-            new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
-            {
-                Timeout = TimeSpan.FromSeconds(5),
-            },
+            sp.GetRequiredService<ClusterHttpClients>().GossipClient,
             sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
-        services.AddSingleton<GossipCoordinator>(sp => new GossipCoordinator(
+        services.AddSingleton<GossipService>(sp => new GossipService(
             sp.GetRequiredService<ClusterMembershipOptions>(),
             sp.GetRequiredService<IClusterMembership>(),
-            sp.GetRequiredService<IGossipTransport>()));
-        services.AddHostedService<GossipService>();
+            sp.GetRequiredService<IGossipTransport>(),
+            sp.GetService<ILogger<GossipService>>()));
+        services.AddHostedService(sp => sp.GetRequiredService<GossipService>());
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
         services.AddSingleton<IIdentityRegistry>(sp =>
@@ -195,5 +193,24 @@ internal static class VesselServiceExtensions
 #if VESSEL3_UI
         services.AddSingleton<UiServingMiddleware>();
 #endif
+    }
+
+    private sealed class ClusterHttpClients : IDisposable
+    {
+        public HttpClient GossipClient { get; } = new(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+        {
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+
+        public HttpClient BlobClient { get; } = new(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+        {
+            Timeout = TimeSpan.FromSeconds(15),
+        };
+
+        public void Dispose()
+        {
+            GossipClient.Dispose();
+            BlobClient.Dispose();
+        }
     }
 }

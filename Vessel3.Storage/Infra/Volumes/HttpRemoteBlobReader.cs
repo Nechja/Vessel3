@@ -1,5 +1,5 @@
-using System.Buffers;
 using System.Security.Cryptography;
+using Vessel3.IO;
 
 namespace Vessel3.Storage;
 
@@ -9,44 +9,61 @@ internal sealed class HttpRemoteBlobReader(
     HttpClient httpClient,
     string? clusterSecret = null) : IBlobReader
 {
-    private static readonly SearchValues<char> HexLowerChars = SearchValues.Create("0123456789abcdef");
-
-    private readonly string baseEndpoint = peerEndpoint.TrimEnd('/');
+    private readonly string blobsUrlPrefix = $"{peerEndpoint.TrimEnd('/')}{VesselRoutes.ClusterBlobsPrefix}";
 
     public string VolumeId { get; } = volumeId;
 
     public async Task<Result<Stream>> OpenBlob(string sha, CancellationToken ct = default)
     {
-        if (!IsValidSha(sha))
+        if (!Sha256Hex.IsValid(sha))
             return new NotFoundError($"blob {sha}");
 
         using var request = CreateRequest(HttpMethod.Get, sha);
+        PooledBufferStream? pooled = null;
         try
         {
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
                 return new NotFoundError($"blob {sha}");
 
-            var ms = new MemoryStream();
-            await response.Content.CopyToAsync(ms, ct);
-            if (!VerifySha256(ms, sha))
+            await using var netStream = await response.Content.ReadAsStreamAsync(ct);
+            pooled = new PooledBufferStream();
+            using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            using var rented = SohBuffer.Rent();
+
+            int n;
+            while ((n = await netStream.ReadAsync(rented.Memory, ct)) > 0)
             {
-                await ms.DisposeAsync();
+                var span = rented.Span[..n];
+                sha256.AppendData(span);
+                pooled.Write(span);
+            }
+
+            Span<byte> hashBytes = stackalloc byte[32];
+            sha256.GetHashAndReset(hashBytes);
+            Span<char> hexChars = stackalloc char[64];
+            Convert.TryToHexStringLower(hashBytes, hexChars, out _);
+
+            if (!hexChars.SequenceEqual(sha.AsSpan()))
+            {
+                await pooled.DisposeAsync();
                 return new NotFoundError($"blob {sha}");
             }
 
-            ms.Position = 0;
-            return ms;
+            pooled.Position = 0;
+            return pooled;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
         {
+            if (pooled is not null)
+                await pooled.DisposeAsync();
             return new NotFoundError($"blob {sha}");
         }
     }
 
     public async Task<bool> BlobExists(string sha, CancellationToken ct = default)
     {
-        if (!IsValidSha(sha))
+        if (!Sha256Hex.IsValid(sha))
             return false;
 
         using var request = CreateRequest(HttpMethod.Head, sha);
@@ -61,38 +78,11 @@ internal sealed class HttpRemoteBlobReader(
         }
     }
 
-    internal static bool IsValidSha(ReadOnlySpan<char> sha) =>
-        sha.Length == 64 && !sha.ContainsAnyExcept(HexLowerChars);
-
     private HttpRequestMessage CreateRequest(HttpMethod method, string sha)
     {
-        var req = new HttpRequestMessage(method, $"{baseEndpoint}/_cluster/blobs/{sha}");
+        var req = new HttpRequestMessage(method, string.Concat(blobsUrlPrefix, sha));
         if (!string.IsNullOrEmpty(clusterSecret))
             req.Headers.TryAddWithoutValidation(VesselHeaders.ClusterSecret, clusterSecret);
         return req;
     }
-
-    private static bool VerifySha256(MemoryStream ms, string expectedSha)
-    {
-        if (!ms.TryGetBuffer(out var segment))
-            return false;
-
-        Span<byte> hashBytes = stackalloc byte[32];
-        SHA256.HashData(segment.AsSpan(), hashBytes);
-        Span<char> hexChars = stackalloc char[64];
-        Convert.TryToHexStringLower(hashBytes, hexChars, out _);
-        return hexChars.SequenceEqual(expectedSha.AsSpan());
-    }
-}
-
-internal sealed class HttpRemoteBlobReaderFactory(
-    HttpClient httpClient,
-    string? clusterSecret = null) : IRemoteBlobReaderFactory
-{
-    public IBlobReader CreateReader(string nodeId, string peerEndpoint, AdvertisedVolume volume) =>
-        new HttpRemoteBlobReader(
-            RemoteVolumeTopologySynchronizer.FormatRemoteVolumeId(nodeId, volume.VolumeId),
-            peerEndpoint,
-            httpClient,
-            clusterSecret);
 }
