@@ -6,31 +6,31 @@ internal sealed class VirtualHostS3DispatchMiddleware(
 {
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
-        if (ctx.Items.TryGetValue("VirtualHostBucket", out var vhObj) && vhObj is string vhBucket)
+        if (!ctx.Items.TryGetValue(VesselContextKeys.VirtualHostBucket, out var vhObj) || vhObj is not string vhBucket)
         {
-            if (ReservedRoutePrefixes.Matches(ctx.Request.Path.Value)
-                || ctx.Request.Path.Equals(WellKnownRoutes.Metrics, StringComparison.OrdinalIgnoreCase))
-            {
-                await next(ctx);
-                return;
-            }
-
-            var method = ctx.Request.Method;
-            var path = ctx.Request.Path.Value ?? "/";
-
-            if (path is "/" or "")
-            {
-                var actionResult = await bucketDispatcher.Dispatch(method, vhBucket, ctx);
-                await actionResult.ExecuteAsync(ctx);
-                return;
-            }
-
-            var key = path.TrimStart('/');
-            var keyActionResult = await keyDispatcher.Dispatch(method, vhBucket, key, ctx);
-            await keyActionResult.ExecuteAsync(ctx);
+            await next(ctx);
             return;
         }
 
-        await next(ctx);
+        if (ReservedRoutePrefixes.Matches(ctx.Request.Path.Value)
+            || ctx.Request.Path.Equals(WellKnownRoutes.Metrics, StringComparison.OrdinalIgnoreCase))
+        {
+            await next(ctx);
+            return;
+        }
+
+        var method = ctx.Request.Method;
+        var path = ctx.Request.Path.Value ?? "/";
+
+        if (path is "/" or "")
+        {
+            var actionResult = await bucketDispatcher.Dispatch(method, vhBucket, ctx);
+            await actionResult.ExecuteAsync(ctx);
+            return;
+        }
+
+        var key = path.TrimStart('/');
+        var keyActionResult = await keyDispatcher.Dispatch(method, vhBucket, key, ctx);
+        await keyActionResult.ExecuteAsync(ctx);
     }
 }

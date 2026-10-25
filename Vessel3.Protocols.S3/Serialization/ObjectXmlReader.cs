@@ -121,13 +121,22 @@ internal sealed class ObjectXmlReader : IObjectXmlReader
                 }
             }
 
-            return mode is null || until is null
-                ? new MalformedXmlError("Retention requires Mode and RetainUntilDate")
-                : !S3XmlDefaults.TryParseMode(mode, out var retentionMode)
-                    ? new MalformedXmlError($"unknown Mode '{mode}'")
-                    : !DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsedDate)
-                        ? new MalformedXmlError($"unparseable RetainUntilDate '{until}'")
-                        : new Retention(retentionMode, parsedDate);
+            if (mode is null || until is null)
+            {
+                return new MalformedXmlError("Retention requires Mode and RetainUntilDate");
+            }
+
+            if (!S3XmlDefaults.TryParseMode(mode, out var retentionMode))
+            {
+                return new MalformedXmlError($"unknown Mode '{mode}'");
+            }
+
+            if (!DateTimeOffset.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsedDate))
+            {
+                return new MalformedXmlError($"unparseable RetainUntilDate '{until}'");
+            }
+
+            return new Retention(retentionMode, parsedDate);
         }
         catch (XmlException ex)
         {

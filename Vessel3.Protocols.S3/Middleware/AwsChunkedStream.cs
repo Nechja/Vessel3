@@ -1,13 +1,14 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Vessel3.IO;
 
 namespace Vessel3.Server.S3;
 
 internal sealed class AwsChunkedStream(Stream inner, SignatureContext? sigCtx = null, long? decodedLength = null) : Stream, ITrailerStream, ITrailingChecksumProvider
 {
     private const string EmptyStringSha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    private const int ReadBlock = 81920;
+    private const int ReadBlock = SohBuffer.BlockSize;
     private const int MaxLineLength = 8192;
     private const int MaxTrailers = 32;
 

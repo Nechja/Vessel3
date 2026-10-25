@@ -282,7 +282,7 @@ Query Parameters:
 - `prefix` (optional): Filter keys by prefix.
 - `delimiter` (optional): Group common folder prefixes.
 - `marker` (optional): Pagination marker.
-- `limit` (optional): Max entries to return (default: `1000`).
+- `limit` (optional): Max entries to return (default: `1000`, clamped between `1` and `1000`).
 
 **Response: `200 OK`**
 ```json

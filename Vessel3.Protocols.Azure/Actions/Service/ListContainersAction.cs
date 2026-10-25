@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Serialization;
 using Vessel3.Storage;
@@ -14,7 +15,7 @@ internal sealed class ListContainersAction(
 
     public async Task<IResult> Execute(AzureRequestTarget target, HttpContext ctx)
     {
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
+        var caller = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci
             ? ci
             : CallerIdentity.System;
 

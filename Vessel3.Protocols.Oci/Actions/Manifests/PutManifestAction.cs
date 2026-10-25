@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Vessel3.IO;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -21,9 +23,18 @@ internal sealed class PutManifestAction(
         var repo = target.Repo ?? "";
         var reference = target.Reference ?? "";
 
-        using var ms = new MemoryStream();
-        await ctx.Request.Body.CopyToAsync(ms, ctx.RequestAborted);
-        var payload = ms.ToArray();
+        byte[] payload;
+        if (ctx.Request.ContentLength is > 0 and <= 4 * 1024 * 1024)
+        {
+            payload = new byte[(int)ctx.Request.ContentLength.Value];
+            await ctx.Request.Body.ReadExactlyAsync(payload, ctx.RequestAborted);
+        }
+        else
+        {
+            using var ms = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(ms, SohBuffer.BlockSize, ctx.RequestAborted);
+            payload = ms.ToArray();
+        }
 
         if (payload.Length == 0)
         {
@@ -47,7 +58,7 @@ internal sealed class PutManifestAction(
         ctx.Response.Headers.Append(OciHeaders.Location, $"/v2/{repo}/manifests/{outcome.Digest}");
         ctx.Response.Headers.Append(OciHeaders.DockerContentDigest, outcome.Digest);
 
-        var actor = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
+        var actor = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci ? ci.Username : "anonymous";
         publisher?.Publish(VesselEvents.ContainerImagePushed(
             repo, reference, outcome.Digest, mediaType, payload.Length, actor, ctx.Request.Host.Value));
     }

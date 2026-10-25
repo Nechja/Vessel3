@@ -2,6 +2,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
+using Vessel3.IO;
 using Vessel3.Server.Admin;
 using Vessel3.Server.Configuration;
 
@@ -29,7 +30,7 @@ internal sealed class UiServingMiddleware(
 
         if (basicGate && !UiEndpoints.BasicAuthOk(context.Request.Headers.Authorization.ToString(), config.AccessKey!, config.SecretKey!))
         {
-            context.Response.StatusCode = 401;
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
             return;
         }
@@ -40,11 +41,11 @@ internal sealed class UiServingMiddleware(
         {
             if (relativePath == "config.json")
             {
-                await ServeConfigAsync(context);
+                await ServeConfig(context);
                 return;
             }
 
-            await ServeStaticAssetAsync(context, relativePath);
+            await ServeStaticAsset(context, relativePath);
             return;
         }
 
@@ -54,15 +55,15 @@ internal sealed class UiServingMiddleware(
             return;
         }
 
-        if (await DispatchAdminActionAsync(context, relativePath))
+        if (await DispatchAdminAction(context, relativePath))
         {
             return;
         }
 
-        context.Response.StatusCode = 405;
+        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
     }
 
-    private async Task ServeConfigAsync(HttpContext context)
+    private async Task ServeConfig(HttpContext context)
     {
         var uiConfig = config.Oidc is null
             ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null)
@@ -72,7 +73,7 @@ internal sealed class UiServingMiddleware(
         await System.Text.Json.JsonSerializer.SerializeAsync(context.Response.Body, uiConfig, UiJsonContext.Default.UiConfig, context.RequestAborted);
     }
 
-    private async Task ServeStaticAssetAsync(HttpContext context, string relativePath)
+    private async Task ServeStaticAsset(HttpContext context, string relativePath)
     {
         var path = string.IsNullOrEmpty(relativePath) ? "index.html" : relativePath;
         var fileInfo = assets.GetFileInfo(path);
@@ -80,7 +81,7 @@ internal sealed class UiServingMiddleware(
         {
             if (UiEndpoints.IsAssetPath(path))
             {
-                context.Response.StatusCode = 404;
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
             fileInfo = assets.GetFileInfo("index.html");
@@ -90,7 +91,7 @@ internal sealed class UiServingMiddleware(
         context.Response.Headers.CacheControl = "no-cache";
         if (context.Request.Headers.IfNoneMatch.ToString() == etag)
         {
-            context.Response.StatusCode = 304;
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
             return;
         }
 
@@ -102,10 +103,10 @@ internal sealed class UiServingMiddleware(
         }
 
         await using var stream = fileInfo.CreateReadStream();
-        await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
+        await stream.CopyToAsync(context.Response.Body, SohBuffer.BlockSize, context.RequestAborted);
     }
 
-    private async Task<bool> DispatchAdminActionAsync(HttpContext context, string relativePath)
+    private async Task<bool> DispatchAdminAction(HttpContext context, string relativePath)
     {
         if (relativePath == "admin/gc" && HttpMethods.IsPost(context.Request.Method))
         {

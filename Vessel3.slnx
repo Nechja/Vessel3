@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Vessel3.Primitives/Vessel3.Primitives.csproj" />
+  <Project Path="Vessel3.IO/Vessel3.IO.csproj" />
   <Project Path="Vessel3.Storage/Vessel3.Storage.csproj" />
   <Project Path="Vessel3.Protocols.S3/Vessel3.Protocols.S3.csproj" />
   <Project Path="Vessel3.Protocols.Native/Vessel3.Protocols.Native.csproj" />

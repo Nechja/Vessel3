@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
@@ -47,7 +46,7 @@ internal sealed class WebDavBasicAuthenticator(
             return false;
         }
 
-        var match = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(rootSecretKey), Encoding.UTF8.GetBytes(secret));
+        var match = CryptographicCompare.FixedTimeEquals(rootSecretKey, secret);
         result = match
             ? CallerIdentity.System
             : new HttpError("Unauthorized", "Invalid access key or secret", StatusCodes.Status401Unauthorized);
@@ -62,9 +61,7 @@ internal sealed class WebDavBasicAuthenticator(
             return false;
         }
 
-        var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-        var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-        var match = CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes);
+        var match = CryptographicCompare.FixedTimeEquals(keyEntry.SecretKey, secret);
 
         result = match && identity.AuthenticateAccessKey(key).TryGetValue(out var caller, out _)
             ? caller

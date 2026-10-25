@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Primitives;
+using Vessel3.IO;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -19,7 +20,7 @@ internal sealed class PutObject(
 
         if (!await CheckWritePreconditions(bucket, key, request, cancellationToken))
         {
-            return Results.StatusCode(412);
+            return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
         }
 
         var (body, declaredLength) = RequestBodyDecoder.Decode(request);
@@ -59,7 +60,7 @@ internal sealed class PutObject(
         Result<PutOutcome> result;
         try
         {
-            var actor = context.Items.TryGetValue("CallerIdentity", out var callerItem) && callerItem is CallerIdentity callerIdentity
+            var actor = context.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var callerItem) && callerItem is CallerIdentity callerIdentity
                 ? callerIdentity.Username
                 : "anonymous";
             var putRequest = CreatePutRequest(
@@ -97,7 +98,7 @@ internal sealed class PutObject(
         var currentEtag = existing is Result<ObjectStat>.Success { Value: var stat } ? stat.Etag : null;
         if (preconditions.EvaluateForWrite(writeConditions, currentEtag) is Precondition.Failed)
         {
-            await request.Body.CopyToAsync(Stream.Null, cancellationToken);
+            await request.Body.CopyToAsync(Stream.Null, SohBuffer.BlockSize, cancellationToken);
             return false;
         }
 

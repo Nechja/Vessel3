@@ -1,6 +1,6 @@
-using System.Buffers;
 using System.Globalization;
 using Microsoft.Extensions.Primitives;
+using Microsoft.Net.Http.Headers;
 
 namespace Vessel3.Server.S3.Key;
 
@@ -27,28 +27,20 @@ internal sealed class GetObject(
 
         EmitMetadataHeaders(ctx.Response, ok);
 
-        if (ApplyByteRange(ctx.Request, ctx.Response, ok, out var isRanged) is { } rangeError)
+        if (ApplyByteRange(ctx.Request, ctx.Response, ok) is { } rangeError)
         {
             ok.Body.Dispose();
             return rangeError;
         }
 
-        if (isRanged)
-        {
-            return Results.File(
-                ok.Body,
-                ok.ContentType,
-                lastModified: ok.LastModified,
-                enableRangeProcessing: true);
-        }
+        ChecksumHeaders.Emit(ctx.Response.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
 
-        EmitPayloadHeaders(ctx.Response, ok);
-        await using (ok.Body)
-        {
-            await StreamResponseBodyAsync(ok.Body, ctx.Response.Body, ok.Size, ctx.RequestAborted);
-        }
-
-        return Results.Empty;
+        return Results.File(
+            ok.Body,
+            ok.ContentType,
+            lastModified: ok.LastModified,
+            entityTag: new EntityTagHeaderValue($"\"{ok.Etag}\""),
+            enableRangeProcessing: true);
     }
 
     private static IResult? EvaluatePreconditions(IPreconditionEvaluator evaluator, HttpRequest request, StoredObject ok)
@@ -57,8 +49,8 @@ internal sealed class GetObject(
         var evaluation = evaluator.Evaluate(readPreconditions, ok.Etag, ok.LastModified);
         return evaluation switch
         {
-            Precondition.NotModified => Results.StatusCode(304),
-            Precondition.Failed => Results.StatusCode(412),
+            Precondition.NotModified => Results.StatusCode(StatusCodes.Status304NotModified),
+            Precondition.Failed => Results.StatusCode(StatusCodes.Status412PreconditionFailed),
             _ => null,
         };
     }
@@ -73,61 +65,38 @@ internal sealed class GetObject(
         S3HeaderCodec.EmitSystemHeaders(response.Headers, ok.SystemHeaders);
     }
 
-    private static IResult? ApplyByteRange(HttpRequest request, HttpResponse response, StoredObject ok, out bool isRanged)
+    private static IResult? ApplyByteRange(HttpRequest request, HttpResponse response, StoredObject ok)
     {
-        isRanged = false;
         if (!request.Headers.TryGetValue("Range", out var rangeHeader) || StringValues.IsNullOrEmpty(rangeHeader))
         {
             return null;
         }
 
         var parsedRange = S3ByteRange.Parse(rangeHeader.ToString(), ok.Size);
-        switch (parsedRange)
+        return parsedRange switch
         {
-            case S3ByteRange.Unsatisfiable:
-                response.Headers["Content-Range"] = $"bytes */{ok.Size.ToString(CultureInfo.InvariantCulture)}";
-                return Results.StatusCode(416);
-            case S3ByteRange.Ignored:
-                request.Headers.Remove("Range");
-                return null;
-            case S3ByteRange.Normal normal:
-                request.Headers.Range = $"bytes={normal.Start.ToString(CultureInfo.InvariantCulture)}-{normal.End.ToString(CultureInfo.InvariantCulture)}";
-                isRanged = true;
-                return null;
-            default:
-                return null;
-        }
+            S3ByteRange.Unsatisfiable => HandleUnsatisfiable(response, ok.Size),
+            S3ByteRange.Ignored => HandleIgnored(request),
+            S3ByteRange.Normal normal => HandleNormal(request, normal),
+            _ => null,
+        };
     }
 
-    private static void EmitPayloadHeaders(HttpResponse response, StoredObject ok)
+    private static IResult HandleUnsatisfiable(HttpResponse response, long size)
     {
-        ChecksumHeaders.Emit(response.Headers, ok.Checksums, fallbackSha256Hex: ok.Sha256);
-        response.StatusCode = 200;
-        response.ContentLength = ok.Size;
-        response.ContentType = ok.ContentType;
-        response.Headers.LastModified = ok.LastModified.ToString("R", CultureInfo.InvariantCulture);
-        response.Headers.AcceptRanges = "bytes";
+        response.Headers["Content-Range"] = $"bytes */{size.ToString(CultureInfo.InvariantCulture)}";
+        return Results.StatusCode(StatusCodes.Status416RangeNotSatisfiable);
     }
 
-    private static async Task StreamResponseBodyAsync(Stream source, Stream destination, long size, CancellationToken ct)
+    private static IResult? HandleIgnored(HttpRequest request)
     {
-        if (size <= 0)
-        {
-            return;
-        }
+        request.Headers.Remove("Range");
+        return null;
+    }
 
-        var buffer = ArrayPool<byte>.Shared.Rent(81920);
-        try
-        {
-            int bytesRead;
-            while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, 81920), ct)) > 0)
-            {
-                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+    private static IResult? HandleNormal(HttpRequest request, S3ByteRange.Normal normal)
+    {
+        request.Headers.Range = $"bytes={normal.Start.ToString(CultureInfo.InvariantCulture)}-{normal.End.ToString(CultureInfo.InvariantCulture)}";
+        return null;
     }
 }

@@ -13,12 +13,13 @@
   <ItemGroup>
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
+    <ProjectReference Include="..\Vessel3.IO\Vessel3.IO.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="*" />
-    <PackageReference Include="Ulid" Version="*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="Ulid" Version="1.4.1" />
   </ItemGroup>
 
   <ItemGroup>

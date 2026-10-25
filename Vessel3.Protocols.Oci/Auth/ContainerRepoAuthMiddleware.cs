@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -38,7 +37,7 @@ internal sealed class ContainerRepoAuthMiddleware(
 
         if (options.IsUnauthenticated && string.IsNullOrEmpty(authHeader) && !context.Request.Headers.ContainsKey("X-Vessel-Key"))
         {
-            context.Items["CallerIdentity"] = CallerIdentity.System;
+            context.Items[VesselContextKeys.CallerIdentity] = CallerIdentity.System;
             await next(context);
             return;
         }
@@ -82,7 +81,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             return true;
         }
 
-        context.Items["CallerIdentity"] = caller;
+        context.Items[VesselContextKeys.CallerIdentity] = caller;
         if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
         {
             await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
@@ -102,7 +101,7 @@ internal sealed class ContainerRepoAuthMiddleware(
                 ? new CallerIdentity(user.Id, user.Username, user.Role, "token")
                 : CallerIdentity.System;
 
-            context.Items["CallerIdentity"] = caller;
+            context.Items[VesselContextKeys.CallerIdentity] = caller;
             context.Items["OciScopes"] = scopes ?? [];
 
             if (!IsOperationAuthorized(context, caller, scopes))
@@ -120,7 +119,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             var verified = await tokenAuthenticator.AuthenticateToken(token, context.RequestAborted);
             if (verified.TryGetValue(out var oidcCaller, out _))
             {
-                context.Items["CallerIdentity"] = oidcCaller;
+                context.Items[VesselContextKeys.CallerIdentity] = oidcCaller;
                 if (!oidcCaller.CanWrite && IsWriteMethod(context.Request.Method))
                 {
                     await WriteOciError(context, StatusCodes.Status403Forbidden, "DENIED", "ReadOnly credentials cannot modify repositories");
@@ -151,7 +150,7 @@ internal sealed class ContainerRepoAuthMiddleware(
             return;
         }
 
-        context.Items["CallerIdentity"] = caller;
+        context.Items[VesselContextKeys.CallerIdentity] = caller;
 
         if (!caller.CanWrite && IsWriteMethod(context.Request.Method))
         {
@@ -167,7 +166,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
             string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
         {
-            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(options.RootSecretKey), Encoding.UTF8.GetBytes(secret)))
+            if (!CryptographicCompare.FixedTimeEquals(options.RootSecretKey, secret))
                 return new OciUnauthorizedError("Invalid access key or secret");
 
             return CallerIdentity.System;
@@ -176,9 +175,7 @@ internal sealed class ContainerRepoAuthMiddleware(
         if (!identity.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
             return new OciUnauthorizedError("Invalid credentials");
 
-        var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-        var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-        if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
+        if (!CryptographicCompare.FixedTimeEquals(keyEntry.SecretKey, secret))
             return new OciUnauthorizedError("Invalid access key or secret");
 
         return identity.AuthenticateAccessKey(key);

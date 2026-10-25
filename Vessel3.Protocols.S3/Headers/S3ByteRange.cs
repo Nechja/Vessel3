@@ -29,30 +29,31 @@ internal abstract record S3ByteRange
             return new Ignored();
         }
 
+        var span = raw.AsSpan().Trim();
         const string prefix = "bytes=";
-        if (!raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        if (!span.StartsWith(prefix.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
             return new Ignored();
         }
 
-        var rest = raw[prefix.Length..].Trim();
-        if (rest.Contains(',', StringComparison.Ordinal))
+        var rest = span[prefix.Length..].Trim();
+        if (rest.Contains(','))
         {
             return new Ignored();
         }
 
-        var dash = rest.IndexOf('-', StringComparison.Ordinal);
+        var dash = rest.IndexOf('-');
         if (dash < 0)
         {
             return new Ignored();
         }
 
-        var startStr = rest[..dash];
-        var endStr = rest[(dash + 1)..];
+        var startSpan = rest[..dash];
+        var endSpan = rest[(dash + 1)..];
 
-        if (string.IsNullOrEmpty(startStr))
+        if (startSpan.IsEmpty)
         {
-            if (!long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n < 0)
+            if (!long.TryParse(endSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n < 0)
             {
                 return new Ignored();
             }
@@ -66,7 +67,7 @@ internal abstract record S3ByteRange
             return new Normal(size - clamped, size - 1);
         }
 
-        if (!long.TryParse(startStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var start) || start < 0)
+        if (!long.TryParse(startSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var start) || start < 0)
         {
             return new Ignored();
         }
@@ -76,12 +77,12 @@ internal abstract record S3ByteRange
             return new Unsatisfiable();
         }
 
-        if (string.IsNullOrEmpty(endStr))
+        if (endSpan.IsEmpty)
         {
             return new Normal(start, size - 1);
         }
 
-        if (!long.TryParse(endStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var end) || end < start)
+        if (!long.TryParse(endSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var end) || end < start)
         {
             return new Ignored();
         }

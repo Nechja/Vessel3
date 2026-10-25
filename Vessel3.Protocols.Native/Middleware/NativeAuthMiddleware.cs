@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
@@ -91,18 +89,14 @@ internal sealed class NativeAuthMiddleware(
         if (options.RootAccessKey is not null && options.RootSecretKey is not null &&
             string.Equals(key, options.RootAccessKey, StringComparison.Ordinal))
         {
-            var rootSecretBytes = Encoding.UTF8.GetBytes(options.RootSecretKey);
-            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-            return CryptographicOperations.FixedTimeEquals(rootSecretBytes, reqSecretBytes)
+            return CryptographicCompare.FixedTimeEquals(options.RootSecretKey, secret)
                 ? (CallerIdentity?)CallerIdentity.System
                 : new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
         }
 
         if (registry.GetAccessKey(key).TryGetValue(out var keyEntry, out _))
         {
-            var keySecretBytes = Encoding.UTF8.GetBytes(keyEntry.SecretKey);
-            var reqSecretBytes = Encoding.UTF8.GetBytes(secret);
-            if (!CryptographicOperations.FixedTimeEquals(keySecretBytes, reqSecretBytes))
+            if (!CryptographicCompare.FixedTimeEquals(keyEntry.SecretKey, secret))
                 return new HttpError("InvalidCredentials", "Invalid access key or secret", 401);
 
             var authenticated = registry.AuthenticateAccessKey(key);

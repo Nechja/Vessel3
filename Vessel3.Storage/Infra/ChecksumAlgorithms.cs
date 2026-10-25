@@ -47,8 +47,17 @@ internal static class ChecksumAlgorithms
         return Convert.ToHexStringLower(destination);
     }
 
-    public static string HexToBase64(string hex) =>
-        string.IsNullOrEmpty(hex) ? "" : Convert.ToBase64String(Convert.FromHexString(hex));
+    public static string HexToBase64(string hex)
+    {
+        if (string.IsNullOrEmpty(hex))
+        {
+            return "";
+        }
+
+        Span<byte> buffer = stackalloc byte[64];
+        Convert.FromHexString(hex, buffer, out _, out var bytesWritten);
+        return Convert.ToBase64String(buffer[..bytesWritten]);
+    }
 
     public static string? Base64ToHex(string base64)
     {
@@ -57,14 +66,10 @@ internal static class ChecksumAlgorithms
             return null;
         }
 
-        try
-        {
-            return Convert.ToHexStringLower(Convert.FromBase64String(base64));
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
+        Span<byte> bytes = stackalloc byte[64];
+        return Convert.TryFromBase64String(base64, bytes, out var written)
+            ? Convert.ToHexStringLower(bytes[..written])
+            : null;
     }
 
     public static string Composite(ChecksumAlgorithm algorithm, IEnumerable<string> partHexValues)
@@ -80,30 +85,41 @@ internal static class ChecksumAlgorithms
     private static string CompositeIncrementalHash(HashAlgorithmName algorithmName, IEnumerable<string> partHexValues)
     {
         using var incrementalHash = IncrementalHash.CreateHash(algorithmName);
+        Span<byte> partBytes = stackalloc byte[32];
         foreach (var hex in partHexValues)
         {
-            incrementalHash.AppendData(Convert.FromHexString(hex));
+            Convert.FromHexString(hex, partBytes, out _, out var written);
+            incrementalHash.AppendData(partBytes[..written]);
         }
-        return Convert.ToHexStringLower(incrementalHash.GetHashAndReset());
+
+        Span<byte> hashBytes = stackalloc byte[32];
+        var hashLen = incrementalHash.GetHashAndReset(hashBytes);
+        return Convert.ToHexStringLower(hashBytes[..hashLen]);
     }
 
     private static string CompositeCrc32(IEnumerable<string> partHexValues)
     {
         var hasher = new System.IO.Hashing.Crc32();
+        Span<byte> partBytes = stackalloc byte[32];
         foreach (var hex in partHexValues)
         {
-            hasher.Append(Convert.FromHexString(hex));
+            Convert.FromHexString(hex, partBytes, out _, out var written);
+            hasher.Append(partBytes[..written]);
         }
+
         return CrcUInt32ToHex(hasher.GetCurrentHashAsUInt32());
     }
 
     private static string CompositeCrc32C(IEnumerable<string> partHexValues)
     {
         var hasher = new Crc32C();
+        Span<byte> partBytes = stackalloc byte[32];
         foreach (var hex in partHexValues)
         {
-            hasher.Append(Convert.FromHexString(hex));
+            Convert.FromHexString(hex, partBytes, out _, out var written);
+            hasher.Append(partBytes[..written]);
         }
+
         return CrcUInt32ToHex(hasher.GetCurrentHashAndReset());
     }
 }

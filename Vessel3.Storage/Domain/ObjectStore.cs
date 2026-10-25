@@ -1,4 +1,6 @@
 using System.Collections.Frozen;
+using System.Security.Cryptography;
+using Vessel3.IO;
 
 namespace Vessel3.Storage;
 
@@ -54,10 +56,22 @@ internal sealed partial class ObjectStore(
         if (declaredSha256 is not null && !string.Equals(blob.Sha, declaredSha256, StringComparison.OrdinalIgnoreCase))
             return new BadDigestError($"sha256 declared {declaredSha256}, actual {blob.Sha}");
 
-        var actualMd5 = Convert.ToBase64String(Convert.FromHexString(blob.Md5));
-        return declaredMd5Base64 is not null && !string.Equals(declaredMd5Base64, actualMd5, StringComparison.Ordinal)
-            ? new BadDigestError($"md5 declared {declaredMd5Base64}, actual {actualMd5}")
-            : null;
+        if (declaredMd5Base64 is null)
+            return null;
+
+        Span<byte> actualMd5 = stackalloc byte[16];
+        Convert.FromHexString(blob.Md5, actualMd5, out _, out _);
+
+        Span<byte> declared = stackalloc byte[16];
+        if (!Convert.TryFromBase64String(declaredMd5Base64, declared, out var bytesWritten)
+            || bytesWritten != 16
+            || !CryptographicOperations.FixedTimeEquals(actualMd5, declared))
+        {
+            var actualStr = Convert.ToBase64String(actualMd5);
+            return new BadDigestError($"md5 declared {declaredMd5Base64}, actual {actualStr}");
+        }
+
+        return null;
     }
 
     public Result<IReadOnlyDictionary<string, string>> GetTagging(string bucket, string key, string? versionId)
@@ -209,7 +223,16 @@ internal sealed partial class ObjectStore(
     {
         var sums = new ChecksumSet(put.Crc32, put.Crc32C, put.Sha1, null);
         if (put.Parts is { } parts)
-            return new StoredObject(new ConcatStream(parts, blobs), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
+        {
+            var segments = parts.Select(p => new StreamSegment(p.Size, async token =>
+            {
+                var openResult = await blobs.Open(p.BlobSha, token);
+                return openResult is Result<Stream>.Success ok
+                    ? ok.Value
+                    : throw new InvalidOperationException($"missing blob for part {p.Number}: {p.BlobSha}");
+            })).ToList();
+            return new StoredObject(new ConcatStream(segments), put.Size, put.At, put.WireEtag, "", put.ContentType, put.Metadata, sums, put.SystemHeaders, put.VersionId);
+        }
 
         var openResult = await blobs.Open(put.BlobSha, ct);
         return !openResult.TryGetValue(out var stream, out var err)

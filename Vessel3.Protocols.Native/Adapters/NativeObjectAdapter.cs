@@ -1,7 +1,9 @@
 using System.Collections.Frozen;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
 using Vessel3.Primitives;
 using Vessel3.Protocols.Native.Headers;
 using Vessel3.Protocols.Native.Serialization;
@@ -27,7 +29,9 @@ internal sealed class NativeObjectAdapter(
         var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"]);
         var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"]);
         var delimiter = NativeHeaderCodec.Nullify(context.Request.Query["delimiter"]);
-        var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0 ? parsedLimit : 1000;
+        var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0
+            ? Math.Clamp(parsedLimit, 1, 1000)
+            : 1000;
 
         var result = lister.List(new ListRequest(bucket, prefix, delimiter, marker, limit), continuationToken: null);
         if (!result.TryGetValue(out var page, out var error))
@@ -35,8 +39,8 @@ internal sealed class NativeObjectAdapter(
             return error.ToHttpResult();
         }
 
-        var objectsList = new List<ObjectSummaryDto>(page.Entries.Count);
-        var prefixes = new List<string>();
+        List<ObjectSummaryDto> objectsList = new(page.Entries.Count);
+        List<string> prefixes = [];
         foreach (var entry in page.Entries)
         {
             if (entry is ListEntry.Contents contents)
@@ -66,30 +70,15 @@ internal sealed class NativeObjectAdapter(
             return error.ToHttpResult();
         }
 
-        var res = context.Response;
-        NativeHeaderCodec.ApplyObjectHeaders(res.Headers, storedObject, versionId);
-        res.ContentType = storedObject.ContentType ?? "application/octet-stream";
-        res.ContentLength = storedObject.Size;
+        NativeHeaderCodec.ApplyObjectHeaders(context.Response.Headers, storedObject, versionId);
 
-        await using (storedObject.Body)
-        {
-            var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(81920);
-            try
-            {
-                while (true)
-                {
-                    var read = await storedObject.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), context.RequestAborted);
-                    if (read == 0) break;
-                    await res.Body.WriteAsync(buffer.AsMemory(0, read), context.RequestAborted);
-                }
-            }
-            finally
-            {
-                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
-
-        return Results.Empty;
+        RequestTrace.Current?.MarkHandled();
+        return Results.Stream(
+            storedObject.Body,
+            contentType: storedObject.ContentType ?? "application/octet-stream",
+            lastModified: storedObject.LastModified,
+            entityTag: new EntityTagHeaderValue($"\"{storedObject.Etag}\""),
+            enableRangeProcessing: true);
     }
 
     public IResult HeadObject(string bucket, string key, HttpContext context)
@@ -200,15 +189,9 @@ internal sealed class NativeObjectAdapter(
         }
 
         var uploadId = uploadIdVal.ToString();
-        var sessionResult = stager.GetSession(uploadId);
-        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        if (!TryValidateSession(uploadId, bucket, key, out var session, out var sessionError))
         {
-            return sessionErr.ToHttpResult();
-        }
-
-        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
-        {
-            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+            return sessionError;
         }
 
         var stageResult = await stager.StageChunk(
@@ -242,15 +225,9 @@ internal sealed class NativeObjectAdapter(
         }
 
         var uploadId = uploadIdVal.ToString();
-        var sessionResult = stager.GetSession(uploadId);
-        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        if (!TryValidateSession(uploadId, bucket, key, out var session, out var sessionError))
         {
-            return sessionErr.ToHttpResult();
-        }
-
-        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
-        {
-            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+            return sessionError;
         }
 
         var abortResult = stager.AbortSession(uploadId);
@@ -293,15 +270,9 @@ internal sealed class NativeObjectAdapter(
             return authFail.Error.ToHttpResult();
         }
 
-        var sessionResult = stager.GetSession(uploadId);
-        if (!sessionResult.TryGetValue(out var session, out var sessionErr))
+        if (!TryValidateSession(uploadId, bucket, key, out var session, out var sessionError))
         {
-            return sessionErr.ToHttpResult();
-        }
-
-        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
-        {
-            return Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+            return sessionError;
         }
 
         var reqDto = await JsonSerializer.DeserializeAsync(context.Request.Body, NativeJsonContext.Default.CompleteUploadRequestDto, context.RequestAborted);
@@ -345,5 +316,30 @@ internal sealed class NativeObjectAdapter(
         }
 
         return Results.Json(new PutObjectResultDto(wireEtag, outcome.VersionId, outcome.TotalSize, Sha256: null), NativeJsonContext.Default.PutObjectResultDto);
+    }
+
+    private bool TryValidateSession(
+        string uploadId,
+        string bucket,
+        string key,
+        [NotNullWhen(true)] out StagedSession? session,
+        [NotNullWhen(false)] out IResult? errorResult)
+    {
+        var sessionResult = stager.GetSession(uploadId);
+        if (!sessionResult.TryGetValue(out session, out var sessionErr))
+        {
+            errorResult = sessionErr.ToHttpResult();
+            return false;
+        }
+
+        if (!string.Equals(session.Bucket, bucket, StringComparison.Ordinal) || !string.Equals(session.Key, key, StringComparison.Ordinal))
+        {
+            session = null;
+            errorResult = Results.BadRequest(new ErrorDto("upload_mismatch", "Upload session does not match bucket or key"));
+            return false;
+        }
+
+        errorResult = null;
+        return true;
     }
 }

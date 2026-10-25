@@ -22,9 +22,15 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
 
             foreach (var row in batch.Entries)
             {
-                if (CommonPrefixOf(req, row.Key) is { } commonPrefix)
+                var prefixSpan = CommonPrefixSpanOf(req, row.Key);
+                if (!prefixSpan.IsEmpty)
                 {
-                    if (commonPrefix == lastCommonPrefix) continue;
+                    if (lastCommonPrefix is not null && prefixSpan.SequenceEqual(lastCommonPrefix.AsSpan()))
+                    {
+                        continue;
+                    }
+
+                    var commonPrefix = prefixSpan.ToString();
                     emitted.Add(new ListEntry.CommonPrefix(commonPrefix));
                     lastCommonPrefix = commonPrefix;
                 }
@@ -53,12 +59,18 @@ internal sealed class BucketLister(IBucketRegistry registry) : IBucketLister
     private static KeyBound Resume(ListRequest req, string key) =>
         CommonPrefixOf(req, key) == key && KeyRange.Successor(key) is { } next ? KeyBound.From(next) : KeyBound.After(key);
 
+    private static ReadOnlySpan<char> CommonPrefixSpanOf(ListRequest req, string key)
+    {
+        if (req.Delimiter is not "/") return default;
+        var prefix = req.Prefix ?? string.Empty;
+        if (!key.StartsWith(prefix, StringComparison.Ordinal)) return default;
+        var slash = key.IndexOf('/', prefix.Length);
+        return slash < 0 ? default : key.AsSpan(0, slash + 1);
+    }
+
     private static string? CommonPrefixOf(ListRequest req, string key)
     {
-        if (req.Delimiter is not "/") return null;
-        var prefix = req.Prefix ?? string.Empty;
-        if (!key.StartsWith(prefix, StringComparison.Ordinal)) return null;
-        var slash = key.IndexOf('/', prefix.Length);
-        return slash < 0 ? null : key[..(slash + 1)];
+        var span = CommonPrefixSpanOf(req, key);
+        return span.IsEmpty ? null : span.ToString();
     }
 }

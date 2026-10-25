@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security;
 using System.Text;
 using Microsoft.AspNetCore.Http;
@@ -13,11 +14,22 @@ internal interface IAzureErrorXmlWriter
 
 internal sealed record InvalidResourceNameError(string Detail) : Error("InvalidResourceName", Detail)
 {
-    public override int Status => 400;
+    public override int Status => StatusCodes.Status400BadRequest;
 }
 
 internal sealed class AzureErrorXmlWriter : IAzureErrorXmlWriter
 {
+    private static readonly FrozenDictionary<string, string> ErrorCodeMap =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["BucketAlreadyExists"] = "ContainerAlreadyExists",
+            ["BucketAlreadyOwnedByYou"] = "ContainerAlreadyExists",
+            ["NoSuchBucket"] = "ContainerNotFound",
+            ["NoSuchKey"] = "BlobNotFound",
+            ["BadDigest"] = "Md5Mismatch",
+            ["PreconditionFailed"] = "ConditionNotMet",
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
     public (string Code, int StatusCode) MapError(Error error) => error switch
     {
         NoSuchBucketError => ("ContainerNotFound", StatusCodes.Status404NotFound),
@@ -36,16 +48,8 @@ internal sealed class AzureErrorXmlWriter : IAzureErrorXmlWriter
         _ => (MapCodeString(error.Code), error.Status > 0 ? error.Status : StatusCodes.Status500InternalServerError)
     };
 
-    private static string MapCodeString(string code) => code switch
-    {
-        "BucketAlreadyExists" => "ContainerAlreadyExists",
-        "BucketAlreadyOwnedByYou" => "ContainerAlreadyExists",
-        "NoSuchBucket" => "ContainerNotFound",
-        "NoSuchKey" => "BlobNotFound",
-        "BadDigest" => "Md5Mismatch",
-        "PreconditionFailed" => "ConditionNotMet",
-        _ => string.IsNullOrEmpty(code) ? "InternalError" : code
-    };
+    private static string MapCodeString(string code) =>
+        ErrorCodeMap.GetValueOrDefault(code, string.IsNullOrEmpty(code) ? "InternalError" : code);
 
     public Task WriteError(Stream output, Error error, string requestId, CancellationToken ct)
     {
@@ -72,7 +76,7 @@ internal sealed class AzureErrorResult(Error error, IAzureErrorXmlWriter xml) : 
     public async Task ExecuteAsync(HttpContext ctx)
     {
         var (code, status) = xml.MapError(error);
-        var requestId = ctx.Items.TryGetValue("AzureRequestId", out var r) && r is string reqId
+        var requestId = ctx.Items.TryGetValue(VesselContextKeys.AzureRequestId, out var r) && r is string reqId
             ? reqId
             : Guid.NewGuid().ToString();
 

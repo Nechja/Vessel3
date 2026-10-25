@@ -8,11 +8,23 @@ public sealed class HexagonalArchitectureTests
     private static readonly string RepoRoot = FindRepoRoot();
 
     [Fact]
-    public void Storage_ProjectReferences_OnlyDependsOnPrimitives()
+    public void Storage_ProjectReferences_OnlyDependsOnPrimitivesAndIO()
     {
         var references = GetProjectReferences("Vessel3.Storage");
-        Assert.Single(references);
-        Assert.Equal("Vessel3.Primitives", GetProjectName(references[0]));
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Vessel3.Primitives", "Vessel3.IO" };
+        Assert.Equal(2, references.Count);
+        foreach (var reference in references)
+        {
+            var refName = GetProjectName(reference);
+            Assert.Contains(refName, allowed);
+        }
+    }
+
+    [Fact]
+    public void IO_ProjectReferences_HasZeroDependencies()
+    {
+        var references = GetProjectReferences("Vessel3.IO");
+        Assert.Empty(references);
     }
 
     [Fact]

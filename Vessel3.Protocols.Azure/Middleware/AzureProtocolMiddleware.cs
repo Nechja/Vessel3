@@ -32,7 +32,7 @@ internal sealed class AzureProtocolMiddleware(
         }
 
         var requestId = Guid.NewGuid().ToString("D");
-        ctx.Items["AzureRequestId"] = requestId;
+        ctx.Items[VesselContextKeys.AzureRequestId] = requestId;
         RequestTrace.SetContext(protocol: "azure", traceId: requestId);
 
         var target = AzureRequestParser.Parse(ctx.Request);
@@ -46,7 +46,7 @@ internal sealed class AzureProtocolMiddleware(
             return;
         }
 
-        ctx.Items["CallerIdentity"] = caller;
+        ctx.Items[VesselContextKeys.CallerIdentity] = caller;
         RequestTrace.SetContext(actor: caller.Username);
 
         AzureHeaderCodec.ApplyStandardResponseHeaders(ctx);

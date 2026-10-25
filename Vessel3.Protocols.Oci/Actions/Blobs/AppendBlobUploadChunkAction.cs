@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.IO;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 
@@ -24,9 +25,9 @@ internal sealed class AppendBlobUploadChunkAction(
             return;
         }
 
-        await using (var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        await using (var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, SohBuffer.BlockSize, useAsync: true))
         {
-            await ctx.Request.Body.CopyToAsync(fileStream, ctx.RequestAborted);
+            await ctx.Request.Body.CopyToAsync(fileStream, SohBuffer.BlockSize, ctx.RequestAborted);
         }
 
         var fileInfo = new FileInfo(session.TempFilePath);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.IO;
 using Vessel3.Protocols.Oci.Dispatch;
 using Vessel3.Protocols.Oci.Serialization;
 using Vessel3.Storage;
@@ -33,14 +34,14 @@ internal sealed class CommitBlobUploadAction(
 
         if (ctx.Request.ContentLength is > 0)
         {
-            await using var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-            await ctx.Request.Body.CopyToAsync(fileStream, ctx.RequestAborted);
+            await using var fileStream = new FileStream(session.TempFilePath, FileMode.Append, FileAccess.Write, FileShare.None, SohBuffer.BlockSize, useAsync: true);
+            await ctx.Request.Body.CopyToAsync(fileStream, SohBuffer.BlockSize, ctx.RequestAborted);
         }
 
         var cleanDeclaredSha = responseWriter.CleanSha(declaredDigest);
 
         StoredBlob storedBlob;
-        await using (var readFileStream = new FileStream(session.TempFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+        await using (var readFileStream = new FileStream(session.TempFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, SohBuffer.BlockSize, useAsync: true))
         {
             var writeResult = await blobs.Write(readFileStream, readFileStream.Length, ChecksumIntent.None, ctx.RequestAborted);
             if (!writeResult.TryGetValue(out var b, out var writeErr))

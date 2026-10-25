@@ -1,3 +1,5 @@
+using Vessel3.Primitives;
+
 namespace Vessel3.Protocols.WebDav;
 
 internal static class WebDavHeaders
@@ -75,5 +77,5 @@ internal static class WebDavHttpStatusStrings
 
 internal static class WebDavItems
 {
-    public const string CallerIdentity = "CallerIdentity";
+    public const string CallerIdentity = VesselContextKeys.CallerIdentity;
 }

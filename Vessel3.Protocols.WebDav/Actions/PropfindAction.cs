@@ -32,7 +32,7 @@ internal sealed class PropfindAction(
             return new WebDavErrorResult(error);
         }
 
-        ctx.Response.StatusCode = 207;
+        ctx.Response.StatusCode = StatusCodes.Status207MultiStatus;
         ctx.Response.ContentType = WebDavMediaTypes.XmlUtf8;
         ctx.Response.Headers[WebDavHeaders.Dav] = WebDavHeaders.DavComplianceLevel;
         ctx.Response.Headers[WebDavHeaders.MsAuthorVia] = WebDavHeaders.DavAuthorValue;

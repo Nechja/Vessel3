@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Vessel3.Primitives;
 using Vessel3.Protocols.Azure.Dispatch;
 using Vessel3.Protocols.Azure.Serialization;
 using Vessel3.Storage;
@@ -18,7 +19,7 @@ internal sealed class CreateContainerAction(
             return Task.FromResult<IResult>(new AzureErrorResult(new InvalidResourceNameError("Container name is required"), errorXml));
         }
 
-        var caller = ctx.Items.TryGetValue("CallerIdentity", out var c) && c is CallerIdentity ci
+        var caller = ctx.Items.TryGetValue(VesselContextKeys.CallerIdentity, out var c) && c is CallerIdentity ci
             ? ci
             : CallerIdentity.System;
 

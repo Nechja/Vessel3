@@ -1,3 +1,4 @@
+using Vessel3.IO;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -36,11 +37,17 @@ public class ConcatStreamTests
         return (parts, new FakeBlobs(blobs));
     }
 
+    private static ConcatStream CreateStream(List<MultipartPart> parts, FakeBlobs blobs) =>
+        new(parts.Select(p => new StreamSegment(p.Size, async ct =>
+            (await blobs.Open(p.BlobSha, ct)) is Result<Stream>.Success ok
+                ? ok.Value
+                : throw new InvalidOperationException())).ToList());
+
     [Fact]
     public void Length_SumsPartSizes()
     {
         var (parts, blobs) = Setup("aaa"u8.ToArray(), "bbbb"u8.ToArray());
-        using var s = new ConcatStream(parts, blobs);
+        using var s = CreateStream(parts, blobs);
         Assert.Equal(7, s.Length);
     }
 
@@ -48,7 +55,7 @@ public class ConcatStreamTests
     public async Task Read_StreamsAllParts()
     {
         var (parts, blobs) = Setup("hello "u8.ToArray(), "world"u8.ToArray(), "!"u8.ToArray());
-        using var s = new ConcatStream(parts, blobs);
+        using var s = CreateStream(parts, blobs);
         var sink = new MemoryStream();
         await s.CopyToAsync(sink, TestContext.Current.CancellationToken);
         Assert.Equal("hello world!"u8.ToArray(), sink.ToArray());
@@ -58,7 +65,7 @@ public class ConcatStreamTests
     public async Task Seek_AcrossParts()
     {
         var (parts, blobs) = Setup("0123"u8.ToArray(), "4567"u8.ToArray(), "89"u8.ToArray());
-        using var s = new ConcatStream(parts, blobs);
+        using var s = CreateStream(parts, blobs);
         s.Seek(5, SeekOrigin.Begin);
         Assert.Equal(5, s.Position);
 
@@ -71,7 +78,7 @@ public class ConcatStreamTests
     public void Read_SynchronousRead_ThrowsNotSupportedException()
     {
         var (parts, blobs) = Setup("0123"u8.ToArray());
-        using var s = new ConcatStream(parts, blobs);
+        using var s = CreateStream(parts, blobs);
         Assert.Throws<NotSupportedException>(() => s.Read(new byte[1], 0, 1));
     }
 
@@ -79,7 +86,7 @@ public class ConcatStreamTests
     public void Seek_Beyond_Throws()
     {
         var (parts, blobs) = Setup("ab"u8.ToArray());
-        using var s = new ConcatStream(parts, blobs);
+        using var s = CreateStream(parts, blobs);
         Assert.Throws<ArgumentOutOfRangeException>(() => s.Seek(99, SeekOrigin.Begin));
     }
 }

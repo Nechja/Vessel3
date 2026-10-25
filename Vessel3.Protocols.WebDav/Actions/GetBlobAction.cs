@@ -37,35 +37,6 @@ internal sealed class GetBlobAction(IObjectStore objects) : IWebDavAction
 
         var etagHeader = obj.Etag.StartsWith('"') ? obj.Etag : $"\"{obj.Etag}\"";
 
-        var hasRange = ctx.Request.Headers.TryGetValue("Range", out var rangeVal) && !string.IsNullOrEmpty(rangeVal);
-        if (!hasRange)
-        {
-            res.ContentType = obj.ContentType;
-            res.ContentLength = obj.Size;
-            res.Headers.ETag = etagHeader;
-            res.Headers.LastModified = WebDavXmlDefaults.ToRfc1123(obj.LastModified);
-            res.Headers.AcceptRanges = "bytes";
-
-            await using (obj.Body)
-            {
-                var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(80 * 1024);
-                try
-                {
-                    int bytesRead;
-                    while ((bytesRead = await obj.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), ctx.RequestAborted)) > 0)
-                    {
-                        await res.Body.WriteAsync(buffer.AsMemory(0, bytesRead), ctx.RequestAborted);
-                    }
-                }
-                finally
-                {
-                    System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-                }
-            }
-
-            return Results.Empty;
-        }
-
         return Results.Stream(
             obj.Body,
             contentType: obj.ContentType,

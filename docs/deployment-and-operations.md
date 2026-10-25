@@ -181,6 +181,10 @@ Vessel3 guarantees crash-safe durability without distributed consensus:
 3. **SQLite WAL Catalog (`index.db`)**:
    - Object lookups, versioning, and prefixes run out of a SQLite database in Write-Ahead Log (`WAL`) mode with `NORMAL` synchronous pragma.
    - If `index.db` is deleted or corrupted, Vessel3 automatically replays the event log from the last checkpoint on next startup.
+4. **Memory Defenses & Allocation Budgets**:
+   - Streaming operations enforce a strict 64 KiB buffer size (`SohBuffer.BlockSize = 65,536`), preventing implicit buffer rentals from exceeding the 85,000-byte threshold into the .NET Large Object Heap (LOH).
+   - High-churn operations (precondition evaluation, byte-range slicing, W3C traceparent formatting, and event log record parsing) utilize stack-allocated spans (`ReadOnlySpan<char>` / `ReadOnlySpan<byte>`) to achieve zero heap allocations in hot request paths.
+   - Constant-time cryptographic comparison (`CryptographicCompare.FixedTimeEquals`) is used across all authentication and checksum validation flows, preventing side-channel timing attacks.
 
 ---
 

@@ -1,7 +1,7 @@
 #pragma warning disable CA5350
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using Vessel3.IO;
 
 namespace Vessel3.Storage;
 
@@ -20,7 +20,9 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
             tmpDirEnsured = true;
         }
 
-        var tempPath = Path.Combine(volume.TmpDir, Guid.NewGuid().ToString("N"));
+        Span<char> id = stackalloc char[32];
+        Guid.NewGuid().TryFormat(id, out _, "N");
+        var tempPath = Path.Join(volume.TmpDir.AsSpan(), id);
         var moved = false;
 
         try
@@ -37,7 +39,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 Mode = FileMode.CreateNew,
                 Access = FileAccess.Write,
                 Share = FileShare.None,
-                BufferSize = 81920,
+                BufferSize = SohBuffer.BlockSize,
                 Options = FileOptions.Asynchronous,
                 PreallocationSize = declaredSize ?? 0,
             }))
@@ -47,30 +49,23 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 using var sha1 = intent.Sha1 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA1) : null;
                 var crc32 = intent.Crc32 ? new System.IO.Hashing.Crc32() : null;
                 var crc32c = intent.Crc32C ? new Crc32C() : default;
-                var buf = ArrayPool<byte>.Shared.Rent(81920);
+                using var rented = SohBuffer.Rent();
                 total = 0;
 
-                try
+                int n;
+                using (RequestTrace.Time(Stage.Body))
                 {
-                    int n;
-                    using (RequestTrace.Time(Stage.Body))
+                    while ((n = await source.ReadAsync(rented.Memory, ct)) > 0)
                     {
-                        while ((n = await source.ReadAsync(buf.AsMemory(0, 81920), ct)) > 0)
-                        {
-                            var span = buf.AsSpan(0, n);
-                            sha256.AppendData(span);
-                            md5Hash.AppendData(span);
-                            sha1?.AppendData(span);
-                            crc32?.Append(span);
-                            if (intent.Crc32C) crc32c.Append(span);
-                            await temp.WriteAsync(buf.AsMemory(0, n), ct);
-                            total += n;
-                        }
+                        var span = rented.Span[..n];
+                        sha256.AppendData(span);
+                        md5Hash.AppendData(span);
+                        sha1?.AppendData(span);
+                        crc32?.Append(span);
+                        if (intent.Crc32C) crc32c.Append(span);
+                        await temp.WriteAsync(rented.Memory[..n], ct);
+                        total += n;
                     }
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(buf);
                 }
 
                 Span<byte> sha256Bytes = stackalloc byte[32];
@@ -146,7 +141,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
                 Mode = FileMode.Open,
                 Access = FileAccess.Read,
                 Share = FileShare.Read,
-                BufferSize = 81920,
+                BufferSize = SohBuffer.BlockSize,
                 Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
             });
             return Task.FromResult<Result<Stream>>(stream);
@@ -222,7 +217,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
     }
 
     private string PathFor(string sha) =>
-        Path.Combine(volume.BlobsRoot, sha[..2], sha[2..4], sha);
+        Path.Join(volume.BlobsRoot.AsSpan(), sha.AsSpan(0, 2), sha.AsSpan(2, 2), sha.AsSpan());
 
     private static bool IsLikelySha(string name) =>
         name.Length == 64 && name.All(IsHexLower);

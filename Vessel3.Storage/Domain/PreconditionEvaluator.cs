@@ -85,19 +85,36 @@ internal sealed class PreconditionEvaluator : IPreconditionEvaluator
 
     private static bool EtagListContains(string headerValue, string etag)
     {
-        foreach (var raw in headerValue.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        ReadOnlySpan<char> span = headerValue.AsSpan();
+        ReadOnlySpan<char> target = etag.AsSpan();
+        while (!span.IsEmpty)
         {
-            var token = NormalizeEtag(raw);
-            if (string.Equals(token, etag, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
-    }
+            var comma = span.IndexOf(',');
+            var item = (comma >= 0 ? span[..comma] : span).Trim();
+            if (item.StartsWith("W/", StringComparison.Ordinal))
+            {
+                item = item[2..];
+            }
 
-    private static string NormalizeEtag(string raw)
-    {
-        var t = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
-        return t.Length >= 2 && t[0] is '"' && t[^1] is '"' ? t[1..^1] : t;
+            if (item.Length >= 2 && item[0] is '"' && item[^1] is '"')
+            {
+                item = item[1..^1];
+            }
+
+            if (item.SequenceEqual(target))
+            {
+                return true;
+            }
+
+            if (comma < 0)
+            {
+                break;
+            }
+
+            span = span[(comma + 1)..];
+        }
+
+        return false;
     }
 
     private static bool TryParseHttpDate(string s, out DateTimeOffset dt) =>

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security;
 using System.Text;
 using System.Xml;
+using Vessel3.IO;
 
 namespace Vessel3.Server.S3;
 
@@ -9,8 +10,8 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 {
     public async Task WriteListObjects(Stream output, S3ListObjectsRequest request, ListPage page, CancellationToken ct)
     {
-        using var ms = new MemoryStream(Math.Max(512, page.Entries.Count * 256));
-        using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var writer = XmlWriter.Create(buffer, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
             writer.WriteStartElement(null, "ListBucketResult", S3XmlDefaults.S3Namespace);
@@ -55,13 +56,13 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             writer.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteListVersions(Stream output, string bucket, string? prefix, IReadOnlyList<AllVersionsEntry> entries, bool isTruncated, int maxKeys, string? encodingType, CancellationToken ct)
     {
-        using var ms = new MemoryStream(Math.Max(512, entries.Count * 256));
-        using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var writer = XmlWriter.Create(buffer, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
             writer.WriteStartElement(null, "ListVersionsResult", S3XmlDefaults.S3Namespace);
@@ -96,7 +97,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             writer.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public Task WriteInitiateMultipartUploadResult(Stream output, string bucket, string key, string uploadId, CancellationToken ct)
@@ -118,8 +119,8 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteListParts(Stream output, string bucket, string key, string uploadId, IReadOnlyList<ListedPart> parts, CancellationToken ct)
     {
-        using var ms = new MemoryStream(Math.Max(512, parts.Count * 256));
-        using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var writer = XmlWriter.Create(buffer, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
             writer.WriteStartElement(null, "ListPartsResult", S3XmlDefaults.S3Namespace);
@@ -147,7 +148,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             writer.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public Task WriteCopyObjectResult(Stream output, CopyOutcome outcome, CancellationToken ct)
@@ -166,8 +167,8 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
 
     public async Task WriteBatchDeleteResult(Stream output, IEnumerable<BatchDeleteOutcome> outcomes, bool quiet, CancellationToken ct)
     {
-        using var ms = new MemoryStream(512);
-        using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var writer = XmlWriter.Create(buffer, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
             writer.WriteStartElement(null, "DeleteResult", S3XmlDefaults.S3Namespace);
@@ -199,14 +200,14 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             writer.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public async Task WriteObjectAttributes(Stream output, ObjectAttributesRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        using var ms = new MemoryStream(512);
-        using (var writer = XmlWriter.Create(ms, S3XmlDefaults.WriterSettings))
+        using var buffer = new PooledBufferStream();
+        using (var writer = XmlWriter.Create(buffer, S3XmlDefaults.WriterSettings))
         {
             writer.WriteStartDocument();
             writer.WriteStartElement(null, "GetObjectAttributesOutput", S3XmlDefaults.S3Namespace);
@@ -254,7 +255,7 @@ internal sealed class ObjectXmlWriter : IObjectXmlWriter
             writer.Flush();
         }
 
-        await output.WriteAsync(ms.GetBuffer().AsMemory(0, (int)ms.Length), ct);
+        await buffer.WriteTo(output, ct);
     }
 
     public Task WriteTagging(Stream output, IReadOnlyDictionary<string, string> tags, CancellationToken ct)

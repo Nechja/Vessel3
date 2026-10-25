@@ -1,17 +1,19 @@
-namespace Vessel3.Storage;
+namespace Vessel3.IO;
 
-internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool blobs) : Stream
+internal readonly record struct StreamSegment(long Length, Func<CancellationToken, ValueTask<Stream>> Open);
+
+internal sealed class ConcatStream(IReadOnlyList<StreamSegment> segments) : Stream
 {
-    private readonly long totalLength = SumSizes(parts);
+    private readonly long totalLength = SumSizes(segments);
     private long position;
     private int currentIndex = -1;
     private long currentPartStart;
     private Stream? currentStream;
 
-    private static long SumSizes(IReadOnlyList<MultipartPart> parts)
+    private static long SumSizes(IReadOnlyList<StreamSegment> segments)
     {
         long sum = 0;
-        foreach (var p in parts) sum += p.Size;
+        foreach (var s in segments) sum += s.Length;
         return sum;
     }
 
@@ -59,9 +61,9 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         if (target < 0 || target > totalLength)
             throw new ArgumentOutOfRangeException(nameof(offset));
 
-        if (currentStream is not null && currentIndex >= 0 && currentIndex < parts.Count)
+        if (currentStream is not null && currentIndex >= 0 && currentIndex < segments.Count)
         {
-            var partEnd = currentPartStart + parts[currentIndex].Size;
+            var partEnd = currentPartStart + segments[currentIndex].Length;
             if (target >= currentPartStart && target < partEnd)
             {
                 currentStream.Seek(target - currentPartStart, SeekOrigin.Begin);
@@ -94,9 +96,9 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
         if (currentIndex < 0)
         {
             long offset = 0;
-            for (var i = 0; i < parts.Count; i++)
+            for (var i = 0; i < segments.Count; i++)
             {
-                var partEnd = offset + parts[i].Size;
+                var partEnd = offset + segments[i].Length;
                 if (position < partEnd)
                 {
                     currentIndex = i;
@@ -107,27 +109,20 @@ internal sealed class ConcatStream(IReadOnlyList<MultipartPart> parts, IBlobPool
             }
         }
 
-        if (currentIndex < 0 || currentIndex >= parts.Count) return;
-        currentStream = await OpenPart(parts[currentIndex], ct);
+        if (currentIndex < 0 || currentIndex >= segments.Count) return;
+        currentStream = await segments[currentIndex].Open(ct);
         var skip = position - currentPartStart;
         if (skip > 0) currentStream.Seek(skip, SeekOrigin.Begin);
     }
+
     private void AdvancePart()
     {
         DisposeCurrent();
-        if (currentIndex >= 0 && currentIndex < parts.Count)
+        if (currentIndex >= 0 && currentIndex < segments.Count)
         {
-            currentPartStart += parts[currentIndex].Size;
+            currentPartStart += segments[currentIndex].Length;
             currentIndex++;
         }
-    }
-
-    private async Task<Stream> OpenPart(MultipartPart part, CancellationToken ct)
-    {
-        var openResult = await blobs.Open(part.BlobSha, ct);
-        return openResult is Result<Stream>.Success ok
-            ? ok.Value
-            : throw new InvalidOperationException($"missing blob for part {part.Number}: {part.BlobSha}");
     }
 
     private void DisposeCurrent()

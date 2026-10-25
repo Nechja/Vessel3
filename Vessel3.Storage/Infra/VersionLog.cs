@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 
 namespace Vessel3.Storage;
@@ -301,13 +301,17 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
     {
         length = 0;
         crc = 0;
-        var text = Encoding.ASCII.GetString(header);
-        return text.StartsWith("v1 ", StringComparison.Ordinal)
-            && text[11] == ' '
-            && text[20] == ' '
-            && int.TryParse(text.AsSpan(3, 8), NumberStyles.HexNumber, null, out length)
+        return header.Length >= HeaderLength
+            && header[0] is (byte)'v'
+            && header[1] is (byte)'1'
+            && header[2] is (byte)' '
+            && header[11] is (byte)' '
+            && header[20] is (byte)' '
+            && Utf8Parser.TryParse(header.Slice(3, 8), out length, out var lenConsumed, 'x')
+            && lenConsumed == 8
             && length >= 0
-            && uint.TryParse(text.AsSpan(12, 8), NumberStyles.HexNumber, null, out crc)
+            && Utf8Parser.TryParse(header.Slice(12, 8), out crc, out var crcConsumed, 'x')
+            && crcConsumed == 8
             && start + HeaderLength + length + 1 <= fileLength;
     }
 

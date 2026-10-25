@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Vessel3.Primitives\Vessel3.Primitives.csproj" />
     <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
+    <ProjectReference Include="..\Vessel3.IO\Vessel3.IO.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.S3\Vessel3.Protocols.S3.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Native\Vessel3.Protocols.Native.csproj" />
     <ProjectReference Include="..\Vessel3.Protocols.Oci\Vessel3.Protocols.Oci.csproj" />
@@ -40,7 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="*" Condition="'$(EmbedUi)' == 'true'" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.*" Condition="'$(EmbedUi)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>
