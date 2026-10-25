@@ -1,4 +1,3 @@
-using System.Text;
 using Xunit;
 
 namespace Vessel3.Tests;
@@ -225,5 +224,114 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         Assert.True(delete.TryGetValue(out var deleted, out _));
         Assert.True(deleted);
         Assert.False(await pool.Exists(stored.Sha));
+    }
+
+    [Fact]
+    public async Task DynamicVolume_UpsertAtRuntime_TransitionsSingleToMultiVolume()
+    {
+        var fastVol = new StorageVolume("fast", fastPath, "default", VolumeCapabilities.Ingest, NodeId: "node-a");
+        var catalog = new MemoryBlobLocationCatalog();
+        var registry = new VolumeRegistry([fastVol], sync);
+        var pool = new BlobPool(registry, catalog);
+
+        var initialData = "written before peer joined"u8.ToArray();
+        var w1 = await pool.Write(new MemoryStream(initialData), initialData.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(w1.TryGetValue(out var stored1, out _));
+        Assert.Equal("fast", catalog.LocateBlob(stored1.Sha));
+
+        var peerStorage = new LocalDiskVolumeStorage(new StorageVolume("peer-vault", vaultPath), sync);
+        var peerData = "blob residing on newly discovered peer"u8.ToArray();
+        var w2 = await peerStorage.WriteStagedBlob(new MemoryStream(peerData), peerData.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(w2.TryGetValue(out var stored2, out _));
+
+        var peerVol = new StorageVolume(
+            "peer-vault",
+            vaultPath,
+            "remote-pool",
+            VolumeCapabilities.Remote | VolumeCapabilities.OnDemand,
+            VolumeStatus.Online,
+            CapacityBytes: 1_000_000_000L,
+            AvailableBytes: 750_000_000L,
+            NodeId: "node-b");
+
+        registry.UpsertVolume(peerVol, peerStorage);
+
+        Assert.Equal(2, registry.Volumes.Count);
+        Assert.Equal(2, registry.ReadPriorityStorages.Count);
+        Assert.Single(registry.WritableStorages);
+        Assert.Equal("fast", registry.DefaultIngestStorage.VolumeId);
+        Assert.True(registry.TryGetReadableStorage("peer-vault", out var resolvedPeerStorage));
+        Assert.Same(peerStorage, resolvedPeerStorage);
+        Assert.Single(registry.GetPool("remote-pool"));
+        Assert.True(await pool.Exists(stored2.Sha));
+        Assert.Equal("peer-vault", catalog.LocateBlob(stored2.Sha));
+
+        var openPeer = await pool.Open(stored2.Sha);
+        Assert.True(openPeer.TryGetValue(out var stream, out _));
+        using (stream)
+        {
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            Assert.Equal(peerData, ms.ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task VolumeRegistry_TryUpdateStatusFaulted_ExcludesFromReadAndWrite()
+    {
+        var fastVol = new StorageVolume("fast", fastPath, "default", VolumeCapabilities.Ingest);
+        var vaultVol = new StorageVolume("vault", vaultPath, "vault", VolumeCapabilities.OnDemand);
+        var catalog = new MemoryBlobLocationCatalog();
+        var registry = new VolumeRegistry([fastVol, vaultVol], sync);
+        var pool = new BlobPool(registry, catalog);
+
+        var vaultData = "vault blob on soon faulted volume"u8.ToArray();
+        var w = await registry.GetStorage("vault").WriteStagedBlob(new MemoryStream(vaultData), vaultData.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(w.TryGetValue(out var stored, out _));
+        Assert.True(await pool.Exists(stored.Sha));
+        Assert.Equal("vault", catalog.LocateBlob(stored.Sha));
+
+        Assert.True(registry.TryUpdateStatus("vault", VolumeStatus.Faulted, availableBytes: 0, capacityBytes: 5000));
+        var faultedVol = registry.GetVolume("vault");
+        Assert.NotNull(faultedVol);
+        Assert.False(faultedVol.IsOnline);
+        Assert.False(faultedVol.IsReadable);
+        Assert.False(faultedVol.IsWritable);
+        Assert.Equal(0, faultedVol.AvailableBytes);
+        Assert.Equal(5000, faultedVol.CapacityBytes);
+        Assert.DoesNotContain(registry.ReadPriorityVolumes, v => v.Id == "vault");
+        Assert.DoesNotContain(registry.ReadPriorityStorages, s => s.VolumeId == "vault");
+        Assert.False(registry.TryGetReadableStorage("vault", out _));
+
+        Assert.False(await pool.Exists(stored.Sha));
+        Assert.Null(catalog.LocateBlob(stored.Sha));
+
+        Assert.True(registry.TryUpdateStatus("vault", VolumeStatus.Online, availableBytes: 4000));
+        Assert.True(await pool.Exists(stored.Sha));
+        Assert.Equal("vault", catalog.LocateBlob(stored.Sha));
+    }
+
+    [Fact]
+    public async Task VolumeRegistry_RemoveVolume_CleansUpAndFallsBackGracefully()
+    {
+        var fastVol = new StorageVolume("fast", fastPath, "default", VolumeCapabilities.Ingest);
+        var vaultVol = new StorageVolume("vault", vaultPath, "vault", VolumeCapabilities.OnDemand);
+        var catalog = new MemoryBlobLocationCatalog();
+        var registry = new VolumeRegistry([fastVol, vaultVol], sync);
+        var pool = new BlobPool(registry, catalog);
+
+        var data = "replicated payload"u8.ToArray();
+        var wVault = await registry.GetStorage("vault").WriteStagedBlob(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        var wFast = await registry.GetStorage("fast").WriteStagedBlob(new MemoryStream(data), data.Length, ChecksumIntent.All, CancellationToken.None);
+        Assert.True(wVault.TryGetValue(out var stored, out _));
+        Assert.True(wFast.TryGetValue(out _, out _));
+
+        catalog.RecordLocation(stored.Sha, "vault");
+        Assert.True(registry.RemoveVolume("vault"));
+        Assert.False(registry.RemoveVolume("vault"));
+        Assert.Null(registry.GetVolume("vault"));
+
+        Assert.True(await pool.Exists(stored.Sha));
+        Assert.Equal("fast", catalog.LocateBlob(stored.Sha));
     }
 }
