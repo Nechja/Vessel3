@@ -34,6 +34,14 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold, config.AccessLogEnabled));
         services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
         services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
+        services.AddSingleton(config.Cluster ?? new ClusterMembershipOptions(
+            config.NodeId ?? Environment.MachineName,
+            string.Empty,
+            [],
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            config.SecretKey));
     }
 
     private static void AddVesselStorage(this IServiceCollection services, VesselConfig config)
@@ -41,12 +49,38 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IFileSync>(OperatingSystem.IsLinux() ? new PosixFileSync() : new PortableFileSync());
         services.AddSingleton<IDurableWrite, DurableWrite>();
 
-        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot)];
+        var resolvedNodeId = config.NodeId ?? config.Cluster?.NodeId ?? Environment.MachineName;
+        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot, resolvedNodeId)];
         services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
         services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(volumes, sp.GetRequiredService<IFileSync>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
             sp.GetRequiredService<IBlobLocationCatalog>()));
+        services.AddSingleton<ILocalVolumeAdvertiser>(sp => new LocalVolumeAdvertiser(
+            sp.GetRequiredService<IVolumeRegistry>()));
+        services.AddSingleton<IRemoteBlobReaderFactory>(sp => new HttpRemoteBlobReaderFactory(
+            new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+            },
+            sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
+        services.AddSingleton<IClusterTopologyListener, RemoteVolumeTopologySynchronizer>();
+        services.AddSingleton<IClusterMembership>(sp => new ClusterMembership(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<ILocalVolumeAdvertiser>(),
+            sp.GetServices<IClusterTopologyListener>(),
+            sp.GetService<TimeProvider>()));
+        services.AddSingleton<IGossipTransport>(sp => new HttpGossipTransport(
+            new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+            {
+                Timeout = TimeSpan.FromSeconds(5),
+            },
+            sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
+        services.AddSingleton<GossipCoordinator>(sp => new GossipCoordinator(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<IClusterMembership>(),
+            sp.GetRequiredService<IGossipTransport>()));
+        services.AddHostedService<GossipService>();
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
         services.AddSingleton<IIdentityRegistry>(sp =>

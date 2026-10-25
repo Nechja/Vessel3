@@ -6,6 +6,8 @@ public static class VesselHeaders
     public const string MetaPrefix = "X-Vessel-Meta-";
     public const string AccessKey = "X-Vessel-Key";
     public const string SecretKey = "X-Vessel-Secret";
+    public const string ClusterSecret = "X-Vessel-Cluster-Secret";
+    public const string NodeId = "X-Vessel-Node-Id";
     public const string AuthorizationSchemeBearer = "Bearer";
     public const string AuthorizationSchemeVessel = "Vessel";
     public const string BearerPrefix = "Bearer ";

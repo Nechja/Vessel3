@@ -9,6 +9,7 @@ public static class ReservedRoutePrefixes
     public const string Admin = "/_admin";
     public const string Ui = "/_ui";
     public const string Site = "/_site";
+    public const string Cluster = "/_cluster";
 
     public static bool Matches(string? path) =>
         !string.IsNullOrEmpty(path) && (
@@ -18,7 +19,8 @@ public static class ReservedRoutePrefixes
             || MatchesPrefix(path, WebDavAlt)
             || MatchesPrefix(path, Admin)
             || MatchesPrefix(path, Ui)
-            || MatchesPrefix(path, Site));
+            || MatchesPrefix(path, Site)
+            || MatchesPrefix(path, Cluster));
 
     private static bool MatchesPrefix(string path, string prefix) =>
         path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)

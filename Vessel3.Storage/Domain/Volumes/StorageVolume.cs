@@ -20,8 +20,10 @@ public sealed record StorageVolume(
     public bool IsWritable => !IsReadOnly && !IsRemote && IsOnline;
 
     public string BlobsRoot => Path;
-    public string TmpDir { get; } = System.IO.Path.Combine(Path, "tmp");
+    public string TmpDir { get; } = (Capabilities & VolumeCapabilities.Remote) != 0
+        ? string.Empty
+        : System.IO.Path.Combine(Path, "tmp");
 
-    public static StorageVolume CreateDefault(string dataRoot) =>
-        new("default", System.IO.Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest);
+    public static StorageVolume CreateDefault(string dataRoot, string? nodeId = null) =>
+        new("default", System.IO.Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest, NodeId: nodeId);
 }

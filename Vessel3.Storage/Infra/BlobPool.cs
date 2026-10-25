@@ -44,10 +44,11 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<Result<Stream>> Open(string sha, CancellationToken ct = default)
     {
-        if (catalog.LocateBlob(sha) is { } locatedVolumeId)
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null)
         {
-            if (registry.TryGetReadableStorage(locatedVolumeId, out var locatedStorage)
-                && (await locatedStorage.OpenBlob(sha, ct)).TryGetValue(out var locatedStream, out _))
+            if (registry.TryGetReadableReader(locatedVolumeId, out var locatedReader)
+                && (await locatedReader.OpenBlob(sha, ct)).TryGetValue(out var locatedStream, out _))
             {
                 return locatedStream;
             }
@@ -55,12 +56,15 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
             catalog.RemoveLocation(sha);
         }
 
-        foreach (var storage in registry.ReadPriorityStorages)
+        foreach (var reader in registry.ReadPriorityReaders)
         {
-            if (!(await storage.OpenBlob(sha, ct)).TryGetValue(out var stream, out _))
+            if (string.Equals(reader.VolumeId, locatedVolumeId, StringComparison.Ordinal))
                 continue;
 
-            catalog.RecordLocation(sha, storage.VolumeId);
+            if (!(await reader.OpenBlob(sha, ct)).TryGetValue(out var stream, out _))
+                continue;
+
+            catalog.RecordLocation(sha, reader.VolumeId);
             return stream;
         }
 
@@ -69,10 +73,11 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<bool> Exists(string sha, CancellationToken ct = default)
     {
-        if (catalog.LocateBlob(sha) is { } locatedVolumeId)
+        var locatedVolumeId = catalog.LocateBlob(sha);
+        if (locatedVolumeId is not null)
         {
-            if (registry.TryGetReadableStorage(locatedVolumeId, out var locatedStorage)
-                && await locatedStorage.BlobExists(sha, ct))
+            if (registry.TryGetReadableReader(locatedVolumeId, out var locatedReader)
+                && await locatedReader.BlobExists(sha, ct))
             {
                 return true;
             }
@@ -80,12 +85,15 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
             catalog.RemoveLocation(sha);
         }
 
-        foreach (var storage in registry.ReadPriorityStorages)
+        foreach (var reader in registry.ReadPriorityReaders)
         {
-            if (!await storage.BlobExists(sha, ct))
+            if (string.Equals(reader.VolumeId, locatedVolumeId, StringComparison.Ordinal))
                 continue;
 
-            catalog.RecordLocation(sha, storage.VolumeId);
+            if (!await reader.BlobExists(sha, ct))
+                continue;
+
+            catalog.RecordLocation(sha, reader.VolumeId);
             return true;
         }
 
@@ -107,7 +115,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public IEnumerable<string> EnumerateShards()
     {
-        var storages = registry.ReadPriorityStorages;
+        var storages = registry.LocalStorages;
         if (storages is [var single])
             return single.EnumerateShards();
 
@@ -119,7 +127,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public IEnumerable<string> Enumerate(string shard)
     {
-        var storages = registry.ReadPriorityStorages;
+        var storages = registry.LocalStorages;
         if (storages is [var single])
             return single.Enumerate(shard);
 
@@ -138,7 +146,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
             return locatedMtime;
         }
 
-        foreach (var storage in registry.ReadPriorityStorages)
+        foreach (var storage in registry.LocalStorages)
         {
             if (storage.GetLastWriteUtc(sha) is { } mtime)
                 return mtime;
@@ -150,7 +158,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
     public int ReapAbandonedTempFiles(DateTime cutoffUtc)
     {
         var reaped = 0;
-        foreach (var storage in registry.ReadPriorityStorages)
+        foreach (var storage in registry.LocalStorages)
             reaped += storage.ReapAbandonedTempFiles(cutoffUtc);
         return reaped;
     }

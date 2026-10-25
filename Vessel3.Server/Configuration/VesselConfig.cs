@@ -27,7 +27,8 @@ internal sealed record VesselConfig(
     bool AccessLogEnabled = true,
     string? NodeId = null,
     OtelConfig? Otel = null,
-    IReadOnlyList<StorageVolume>? Volumes = null)
+    IReadOnlyList<StorageVolume>? Volumes = null,
+    ClusterMembershipOptions? Cluster = null)
 {
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
@@ -72,7 +73,22 @@ internal sealed record VesselConfig(
         var logFormat = ReadString("VESSEL3_LOG_FORMAT", "text")!.ToLowerInvariant();
         var logLevel = ReadLogLevel("VESSEL3_LOG_LEVEL", LogLevel.Information);
         var accessLogEnabled = ReadFeatureFlag("VESSEL3_ACCESS_LOG");
-        var nodeId = ReadString("VESSEL3_NODE_ID", Environment.MachineName);
+        var nodeId = ReadString("VESSEL3_NODE_ID", Environment.MachineName)!;
+
+        var advertiseUrl = ReadString("VESSEL3_ADVERTISE_URL", "")!;
+        var seedPeers = ParsePeerSeeds(Environment.GetEnvironmentVariable("VESSEL3_PEERS"));
+        var clusterSecret = ReadString("VESSEL3_CLUSTER_SECRET") ?? secretKey;
+        var gossipIntervalMs = ReadLong("VESSEL3_GOSSIP_INTERVAL_MS", 1000);
+        var peerSuspectMs = ReadLong("VESSEL3_PEER_SUSPECT_MS", 5000);
+        var peerDeadMs = ReadLong("VESSEL3_PEER_DEAD_MS", 15000);
+        var cluster = new ClusterMembershipOptions(
+            nodeId,
+            advertiseUrl,
+            seedPeers,
+            TimeSpan.FromMilliseconds(gossipIntervalMs),
+            TimeSpan.FromMilliseconds(peerSuspectMs),
+            TimeSpan.FromMilliseconds(peerDeadMs),
+            clusterSecret);
 
         var otelEndpoint = ReadString("VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT");
         var otelEnabled = ReadBool("VESSEL3_OTEL_ENABLED") || !string.IsNullOrWhiteSpace(otelEndpoint);
@@ -108,7 +124,8 @@ internal sealed record VesselConfig(
             accessLogEnabled,
             nodeId,
             otel,
-            volumes);
+            volumes,
+            cluster);
 
         error = null;
         return true;
@@ -189,6 +206,27 @@ internal sealed record VesselConfig(
             ? []
             : [.. raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct()];
+    }
+
+    internal static string[] ParsePeerSeeds(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        List<string> seeds = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        var span = raw.AsSpan();
+        foreach (var range in span.SplitAny(",;"))
+        {
+            var trimmed = span[range].Trim().TrimEnd('/');
+            if (trimmed.IsEmpty)
+                continue;
+            var url = trimmed.ToString();
+            if (seen.Add(url))
+                seeds.Add(url);
+        }
+
+        return [.. seeds];
     }
 
     private static readonly FrozenDictionary<string, VolumeCapabilities> CapabilityByName =

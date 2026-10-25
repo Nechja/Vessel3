@@ -14,6 +14,8 @@ internal static class VesselEndpointExtensions
         admin.MapGet("/buckets/{bucket}/access", static (string bucket, HttpContext ctx, IAdminService adminService) => adminService.GetBucketAccess(bucket, ctx));
         admin.MapPut("/buckets/{bucket}/access", static (string bucket, HttpContext ctx, IAdminService adminService) => adminService.SetBucketAccess(bucket, ctx));
 
+        app.MapClusterEndpoints();
+
         foreach (var protocol in app.Services.GetServices<IVesselProtocol>())
         {
             protocol.MapEndpoints(app);
