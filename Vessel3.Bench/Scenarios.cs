@@ -1,9 +1,12 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Vessel3.Client;
+using Vessel3.Primitives;
+using Vessel3.Storage;
 
 namespace Vessel3.Bench;
 
@@ -612,6 +615,124 @@ internal static class Scenarios
             await stream.CopyToAsync(Stream.Null, ct);
             return res.Content.Headers.ContentLength ?? size;
         });
+    }
+
+    public static async Task<LatencySummary> ClusterGossip(string endpoint, string? clusterSecret, BenchOptions opts)
+    {
+        using var handler = new SocketsHttpHandler { UseProxy = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        var transport = new HttpGossipTransport(http, clusterSecret);
+        var now = DateTimeOffset.UtcNow;
+
+        IReadOnlyList<PeerNodeState> members =
+        [
+            new PeerNodeState(
+                "bench-peer-1",
+                "http://127.0.0.1:19001",
+                100,
+                PeerStatus.Alive,
+                now,
+                [
+                    new AdvertisedVolume("vol-fast", "default", VolumeCapabilities.Ingest, VolumeStatus.Online),
+                    new AdvertisedVolume("vol-archive", "cold", VolumeCapabilities.OnDemand, VolumeStatus.Online),
+                ]),
+            new PeerNodeState(
+                "bench-peer-2",
+                "http://127.0.0.1:19002",
+                100,
+                PeerStatus.Alive,
+                now,
+                [
+                    new AdvertisedVolume("vol-fast", "default", VolumeCapabilities.Ingest, VolumeStatus.Online),
+                ]),
+            new PeerNodeState(
+                "bench-peer-3",
+                "http://127.0.0.1:19003",
+                100,
+                PeerStatus.Alive,
+                now,
+                [
+                    new AdvertisedVolume("vol-fast", "default", VolumeCapabilities.Ingest, VolumeStatus.Online),
+                ]),
+        ];
+
+        var outbound = new GossipMessage("bench-peer-1", "http://127.0.0.1:19001", 100, members);
+
+        return await RunWorkload(opts, async (_, ct) =>
+        {
+            var res = await transport.ExchangeGossip(endpoint, outbound, ct);
+            if (!res.TryGetValue(out var reply, out var err))
+                throw new InvalidOperationException($"Cluster gossip failed: {err.Message}");
+            return reply.Members.Count * 128L;
+        });
+    }
+
+    public static async Task<LatencySummary> ClusterBlobGet(
+        IVesselClient vessel,
+        string endpoint,
+        string? clusterSecret,
+        BenchOptions opts)
+    {
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
+        var shas = await SeedClusterBlobs(vessel, opts, size);
+
+        using var handler = new SocketsHttpHandler { UseProxy = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        var reader = new HttpRemoteBlobReader("bench-remote-vol", endpoint, http, clusterSecret);
+
+        return await RunWorkload(opts, async (_, ct) =>
+        {
+            var sha = shas[Random.Shared.Next(shas.Length)];
+            var res = await reader.OpenBlob(sha, ct);
+            if (!res.TryGetValue(out var stream, out var err))
+                throw new InvalidOperationException($"Cluster blob read failed for {sha}: {err.Message}");
+            await using (stream)
+            {
+                return stream.Length;
+            }
+        });
+    }
+
+    public static async Task<LatencySummary> ClusterBlobHead(
+        IVesselClient vessel,
+        string endpoint,
+        string? clusterSecret,
+        BenchOptions opts)
+    {
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 4096;
+        var shas = await SeedClusterBlobs(vessel, opts, size);
+
+        using var handler = new SocketsHttpHandler { UseProxy = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        var reader = new HttpRemoteBlobReader("bench-remote-vol", endpoint, http, clusterSecret);
+
+        return await RunWorkload(opts, async (_, ct) =>
+        {
+            var sha = shas[Random.Shared.Next(shas.Length)];
+            var exists = await reader.BlobExists(sha, ct);
+            if (!exists)
+                throw new InvalidOperationException($"Cluster blob head returned false for {sha}");
+            return 0L;
+        });
+    }
+
+    private static async Task<string[]> SeedClusterBlobs(IVesselClient vessel, BenchOptions opts, int size)
+    {
+        await vessel.CreateBucket(opts.Bucket);
+        var shas = new string[opts.SeedKeys];
+        var buffer = new byte[size];
+
+        for (var i = 0; i < opts.SeedKeys; i++)
+        {
+            Random.Shared.NextBytes(buffer);
+            shas[i] = Convert.ToHexStringLower(SHA256.HashData(buffer));
+            using var ms = new MemoryStream(buffer, writable: false);
+            var put = await vessel.PutObject(opts.Bucket, $"cluster-seed/{i:D5}", ms, "application/octet-stream");
+            if (!put.TryGetValue(out _, out var err))
+                throw new InvalidOperationException($"Failed to seed cluster blob: {err.Message}");
+        }
+
+        return shas;
     }
 
     public static async Task EnsureBucket(AmazonS3Client s3, BenchOptions opts)

@@ -19,6 +19,7 @@
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.1" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.30.0" />
     <ProjectReference Include="..\Vessel3.Client\Vessel3.Client.csproj" />
+    <ProjectReference Include="..\Vessel3.Storage\Vessel3.Storage.csproj" />
   </ItemGroup>
 
 </Project>

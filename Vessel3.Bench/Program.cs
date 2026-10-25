@@ -71,6 +71,9 @@ var scenarioRunners = new Dictionary<string, Func<Task<LatencySummary>>>(StringC
     ["azure-list"] = () => Scenarios.AzureList(azure, opts),
     ["webdav-propfind"] = () => Scenarios.WebDavPropfind(webdavHttp, opts),
     ["webdav-get"] = () => Scenarios.WebDavGet(webdavHttp, opts),
+    ["cluster-gossip"] = () => Scenarios.ClusterGossip(endpoint, secretKey, opts),
+    ["cluster-blob-get"] = () => Scenarios.ClusterBlobGet(vessel, endpoint, secretKey, opts),
+    ["cluster-blob-head"] = () => Scenarios.ClusterBlobHead(vessel, endpoint, secretKey, opts),
 };
 
 if (!scenarioRunners.TryGetValue(scenario, out var runScenario))
