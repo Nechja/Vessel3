@@ -17,7 +17,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
         if (!credsResult.TryGetValue(out var credentials, out var credsErr))
         {
             LogSecretError(logger, secretName, credsErr.Message);
-            await UpdateStatus(server.Identity, PhaseNames.Error, null, secretName, credsErr.Message, ct);
+            await UpdateStatus(server.Identity, PhaseNames.Error, null, secretName, 0, credsErr.Message, ct);
             return ReconciliationOutcome.Failure(credsErr.Message);
         }
 
@@ -25,12 +25,12 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
         if (workloadResult is Result.Failure workloadFailure)
         {
             LogWorkloadError(logger, server.Identity.Name, workloadFailure.Error.Message);
-            await UpdateStatus(server.Identity, PhaseNames.Error, null, secretName, workloadFailure.Error.Message, ct);
+            await UpdateStatus(server.Identity, PhaseNames.Error, null, secretName, 0, workloadFailure.Error.Message, ct);
             return ReconciliationOutcome.Failure(workloadFailure.Error.Message);
         }
 
         var endpoint = server.Identity.BuildClusterEndpoint(server.Port);
-        await UpdateStatus(server.Identity, PhaseNames.Ready, endpoint, secretName, null, ct);
+        await UpdateStatus(server.Identity, PhaseNames.Ready, endpoint, secretName, server.Replicas, null, ct);
         return ReconciliationOutcome.Success();
     }
 
@@ -39,6 +39,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
         string phase,
         string? endpoint,
         string adminSecret,
+        int readyReplicas,
         string? errorMessage,
         CancellationToken ct)
     {
@@ -46,7 +47,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
             phase,
             endpoint,
             adminSecret,
-            ReadyReplicas: phase == PhaseNames.Ready ? 1 : 0,
+            ReadyReplicas: readyReplicas,
             Conditions: [ResourceCondition.Ready(phase == PhaseNames.Ready, errorMessage)]);
 
         await k8s.UpdateServerStatus(id, status, ct);

@@ -6,6 +6,9 @@ metadata:
     {{- include "vessel3.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
+  {{- if include "vessel3.clusterEnabled" . }}
+  publishNotReadyAddresses: true
+  {{- end }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: 9000

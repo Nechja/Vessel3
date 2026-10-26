@@ -27,6 +27,15 @@ public static class KubernetesConstants
     public const string EnvVesselAccessKey = "VESSEL3_ACCESS_KEY";
     public const string EnvVesselSecretKey = "VESSEL3_SECRET_KEY";
     public const string EnvVesselRegion = "VESSEL3_REGION";
+    public const string EnvVesselNodeId = "VESSEL3_NODE_ID";
+    public const string EnvVesselAdvertiseUrl = "VESSEL3_ADVERTISE_URL";
+    public const string EnvVesselPeers = "VESSEL3_PEERS";
+    public const string EnvVesselClusterSecret = "VESSEL3_CLUSTER_SECRET";
+    public const string EnvVesselGossipIntervalMs = "VESSEL3_GOSSIP_INTERVAL_MS";
+    public const string EnvVesselPeerSuspectMs = "VESSEL3_PEER_SUSPECT_MS";
+    public const string EnvVesselPeerDeadMs = "VESSEL3_PEER_DEAD_MS";
+    public const string EnvVesselVolumes = "VESSEL3_VOLUMES";
+    public const string FieldPathMetadataName = "metadata.name";
 
     public const string DataVolumeName = "data";
     public const string DataMountPath = "/data";

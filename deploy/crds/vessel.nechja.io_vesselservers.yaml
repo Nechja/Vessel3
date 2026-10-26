@@ -23,6 +23,9 @@ spec:
         - name: Phase
           type: string
           jsonPath: .status.phase
+        - name: Replicas
+          type: integer
+          jsonPath: .status.readyReplicas
         - name: Endpoint
           type: string
           jsonPath: .status.endpoint
@@ -45,7 +48,6 @@ spec:
                 replicas:
                   type: integer
                   minimum: 1
-                  maximum: 1
                   default: 1
                 storage:
                   type: object
@@ -55,6 +57,49 @@ spec:
                       default: "10Gi"
                     storageClassName:
                       type: string
+                volumes:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - path
+                    properties:
+                      id:
+                        type: string
+                      path:
+                        type: string
+                      pool:
+                        type: string
+                        default: "default"
+                      capabilities:
+                        type: string
+                        default: "Ingest"
+                      size:
+                        type: string
+                      storageClassName:
+                        type: string
+                cluster:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
+                    gossipIntervalMs:
+                      type: integer
+                      default: 1000
+                    peerSuspectMs:
+                      type: integer
+                      default: 5000
+                    peerDeadMs:
+                      type: integer
+                      default: 15000
+                    secretName:
+                      type: string
+                    peers:
+                      type: array
+                      items:
+                        type: string
                 auth:
                   type: object
                   properties:

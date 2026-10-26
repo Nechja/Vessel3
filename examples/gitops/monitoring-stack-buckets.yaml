@@ -4,10 +4,22 @@ metadata:
   name: vessel-telemetry
   namespace: storage
 spec:
-  replicas: 1
+  replicas: 3
   storage:
     size: 250Gi
     storageClassName: local-path
+  volumes:
+    - id: nvme-hot
+      path: /volumes/nvme-hot
+      pool: hot
+      capabilities: Ingest
+      size: 100Gi
+      storageClassName: local-path
+  cluster:
+    enabled: true
+    gossipIntervalMs: 1000
+    peerSuspectMs: 5000
+    peerDeadMs: 15000
   auth:
     adminSecretName: vessel-telemetry-admin-creds
   service:
