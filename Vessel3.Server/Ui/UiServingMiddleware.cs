@@ -10,6 +10,7 @@ namespace Vessel3.Server.Ui;
 
 internal sealed class UiServingMiddleware(
     VesselConfig config,
+    ClusterMembershipOptions clusterOptions,
     ISigV4Verifier verifier,
     IHttpResultMapper results,
     IAdminService adminService,
@@ -65,8 +66,9 @@ internal sealed class UiServingMiddleware(
 
     private async Task ServeConfig(HttpContext context)
     {
+        var nodeId = clusterOptions.IsClusterEnabled ? clusterOptions.NodeId : null;
         var uiConfig = config.Oidc is null
-            ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null)
+            ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null, nodeId, clusterOptions.IsClusterEnabled)
             : await OidcConfig(context, config.Oidc, config.Region);
         context.Response.ContentType = "application/json";
         context.Response.Headers.CacheControl = "no-store";
@@ -126,8 +128,11 @@ internal sealed class UiServingMiddleware(
     private async Task<UiConfig> OidcConfig(HttpContext context, OidcOptions oidc, string region)
     {
         var discovered = oidcDiscovery is not null ? await oidcDiscovery.Get(context.RequestAborted) : null;
+        var nodeId = clusterOptions.IsClusterEnabled ? clusterOptions.NodeId : null;
         return new UiConfig("", "", region,
-            new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint));
+            new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint),
+            nodeId,
+            clusterOptions.IsClusterEnabled);
     }
 }
 #endif

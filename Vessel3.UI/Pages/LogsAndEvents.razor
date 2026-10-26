@@ -3,6 +3,7 @@
 @using System.Text.Json
 @implements IAsyncDisposable
 @inject IVesselClient Client
+@inject UiConfig Config
 @inject UiAuth Auth
 @inject UiNotifications Toast
 @inject IJSRuntime JS
@@ -168,6 +169,10 @@
                         <option value="oci">OCI</option>
                         <option value="native">Native REST</option>
                         <option value="webdav">WebDAV</option>
+                        @if (Config.ClusterEnabled)
+                        {
+                            <option value="cluster">Cluster</option>
+                        }
                     </select>
                 </div>
 

@@ -13,6 +13,7 @@ internal static class AdminEndpoints
         endpoints.MapPost("/v1/admin/sweep", static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.RunSweep(ctx));
         endpoints.MapGet("/v1/admin/logs", static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.GetLogs(ctx));
         endpoints.MapDelete("/v1/admin/logs", static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.ClearLogs(ctx));
+        endpoints.MapGet("/v1/admin/cluster", static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.GetClusterStatus(ctx));
 
         return endpoints;
     }

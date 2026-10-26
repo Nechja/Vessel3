@@ -48,6 +48,13 @@
 
             <div class="sidebar-section">
                 <div class="sidebar-section-title">System</div>
+                @if (Config.ClusterEnabled)
+                {
+                    <NavLink href="cluster" class="sidebar-item" @onclick="CloseMobileMenu">
+                        <Icon Name="server" />
+                        <span class="sidebar-label">Cluster &amp; Volumes</span>
+                    </NavLink>
+                }
                 <NavLink href="webhooks" class="sidebar-item" @onclick="CloseMobileMenu">
                     <Icon Name="bolt" />
                     <span class="sidebar-label">Webhooks</span>
@@ -129,6 +136,14 @@
                     <span class="nav-meta-item mono muted">open dev</span>
                 }
 
+                @if (Config.ClusterEnabled && !string.IsNullOrEmpty(Config.NodeId))
+                {
+                    <span class="nav-meta-item mono muted" title="Node ID">
+                        <Icon Name="server" />
+                        <span>@Config.NodeId</span>
+                    </span>
+                }
+
                 <span class="nav-meta-item mono muted" title="Server Region">
                     @Config.Region
                 </span>
@@ -206,6 +221,10 @@
             if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 results.Add(new SearchResult("IAM & Keys", "Access control & service accounts", "iam", "user", "Navigation"));
+            }
+            if (Config.ClusterEnabled && ("cluster".Contains(query, StringComparison.OrdinalIgnoreCase) || "volumes".Contains(query, StringComparison.OrdinalIgnoreCase) || "peers".Contains(query, StringComparison.OrdinalIgnoreCase) || "nodes".Contains(query, StringComparison.OrdinalIgnoreCase) || "topology".Contains(query, StringComparison.OrdinalIgnoreCase) || "gossip".Contains(query, StringComparison.OrdinalIgnoreCase)))
+            {
+                results.Add(new SearchResult("Cluster & Volumes", "Storage volumes & gossip peer topology", "cluster", "server", "Navigation"));
             }
             if ("maintenance".Contains(query, StringComparison.OrdinalIgnoreCase) || "admin".Contains(query, StringComparison.OrdinalIgnoreCase) || "system".Contains(query, StringComparison.OrdinalIgnoreCase))
             {

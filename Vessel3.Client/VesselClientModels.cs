@@ -115,6 +115,44 @@ public sealed record ServerLogEntryDto(
     string? TraceId = null,
     string? ErrorDetails = null);
 
+public sealed record AdvertisedVolumeDto(
+    string VolumeId,
+    string Pool,
+    IReadOnlyList<string> Capabilities,
+    string Status,
+    long? CapacityBytes = null,
+    long? AvailableBytes = null);
+
+public sealed record ClusterPeerDto(
+    string NodeId,
+    string Endpoint,
+    long Incarnation,
+    string Status,
+    DateTimeOffset LastSeenUtc,
+    IReadOnlyList<AdvertisedVolumeDto> Volumes);
+
+public sealed record VolumeDto(
+    string Id,
+    string Path,
+    string Pool,
+    IReadOnlyList<string> Capabilities,
+    string Status,
+    bool IsRemote,
+    bool IsWritable,
+    bool IsReadable,
+    bool IsDefaultIngest,
+    long? CapacityBytes = null,
+    long? AvailableBytes = null,
+    string? NodeId = null);
+
+public sealed record ClusterStatusDto(
+    string NodeId,
+    string Region,
+    bool ClusterEnabled,
+    ClusterPeerDto LocalNode,
+    IReadOnlyList<ClusterPeerDto> Peers,
+    IReadOnlyList<VolumeDto> Volumes);
+
 public sealed record VesselObjectDownload(
     Stream Content,
     string ContentType,
@@ -172,4 +210,14 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(ServerLogEntryDto))]
 [JsonSerializable(typeof(IReadOnlyList<ServerLogEntryDto>))]
 [JsonSerializable(typeof(List<ServerLogEntryDto>))]
+[JsonSerializable(typeof(AdvertisedVolumeDto))]
+[JsonSerializable(typeof(IReadOnlyList<AdvertisedVolumeDto>))]
+[JsonSerializable(typeof(List<AdvertisedVolumeDto>))]
+[JsonSerializable(typeof(ClusterPeerDto))]
+[JsonSerializable(typeof(IReadOnlyList<ClusterPeerDto>))]
+[JsonSerializable(typeof(List<ClusterPeerDto>))]
+[JsonSerializable(typeof(VolumeDto))]
+[JsonSerializable(typeof(IReadOnlyList<VolumeDto>))]
+[JsonSerializable(typeof(List<VolumeDto>))]
+[JsonSerializable(typeof(ClusterStatusDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;

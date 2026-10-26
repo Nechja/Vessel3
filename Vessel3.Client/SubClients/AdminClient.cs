@@ -43,4 +43,11 @@ internal sealed class AdminClient(VesselHttpTransport transport) : IAdminClient
         using var res = await transport.SendAsync(req, ct);
         return res.IsSuccessStatusCode ? Result.Ok : await transport.ReadError(res, ct);
     }
+
+    public async Task<Result<ClusterStatusDto>> GetClusterStatus(CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Get, VesselRoutes.ClusterStatus);
+        using var res = await transport.SendAsync(req, ct);
+        return await transport.ReadJson(res, VesselJsonContext.Default.ClusterStatusDto, ct);
+    }
 }

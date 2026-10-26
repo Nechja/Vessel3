@@ -201,4 +201,27 @@ public sealed class ClusterRigWireTests
         Assert.True(File.Exists(blobFileOnB));
         Assert.True(await nodeA.BlobPool.Exists(stored.Sha));
     }
+
+    [Fact]
+    public async Task TwoNodeCluster_GetClusterStatusViaNativeAdminApi_ReturnsVolumesAndPeers()
+    {
+        await using var rig = new ClusterTestRig();
+        var nodeA = await rig.StartNode("node-a");
+        var nodeB = await rig.StartNode("node-b", seedNodeIds: ["node-a"]);
+
+        await rig.StepGossip(rounds: 2);
+
+        var statusResult = await nodeA.Client.GetClusterStatus();
+        Assert.True(statusResult.TryGetValue(out var status, out _));
+        Assert.Equal("node-a", status.NodeId);
+        Assert.True(status.ClusterEnabled);
+        Assert.Equal("node-a", status.LocalNode.NodeId);
+        Assert.Equal("Alive", status.LocalNode.Status);
+        Assert.Single(status.Peers);
+        Assert.Equal("node-b", status.Peers[0].NodeId);
+        Assert.Equal("Alive", status.Peers[0].Status);
+        Assert.Equal(2, status.Volumes.Count);
+        Assert.Contains(status.Volumes, v => v.Id == "node-a-vol" && !v.IsRemote && v.IsDefaultIngest && v.CapacityBytes is > 0);
+        Assert.Contains(status.Volumes, v => v.Id == "node-b:node-b-vol" && v.IsRemote && !v.IsWritable && v.NodeId == "node-b");
+    }
 }

@@ -140,6 +140,9 @@ public sealed class VesselClient : IVesselClient
     public Task<Result> ClearServerLogs(CancellationToken ct = default) =>
         Admin.ClearServerLogs(ct);
 
+    public Task<Result<ClusterStatusDto>> GetClusterStatus(CancellationToken ct = default) =>
+        Admin.GetClusterStatus(ct);
+
     public Task<Result<IReadOnlyList<string>>> ListContainerRepos(int limit = 100, string? last = null, CancellationToken ct = default) =>
         Containers.ListContainerRepos(limit, last, ct);
 

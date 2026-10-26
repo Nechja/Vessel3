@@ -78,6 +78,7 @@ public class UiEndpointsTests
     [Theory]
     [InlineData("uploads")]
     [InlineData("admin")]
+    [InlineData("cluster")]
     [InlineData("buckets/demo-assets")]
     [InlineData("buckets/my.bucket.with.dots")]
     public void IsAssetPath_SpaRoutes_ReturnsFalse(string rel)

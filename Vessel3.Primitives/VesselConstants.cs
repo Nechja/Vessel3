@@ -32,6 +32,7 @@ public static class VesselRoutes
     public const string Gc = "v1/admin/gc";
     public const string Sweep = "v1/admin/sweep";
     public const string Logs = "v1/admin/logs";
+    public const string ClusterStatus = "v1/admin/cluster";
     public const string Webhooks = "v1/webhooks";
     public const string EventsStream = "v1/events/stream";
     public const string OciCatalog = "v2/_catalog";
