@@ -98,8 +98,8 @@
                         <span class="muted" style="font-size: var(--text-xs);">Scope:</span>
                         <select class="input mono" @bind="scopeFilter" style="font-size: var(--text-xs); width: 120px;">
                             <option value="">All Scopes</option>
-                            <option value="local">Local Only</option>
-                            <option value="remote">Remote Only</option>
+                            <option value="@ScopeLocal">Local Only</option>
+                            <option value="@ScopeRemote">Remote Only</option>
                         </select>
                     </div>
                     <div class="row align-center" style="gap: var(--space-2);">
@@ -288,53 +288,61 @@
 </div>
 
 @code {
+    private const string ScopeLocal = "local";
+    private const string ScopeRemote = "remote";
+    private const string BadgeMint = "badge-mint";
+    private const string BadgeNeutral = "badge-neutral";
+    private const string BadgeWarning = "badge-warning";
+    private const string BadgeDanger = "badge-danger";
+    private const string BadgeAccent = "badge-accent";
+
     private static readonly FrozenDictionary<string, string> VolumeStatusBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["Online"] = "badge-mint",
-        ["Standby"] = "badge-neutral",
-        ["Waking"] = "badge-warning",
-        ["Degraded"] = "badge-warning",
-        ["Faulted"] = "badge-danger",
+        [VesselVolumeStatuses.Online] = BadgeMint,
+        [VesselVolumeStatuses.Standby] = BadgeNeutral,
+        [VesselVolumeStatuses.Waking] = BadgeWarning,
+        [VesselVolumeStatuses.Degraded] = BadgeWarning,
+        [VesselVolumeStatuses.Faulted] = BadgeDanger,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private static readonly FrozenDictionary<string, string> PeerStatusBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["Alive"] = "badge-mint",
-        ["Suspect"] = "badge-warning",
-        ["Dead"] = "badge-danger",
-        ["Left"] = "badge-neutral",
+        [VesselPeerStatuses.Alive] = BadgeMint,
+        [VesselPeerStatuses.Suspect] = BadgeWarning,
+        [VesselPeerStatuses.Dead] = BadgeDanger,
+        [VesselPeerStatuses.Left] = BadgeNeutral,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private static readonly FrozenDictionary<string, string> CapabilityBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["Ingest"] = "badge-mint",
-        ["Remote"] = "badge-accent",
-        ["ReadOnly"] = "badge-neutral",
-        ["OnDemand"] = "badge-warning",
-        ["Mirrored"] = "badge-accent",
+        [VesselVolumeCapabilities.Ingest] = BadgeMint,
+        [VesselVolumeCapabilities.Remote] = BadgeAccent,
+        [VesselVolumeCapabilities.ReadOnly] = BadgeNeutral,
+        [VesselVolumeCapabilities.OnDemand] = BadgeWarning,
+        [VesselVolumeCapabilities.Mirrored] = BadgeAccent,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private ClusterStatusDto? status;
     private bool loading = true;
     private bool autoRefresh;
-    private string scopeFilter = "";
-    private string poolFilter = "";
+    private string scopeFilter = string.Empty;
+    private string poolFilter = string.Empty;
     private CancellationTokenSource? refreshCts;
 
     private int AlivePeerCount =>
         status is null
             ? 0
-            : (string.Equals(status.LocalNode.Status, "Alive", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-              + status.Peers.Count(static p => string.Equals(p.Status, "Alive", StringComparison.OrdinalIgnoreCase));
+            : (string.Equals(status.LocalNode.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+              + status.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase));
 
     private int SuspectPeerCount =>
-        status?.Peers.Count(static p => string.Equals(p.Status, "Suspect", StringComparison.OrdinalIgnoreCase)) ?? 0;
+        status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Suspect, StringComparison.OrdinalIgnoreCase)) ?? 0;
 
     private int DeadPeerCount =>
-        status?.Peers.Count(static p => string.Equals(p.Status, "Dead", StringComparison.OrdinalIgnoreCase)) ?? 0;
+        status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Dead, StringComparison.OrdinalIgnoreCase)) ?? 0;
 
     private int OnlineVolumeCount =>
-        status?.Volumes.Count(static v => string.Equals(v.Status, "Online", StringComparison.OrdinalIgnoreCase)) ?? 0;
+        status?.Volumes.Count(static v => string.Equals(v.Status, VesselVolumeStatuses.Online, StringComparison.OrdinalIgnoreCase)) ?? 0;
 
     private int LocalVolumeCount =>
         status?.Volumes.Count(static v => !v.IsRemote) ?? 0;
@@ -375,11 +383,11 @@
             }
 
             IEnumerable<VolumeDto> query = status.Volumes;
-            if (scopeFilter == "local")
+            if (scopeFilter == ScopeLocal)
             {
                 query = query.Where(static v => !v.IsRemote);
             }
-            else if (scopeFilter == "remote")
+            else if (scopeFilter == ScopeRemote)
             {
                 query = query.Where(static v => v.IsRemote);
             }
@@ -480,13 +488,13 @@
     }
 
     private static string GetVolumeStatusBadgeClass(string status) =>
-        VolumeStatusBadges.GetValueOrDefault(status, "badge-neutral");
+        VolumeStatusBadges.GetValueOrDefault(status, BadgeNeutral);
 
     private static string GetPeerStatusBadgeClass(string status) =>
-        PeerStatusBadges.GetValueOrDefault(status, "badge-neutral");
+        PeerStatusBadges.GetValueOrDefault(status, BadgeNeutral);
 
     private static string GetCapabilityBadgeClass(string capability) =>
-        CapabilityBadges.GetValueOrDefault(capability, "badge-neutral");
+        CapabilityBadges.GetValueOrDefault(capability, BadgeNeutral);
 
     private static string FormatAge(DateTimeOffset timestamp)
     {

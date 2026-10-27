@@ -18,30 +18,30 @@ internal sealed class NativeAdminAdapter(
 {
     public async Task<IResult> RunGc(HttpContext ctx)
     {
-        RequestTrace.SetTarget("AdminGc");
+        RequestTrace.SetTarget(NativeConstants.TraceAdminGc);
         var caller = ctx.GetCaller();
         if (caller is null || !caller.IsAdmin)
         {
-            return new AccessDeniedError("Admin role required").ToHttpResult();
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
         }
 
-        var blobAge = long.TryParse(ctx.Request.Query["minBlobAgeSec"], out var b) ? b : 3600;
-        var uploadAge = long.TryParse(ctx.Request.Query["minUploadAgeSec"], out var u) ? u : 604800;
+        var blobAge = long.TryParse(ctx.Request.Query[VesselQueryParams.MinBlobAgeSec], out var b) ? b : 3600;
+        var uploadAge = long.TryParse(ctx.Request.Query[VesselQueryParams.MinUploadAgeSec], out var u) ? u : 604800;
         var report = await gc.Run(TimeSpan.FromSeconds(blobAge), TimeSpan.FromSeconds(uploadAge));
         return Results.Json(new GcReportDto(report.BlobsDeleted, report.UploadsReaped), NativeJsonContext.Default.GcReportDto);
     }
 
     public IResult RunSweep(HttpContext ctx)
     {
-        RequestTrace.SetTarget("AdminSweep");
+        RequestTrace.SetTarget(NativeConstants.TraceAdminSweep);
         var caller = ctx.GetCaller();
         if (caller is null || !caller.IsAdmin)
         {
-            return new AccessDeniedError("Admin role required").ToHttpResult();
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
         }
 
         var now = DateTimeOffset.UtcNow;
-        if (ctx.Request.Query.TryGetValue("now", out var nowRaw) &&
+        if (ctx.Request.Query.TryGetValue(VesselQueryParams.Now, out var nowRaw) &&
             DateTimeOffset.TryParse(nowRaw.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
         {
             now = parsed;
@@ -53,16 +53,16 @@ internal sealed class NativeAdminAdapter(
 
     public IResult GetLogs(HttpContext ctx)
     {
-        RequestTrace.SetTarget("AdminLogs");
+        RequestTrace.SetTarget(NativeConstants.TraceAdminLogs);
         var caller = ctx.GetCaller();
         if (caller is null || !caller.IsAdmin)
         {
-            return new AccessDeniedError("Admin role required").ToHttpResult();
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
         }
 
-        var limit = int.TryParse(ctx.Request.Query["limit"], out var l) ? l : 100;
-        var level = ctx.Request.Query.TryGetValue("level", out var lvl) ? lvl.ToString() : null;
-        var protocol = ctx.Request.Query.TryGetValue("protocol", out var proto) ? proto.ToString() : null;
+        var limit = int.TryParse(ctx.Request.Query[VesselQueryParams.Limit], out var l) ? l : 100;
+        var level = ctx.Request.Query.TryGetValue(VesselQueryParams.Level, out var lvl) ? lvl.ToString() : null;
+        var protocol = ctx.Request.Query.TryGetValue(VesselQueryParams.Protocol, out var proto) ? proto.ToString() : null;
 
         var logs = buffer.GetRecent(limit, level, protocol);
         List<ServerLogEntryDto> dtos = [.. logs.Select(entry => new ServerLogEntryDto(
@@ -85,11 +85,11 @@ internal sealed class NativeAdminAdapter(
 
     public IResult ClearLogs(HttpContext ctx)
     {
-        RequestTrace.SetTarget("AdminClearLogs");
+        RequestTrace.SetTarget(NativeConstants.TraceAdminClearLogs);
         var caller = ctx.GetCaller();
         if (caller is null || !caller.IsAdmin)
         {
-            return new AccessDeniedError("Admin role required").ToHttpResult();
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
         }
 
         buffer.Clear();
@@ -98,11 +98,11 @@ internal sealed class NativeAdminAdapter(
 
     public IResult GetClusterStatus(HttpContext ctx)
     {
-        RequestTrace.SetTarget("AdminClusterStatus");
+        RequestTrace.SetTarget(NativeConstants.TraceAdminClusterStatus);
         var caller = ctx.GetCaller();
         if (caller is null || !caller.IsAdmin)
         {
-            return new AccessDeniedError("Admin role required").ToHttpResult();
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
         }
 
         var defaultIngestId = volumes.DefaultIngestVolume.Id;
@@ -222,15 +222,15 @@ internal sealed class NativeAdminAdapter(
     {
         if (capabilities is VolumeCapabilities.None)
         {
-            return ["None"];
+            return [nameof(VolumeCapabilities.None)];
         }
 
         var list = new List<string>(5);
-        if ((capabilities & VolumeCapabilities.Ingest) != 0) list.Add("Ingest");
-        if ((capabilities & VolumeCapabilities.OnDemand) != 0) list.Add("OnDemand");
-        if ((capabilities & VolumeCapabilities.ReadOnly) != 0) list.Add("ReadOnly");
-        if ((capabilities & VolumeCapabilities.Mirrored) != 0) list.Add("Mirrored");
-        if ((capabilities & VolumeCapabilities.Remote) != 0) list.Add("Remote");
+        if ((capabilities & VolumeCapabilities.Ingest) != 0) list.Add(nameof(VolumeCapabilities.Ingest));
+        if ((capabilities & VolumeCapabilities.OnDemand) != 0) list.Add(nameof(VolumeCapabilities.OnDemand));
+        if ((capabilities & VolumeCapabilities.ReadOnly) != 0) list.Add(nameof(VolumeCapabilities.ReadOnly));
+        if ((capabilities & VolumeCapabilities.Mirrored) != 0) list.Add(nameof(VolumeCapabilities.Mirrored));
+        if ((capabilities & VolumeCapabilities.Remote) != 0) list.Add(nameof(VolumeCapabilities.Remote));
         return list;
     }
 }

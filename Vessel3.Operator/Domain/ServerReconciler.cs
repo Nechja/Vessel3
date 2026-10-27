@@ -10,7 +10,7 @@ public sealed partial class ServerReconciler(IKubernetesPort k8s, ILogger<Server
     public async Task<ReconciliationOutcome> Reconcile(ServerDeclaration server, CancellationToken ct = default)
     {
         var secretName = string.IsNullOrEmpty(server.AdminSecretName)
-            ? $"{server.Identity.Name}-admin-creds"
+            ? $"{server.Identity.Name}{ServerDefaults.AdminCredsSuffix}"
             : server.AdminSecretName;
 
         var credsResult = await k8s.EnsureServerSecret(server.Identity, secretName, ct);

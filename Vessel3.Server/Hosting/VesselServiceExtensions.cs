@@ -27,13 +27,13 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new ServerRegion(config.Region));
         services.AddSingleton(new VirtualHostOptions(config.BaseDomains));
         services.AddSingleton(new BucketRegistryOptions(config.DataRoot));
-        services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, "uploads")));
-        services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
+        services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, VesselDefaults.UploadsSubdirectory)));
+        services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, VesselDefaults.GcTmpSubdirectory)));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
         services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold, config.AccessLogEnabled));
-        services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
-        services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
+        services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, VesselDefaults.IamSubdirectory)));
+        services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, VesselDefaults.WebhooksSubdirectory)));
         services.AddSingleton(config.Cluster ?? new ClusterMembershipOptions(
             config.NodeId ?? Environment.MachineName,
             string.Empty,
@@ -118,7 +118,7 @@ internal static class VesselServiceExtensions
             var serializer = sp.GetRequiredService<IWebhookYamlSerializer>();
             var store = new SqliteWebhookStore(options, clock);
 
-            var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, "webhooks.yaml");
+            var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, VesselDefaults.WebhooksDefaultFileName);
             if (File.Exists(yamlPath)
                 && serializer.LoadFromYaml(File.ReadAllText(yamlPath), clock).TryGetValue(out var staticWebhooks, out _))
             {

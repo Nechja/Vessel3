@@ -28,7 +28,7 @@ internal interface IBlobPool
 internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog) : IBlobPool
 {
     public BlobPool(BlobPoolOptions options, IFileSync fileSync)
-        : this(new VolumeRegistry([new StorageVolume("default", options.Root, "default", VolumeCapabilities.Ingest)], fileSync), NullBlobLocationCatalog.Instance)
+        : this(new VolumeRegistry([new StorageVolume(VesselDefaults.DefaultVolumeId, options.Root, VesselDefaults.DefaultVolumePool, VolumeCapabilities.Ingest)], fileSync), NullBlobLocationCatalog.Instance)
     {
     }
 

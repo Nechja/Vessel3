@@ -184,10 +184,22 @@
 <ToastProvider />
 
 @code {
+    private const string ThemeStorageKey = "vessel3.theme";
+    private const string ThemeAttribute = "data-theme";
+    private const string ThemeDark = "dark";
+    private const string ThemeLight = "light";
+    private const string JsLocalStorageGet = "localStorage.getItem";
+    private const string JsLocalStorageSet = "localStorage.setItem";
+    private const string JsSetDocumentAttribute = "document.documentElement.setAttribute";
+    private const string KeyEscape = "Escape";
+    private const string KeyEnter = "Enter";
+    private const string CategoryNavigation = "Navigation";
+    private const string CategoryBuckets = "Buckets";
+
     private bool isDark;
     private bool isCollapsed;
     private bool isMobileOpen;
-    private string searchQuery = "";
+    private string searchQuery = string.Empty;
     private bool searchFocused;
     private List<BucketDto> allBuckets = [];
 
@@ -204,35 +216,35 @@
 
             if ("buckets".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Buckets", "Storage buckets overview", "", "bucket", "Navigation"));
+                results.Add(new SearchResult("Buckets", "Storage buckets overview", string.Empty, "bucket", CategoryNavigation));
             }
             if ("container repos".Contains(query, StringComparison.OrdinalIgnoreCase) || "containers".Contains(query, StringComparison.OrdinalIgnoreCase) || "images".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Container Repos", "OCI container image repos & tags", "container-repos", "server", "Navigation"));
+                results.Add(new SearchResult("Container Repos", "OCI container image repos & tags", "container-repos", "server", CategoryNavigation));
             }
             if ("uploads".Contains(query, StringComparison.OrdinalIgnoreCase) || "multipart".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Uploads", "Active multipart uploads", "uploads", "upload", "Navigation"));
+                results.Add(new SearchResult("Uploads", "Active multipart uploads", "uploads", "upload", CategoryNavigation));
             }
             if ("websites".Contains(query, StringComparison.OrdinalIgnoreCase) || "static hosting".Contains(query, StringComparison.OrdinalIgnoreCase) || "deploy".Contains(query, StringComparison.OrdinalIgnoreCase) || "vite".Contains(query, StringComparison.OrdinalIgnoreCase) || "blazor".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Static Websites", "Deploy Vite, Blazor WASM & static sites", "websites", "globe", "Navigation"));
+                results.Add(new SearchResult("Static Websites", "Deploy Vite, Blazor WASM & static sites", "websites", "globe", CategoryNavigation));
             }
             if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("IAM & Keys", "Access control & service accounts", "iam", "user", "Navigation"));
+                results.Add(new SearchResult("IAM & Keys", "Access control & service accounts", "iam", "user", CategoryNavigation));
             }
             if (Config.ClusterEnabled && ("cluster".Contains(query, StringComparison.OrdinalIgnoreCase) || "volumes".Contains(query, StringComparison.OrdinalIgnoreCase) || "peers".Contains(query, StringComparison.OrdinalIgnoreCase) || "nodes".Contains(query, StringComparison.OrdinalIgnoreCase) || "topology".Contains(query, StringComparison.OrdinalIgnoreCase) || "gossip".Contains(query, StringComparison.OrdinalIgnoreCase)))
             {
-                results.Add(new SearchResult("Cluster & Volumes", "Storage volumes & gossip peer topology", "cluster", "server", "Navigation"));
+                results.Add(new SearchResult("Cluster & Volumes", "Storage volumes & gossip peer topology", "cluster", "server", CategoryNavigation));
             }
             if ("maintenance".Contains(query, StringComparison.OrdinalIgnoreCase) || "admin".Contains(query, StringComparison.OrdinalIgnoreCase) || "system".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Maintenance", "Cluster configuration & maintenance", "admin", "gear", "Navigation"));
+                results.Add(new SearchResult("Maintenance", "Cluster configuration & maintenance", "admin", "gear", CategoryNavigation));
             }
             if ("webhooks".Contains(query, StringComparison.OrdinalIgnoreCase) || "events".Contains(query, StringComparison.OrdinalIgnoreCase) || "notifications".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Webhooks", "Event subscriptions & HTTP notifications", "webhooks", "bolt", "Navigation"));
+                results.Add(new SearchResult("Webhooks", "Event subscriptions & HTTP notifications", "webhooks", "bolt", CategoryNavigation));
             }
 
             var matchingBuckets = allBuckets
@@ -241,7 +253,7 @@
 
             foreach (var b in matchingBuckets)
             {
-                results.Add(new SearchResult(b.Name, $"Bucket ({b.CreatedAt:yyyy-MM-dd})", $"buckets/{b.Name}", "bucket", "Buckets"));
+                results.Add(new SearchResult(b.Name, $"Bucket ({b.CreatedAt:yyyy-MM-dd})", $"buckets/{b.Name}", "bucket", CategoryBuckets));
             }
 
             return results;
@@ -252,16 +264,16 @@
     {
         try
         {
-            var theme = await JS.InvokeAsync<string?>("localStorage.getItem", "vessel3.theme");
-            if (theme == "dark")
+            var theme = await JS.InvokeAsync<string?>(JsLocalStorageGet, ThemeStorageKey);
+            if (theme == ThemeDark)
             {
                 isDark = true;
-                await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", "dark");
+                await JS.InvokeVoidAsync(JsSetDocumentAttribute, ThemeAttribute, ThemeDark);
             }
-            else if (theme == "light")
+            else if (theme == ThemeLight)
             {
                 isDark = false;
-                await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", "light");
+                await JS.InvokeVoidAsync(JsSetDocumentAttribute, ThemeAttribute, ThemeLight);
             }
         }
         catch
@@ -325,14 +337,14 @@
 
     private void HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape")
+        if (e.Key == KeyEscape)
         {
-            searchQuery = "";
+            searchQuery = string.Empty;
             searchFocused = false;
             return;
         }
 
-        if (e.Key == "Enter")
+        if (e.Key == KeyEnter)
         {
             var list = SearchResults;
             if (list.Count > 0)
@@ -345,8 +357,8 @@
     private async Task ToggleTheme()
     {
         isDark = !isDark;
-        var nextTheme = isDark ? "dark" : "light";
-        await JS.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", nextTheme);
-        await JS.InvokeVoidAsync("localStorage.setItem", "vessel3.theme", nextTheme);
+        var nextTheme = isDark ? ThemeDark : ThemeLight;
+        await JS.InvokeVoidAsync(JsSetDocumentAttribute, ThemeAttribute, nextTheme);
+        await JS.InvokeVoidAsync(JsLocalStorageSet, ThemeStorageKey, nextTheme);
     }
 }

@@ -9,6 +9,7 @@ on:
       - 'charts/**'
       - 'deploy/**'
       - 'examples/**'
+      - 'Vessel3.Operator/**'
       - '.github/workflows/helm-lint.yml'
   pull_request:
     branches:
@@ -17,6 +18,7 @@ on:
       - 'charts/**'
       - 'deploy/**'
       - 'examples/**'
+      - 'Vessel3.Operator/**'
       - '.github/workflows/helm-lint.yml'
 
 jobs:
@@ -45,8 +47,19 @@ jobs:
       - name: Template Render Test - Vessel3 Server
         run: helm template test-vessel3 charts/vessel3 --dry-run
 
+      - name: Template Render Test - Vessel3 Server (Cluster & Multi-Volume)
+        run: |
+          helm template test-vessel3-cluster charts/vessel3 --dry-run \
+            --set replicaCount=3 \
+            --set cluster.enabled=true \
+            --set cluster.secret=ci-cluster-secret \
+            --set "volumes[0].id=hot,volumes[0].path=/volumes/hot,volumes[0].pool=nvme,volumes[0].capabilities=Ingest,volumes[0].size=50Gi"
+
       - name: Template Render Test - Vessel3 Operator
         run: helm template test-operator charts/vessel3-operator --dry-run
+
+      - name: Build Vessel3 Operator
+        run: dotnet build Vessel3.Operator -c Release --nologo
 
       - name: Run C# Manifest & Chart Tests
         run: dotnet test --project Vessel3.Tests -- --filter-class Vessel3.Tests.KubernetesManifestAndChartTests

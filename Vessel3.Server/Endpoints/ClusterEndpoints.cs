@@ -5,12 +5,16 @@ namespace Vessel3.Server.Endpoints;
 
 internal static class ClusterEndpoints
 {
+    private const string ActionClusterGossip = "ClusterGossip";
+    private const string ActionClusterHeadBlob = "ClusterHeadBlob";
+    private const string ActionClusterGetBlob = "ClusterGetBlob";
+
     public static void MapClusterEndpoints(this WebApplication app)
     {
         var cluster = app.MapGroup(ReservedRoutePrefixes.Cluster);
-        cluster.MapPost("/gossip", HandleGossip);
-        cluster.MapMethods("/blobs/{sha}", [HttpMethods.Head], HandleHeadBlob);
-        cluster.MapGet("/blobs/{sha}", HandleGetBlob);
+        cluster.MapPost(VesselRoutes.ClusterGossipSubpath, HandleGossip);
+        cluster.MapMethods(VesselRoutes.ClusterBlobRoutePattern, [HttpMethods.Head], HandleHeadBlob);
+        cluster.MapGet(VesselRoutes.ClusterBlobRoutePattern, HandleGetBlob);
     }
 
     private static async Task HandleGossip(
@@ -18,8 +22,8 @@ internal static class ClusterEndpoints
         ClusterMembershipOptions options,
         IClusterMembership membership)
     {
-        RequestTrace.SetContext(protocol: "cluster");
-        RequestTrace.SetAction("ClusterGossip");
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetAction(ActionClusterGossip);
 
         if (!IsAuthorized(ctx, options))
         {
@@ -64,8 +68,8 @@ internal static class ClusterEndpoints
         ClusterMembershipOptions options,
         IBlobPool blobPool)
     {
-        RequestTrace.SetContext(protocol: "cluster");
-        RequestTrace.SetTarget("ClusterHeadBlob", key: sha);
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterHeadBlob, key: sha);
 
         if (!IsAuthorized(ctx, options))
         {
@@ -90,8 +94,8 @@ internal static class ClusterEndpoints
         ClusterMembershipOptions options,
         IBlobPool blobPool)
     {
-        RequestTrace.SetContext(protocol: "cluster");
-        RequestTrace.SetTarget("ClusterGetBlob", key: sha);
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterGetBlob, key: sha);
 
         if (!IsAuthorized(ctx, options))
         {

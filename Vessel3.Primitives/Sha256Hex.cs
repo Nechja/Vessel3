@@ -4,11 +4,15 @@ namespace Vessel3.Primitives;
 
 public static class Sha256Hex
 {
-    private static readonly SearchValues<char> HexLowerChars = SearchValues.Create("0123456789abcdef");
+    public const int HexLength = 64;
+    public const int ShardLength = 2;
+    private const string LowerHexAlphabet = "0123456789abcdef";
+
+    private static readonly SearchValues<char> LowerHexChars = SearchValues.Create(LowerHexAlphabet);
 
     public static bool IsValid(ReadOnlySpan<char> value) =>
-        value.Length == 64 && !value.ContainsAnyExcept(HexLowerChars);
+        value.Length == HexLength && !value.ContainsAnyExcept(LowerHexChars);
 
     public static bool IsValidShard(ReadOnlySpan<char> value) =>
-        value.Length == 2 && !value.ContainsAnyExcept(HexLowerChars);
+        value.Length == ShardLength && !value.ContainsAnyExcept(LowerHexChars);
 }

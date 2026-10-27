@@ -3,7 +3,7 @@ namespace Vessel3.Storage;
 public sealed record StorageVolume(
     string Id,
     string Path,
-    string Pool = "default",
+    string Pool = VesselDefaults.DefaultVolumePool,
     VolumeCapabilities Capabilities = VolumeCapabilities.Ingest,
     VolumeStatus Status = VolumeStatus.Online,
     long? CapacityBytes = null,
@@ -22,13 +22,13 @@ public sealed record StorageVolume(
     public string BlobsRoot => Path;
     public string TmpDir { get; } = (Capabilities & VolumeCapabilities.Remote) != 0
         ? string.Empty
-        : System.IO.Path.Combine(Path, "tmp");
+        : System.IO.Path.Combine(Path, VesselDefaults.TmpSubdirectory);
 
     public AdvertisedVolume ToAdvertised() =>
         new(Id, Pool, Capabilities, Status, CapacityBytes, AvailableBytes);
 
     public static StorageVolume CreateDefault(string dataRoot, string? nodeId = null) =>
-        new("default", System.IO.Path.Combine(dataRoot, "blobs"), "default", VolumeCapabilities.Ingest, NodeId: nodeId);
+        new(VesselDefaults.DefaultVolumeId, System.IO.Path.Combine(dataRoot, VesselDefaults.BlobsSubdirectory), VesselDefaults.DefaultVolumePool, VolumeCapabilities.Ingest, NodeId: nodeId);
 
     public static StorageVolume CreateRemote(
         PeerNodeState peer,

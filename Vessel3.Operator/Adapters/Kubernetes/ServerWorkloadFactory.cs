@@ -140,7 +140,7 @@ public static class ServerWorkloadFactory
             env.Add(new V1EnvVar
             {
                 Name = KubernetesConstants.EnvVesselAdvertiseUrl,
-                Value = $"http://$({KubernetesConstants.EnvVesselNodeId}).{server.Identity.Name}.{server.Identity.Namespace}.svc.cluster.local:{server.Port}"
+                Value = $"http://$({KubernetesConstants.EnvVesselNodeId}).{server.Identity.Name}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}"
             });
             env.Add(new V1EnvVar
             {
@@ -176,7 +176,7 @@ public static class ServerWorkloadFactory
         var peers = new List<string>(Math.Max(0, server.Replicas) + (server.Cluster?.Peers?.Count ?? 0));
         for (var i = 0; i < server.Replicas; i++)
         {
-            peers.Add($"http://{server.Identity.Name}-{i}.{server.Identity.Name}.{server.Identity.Namespace}.svc.cluster.local:{server.Port}");
+            peers.Add($"http://{server.Identity.Name}-{i}.{server.Identity.Name}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}");
         }
 
         if (server.Cluster?.Peers is { Count: > 0 } extraPeers)
@@ -188,7 +188,7 @@ public static class ServerWorkloadFactory
             }
         }
 
-        return string.Join(",", peers);
+        return string.Join(',', peers);
     }
 
     private static List<V1VolumeMount> CreateVolumeMounts(ServerDeclaration server)
@@ -210,7 +210,7 @@ public static class ServerWorkloadFactory
                 {
                     mounts.Add(new V1VolumeMount
                     {
-                        Name = $"vol-{vol.Id}",
+                        Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}",
                         MountPath = vol.Path
                     });
                 }
@@ -267,7 +267,7 @@ public static class ServerWorkloadFactory
                 {
                     claims.Add(new V1PersistentVolumeClaim
                     {
-                        Metadata = new V1ObjectMeta { Name = $"vol-{vol.Id}" },
+                        Metadata = new V1ObjectMeta { Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}" },
                         Spec = new V1PersistentVolumeClaimSpec
                         {
                             AccessModes = [KubernetesConstants.StorageAccessModeReadWriteOnce],

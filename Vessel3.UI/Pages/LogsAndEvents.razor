@@ -1,4 +1,5 @@
 @page "/logs"
+@using System.Collections.Frozen
 @using System.Globalization
 @using System.Text.Json
 @implements IAsyncDisposable
@@ -154,9 +155,9 @@
                     <span class="muted" style="font-size: var(--text-xs);">Level:</span>
                     <select class="input mono" @bind="selectedLevel" @bind:after="RefreshLogs" style="font-size: var(--text-xs); width: 130px;">
                         <option value="">All Levels</option>
-                        <option value="Information">Information</option>
-                        <option value="Warning">Warning</option>
-                        <option value="Error">Error</option>
+                        <option value="@LevelInformation">@LevelInformation</option>
+                        <option value="@LevelWarning">@LevelWarning</option>
+                        <option value="@LevelError">@LevelError</option>
                     </select>
                 </div>
 
@@ -164,14 +165,14 @@
                     <span class="muted" style="font-size: var(--text-xs);">Protocol:</span>
                     <select class="input mono" @bind="selectedProtocol" @bind:after="RefreshLogs" style="font-size: var(--text-xs); width: 130px;">
                         <option value="">All Protocols</option>
-                        <option value="s3">S3</option>
-                        <option value="azure">Azure</option>
-                        <option value="oci">OCI</option>
-                        <option value="native">Native REST</option>
-                        <option value="webdav">WebDAV</option>
+                        <option value="@VesselProtocols.S3">S3</option>
+                        <option value="@VesselProtocols.Azure">Azure</option>
+                        <option value="@VesselProtocols.Oci">OCI</option>
+                        <option value="@VesselProtocols.Native">Native REST</option>
+                        <option value="@VesselProtocols.WebDav">WebDAV</option>
                         @if (Config.ClusterEnabled)
                         {
-                            <option value="cluster">Cluster</option>
+                            <option value="@VesselProtocols.Cluster">Cluster</option>
                         }
                     </select>
                 </div>
@@ -352,6 +353,20 @@
 }
 
 @code {
+    private const string LevelInformation = "Information";
+    private const string LevelWarning = "Warning";
+    private const string LevelError = "Error";
+    private const string JsClipboardWriteText = "navigator.clipboard.writeText";
+    private const string TopicPrefixContainer = "container";
+    private const string TopicSuffixDeleted = "deleted";
+
+    private static readonly FrozenDictionary<string, string> LevelBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [LevelError] = "badge-danger",
+        [LevelWarning] = "badge-danger",
+        [LevelInformation] = "badge-mint",
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
     private enum Tab { Events, Logs }
     private Tab activeTab = Tab.Events;
 
@@ -487,7 +502,7 @@
     {
         if (inspectedEvent is null) return;
         var json = FormatJson(inspectedEvent);
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", json);
+        await JS.InvokeVoidAsync(JsClipboardWriteText, json);
         Toast.Success("Copied CloudEvent JSON");
     }
 
@@ -507,9 +522,9 @@
 
     private static string GetTopicBadgeClass(string type)
     {
-        if (type.StartsWith("container", StringComparison.OrdinalIgnoreCase)) return "badge-neutral";
-        if (type.EndsWith("deleted", StringComparison.OrdinalIgnoreCase)) return "badge-danger";
-        if (type.StartsWith("s3", StringComparison.OrdinalIgnoreCase)) return "badge-mint";
+        if (type.StartsWith(TopicPrefixContainer, StringComparison.OrdinalIgnoreCase)) return "badge-neutral";
+        if (type.EndsWith(TopicSuffixDeleted, StringComparison.OrdinalIgnoreCase)) return "badge-danger";
+        if (type.StartsWith(VesselProtocols.S3, StringComparison.OrdinalIgnoreCase)) return "badge-mint";
         return "badge-neutral";
     }
 
@@ -591,16 +606,12 @@
 
     private async Task CopyText(string text)
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await JS.InvokeVoidAsync(JsClipboardWriteText, text);
         Toast.Success("Copied to clipboard");
     }
 
-    private static string GetLevelBadgeClass(string level) => level switch
-    {
-        "Error" => "badge-danger",
-        "Warning" => "badge-danger",
-        _ => "badge-mint"
-    };
+    private static string GetLevelBadgeClass(string level) =>
+        LevelBadges.GetValueOrDefault(level, "badge-mint");
 
     private static string GetStatusBadgeClass(int status) => status switch
     {
