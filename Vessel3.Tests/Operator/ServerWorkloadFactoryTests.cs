@@ -63,6 +63,45 @@ public sealed class ServerWorkloadFactoryTests
         Assert.Equal("TESTAK", env[KubernetesConstants.EnvVesselAccessKey]);
         Assert.Equal("TESTSK", env[KubernetesConstants.EnvVesselSecretKey]);
         Assert.Equal(KubernetesConstants.DefaultRegion, env[KubernetesConstants.EnvVesselRegion]);
+        Assert.Equal("http://$(VESSEL3_NODE_ID).prod-vessel.storage.svc.cluster.local:9000", env[KubernetesConstants.EnvVesselAdvertiseUrl]);
+        Assert.Equal(
+            "http://prod-vessel-0.prod-vessel.storage.svc.cluster.local:9000,http://prod-vessel-1.prod-vessel.storage.svc.cluster.local:9000,http://prod-vessel-2.prod-vessel.storage.svc.cluster.local:9000",
+            env[KubernetesConstants.EnvVesselPeers]);
+
+        var nodeIdEnv = Assert.Single(container.Env, e => e.Name == KubernetesConstants.EnvVesselNodeId);
+        Assert.Equal(KubernetesConstants.FieldPathMetadataName, nodeIdEnv.ValueFrom.FieldRef.FieldPath);
+    }
+
+    [Fact]
+    public void CreateStatefulSet_WithMultiVolumesAndCluster_EmitsVolumesEnvMountsAndPvcs()
+    {
+        var server = TestServer with
+        {
+            Volumes =
+            [
+                new ServerVolumeDeclaration("hot-nvme", "/volumes/hot", "nvme", "Ingest", "100Gi", "fast-nvme"),
+                new ServerVolumeDeclaration("cold-archive", "/data/cold", "archive", "OnDemand"),
+            ],
+            Cluster = new ServerClusterDeclaration(Enabled: true, GossipIntervalMs: 500, PeerSuspectMs: 2500, PeerDeadMs: 7500)
+        };
+
+        var statefulSet = ServerWorkloadFactory.CreateStatefulSet(server, TestCredentials);
+        var container = Assert.Single(statefulSet.Spec.Template.Spec.Containers);
+        var env = container.Env.ToDictionary(e => e.Name, e => e.Value);
+
+        Assert.Equal("hot-nvme:/volumes/hot:nvme:Ingest,cold-archive:/data/cold:archive:OnDemand", env[KubernetesConstants.EnvVesselVolumes]);
+        Assert.Equal("500", env[KubernetesConstants.EnvVesselGossipIntervalMs]);
+        Assert.Equal("2500", env[KubernetesConstants.EnvVesselPeerSuspectMs]);
+        Assert.Equal("7500", env[KubernetesConstants.EnvVesselPeerDeadMs]);
+
+        Assert.Equal(2, container.VolumeMounts.Count);
+        Assert.Contains(container.VolumeMounts, m => m.Name == "vol-hot-nvme" && m.MountPath == "/volumes/hot");
+
+        Assert.Equal(2, statefulSet.Spec.VolumeClaimTemplates.Count);
+        Assert.Contains(statefulSet.Spec.VolumeClaimTemplates, pvc =>
+            pvc.Metadata.Name == "vol-hot-nvme"
+            && pvc.Spec.StorageClassName == "fast-nvme"
+            && pvc.Spec.Resources.Requests[KubernetesConstants.StorageResourceName].ToString() == "100Gi");
     }
 
     [Fact]

@@ -28,6 +28,7 @@
     <InternalsVisibleTo Include="vessel3" />
     <InternalsVisibleTo Include="Vessel3.Server" />
     <InternalsVisibleTo Include="Vessel3.Tests" />
+    <InternalsVisibleTo Include="vessel3-bench" />
   </ItemGroup>
 
 </Project>

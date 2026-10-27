@@ -8,4 +8,5 @@ public interface IAdminClient
     Task<Result<SweepReportDto>> RunSweep(string? nowOverride = null, CancellationToken ct = default);
     Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogs(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default);
     Task<Result> ClearServerLogs(CancellationToken ct = default);
+    Task<Result<ClusterStatusDto>> GetClusterStatus(CancellationToken ct = default);
 }

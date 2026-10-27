@@ -27,13 +27,21 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new ServerRegion(config.Region));
         services.AddSingleton(new VirtualHostOptions(config.BaseDomains));
         services.AddSingleton(new BucketRegistryOptions(config.DataRoot));
-        services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, "uploads")));
-        services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, "gc-tmp")));
+        services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, VesselDefaults.UploadsSubdirectory)));
+        services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, VesselDefaults.GcTmpSubdirectory)));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
         services.AddSingleton(new CompactionServiceOptions(config.CompactInterval, config.CompactThresholdBytes));
         services.AddSingleton(new RequestTelemetryOptions(config.SlowRequestThreshold, config.AccessLogEnabled));
-        services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, "iam")));
-        services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, "webhooks")));
+        services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, VesselDefaults.IamSubdirectory)));
+        services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, VesselDefaults.WebhooksSubdirectory)));
+        services.AddSingleton(config.Cluster ?? new ClusterMembershipOptions(
+            config.NodeId ?? Environment.MachineName,
+            string.Empty,
+            [],
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            config.SecretKey));
     }
 
     private static void AddVesselStorage(this IServiceCollection services, VesselConfig config)
@@ -41,12 +49,36 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IFileSync>(OperatingSystem.IsLinux() ? new PosixFileSync() : new PortableFileSync());
         services.AddSingleton<IDurableWrite, DurableWrite>();
 
-        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot)];
+        var resolvedNodeId = config.NodeId ?? config.Cluster?.NodeId ?? Environment.MachineName;
+        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot, resolvedNodeId)];
         services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
-        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(volumes, sp.GetRequiredService<IFileSync>()));
+        services.AddSingleton(static _ => new ClusterHttpClients());
+        services.AddSingleton<Func<StorageVolume, IBlobReader>>(sp =>
+        {
+            var clients = sp.GetRequiredService<ClusterHttpClients>();
+            var secret = sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret;
+            return volume => new HttpRemoteBlobReader(volume.Id, volume.Path, clients.BlobClient, secret);
+        });
+        services.AddSingleton<IVolumeRegistry>(sp => new VolumeRegistry(
+            volumes,
+            sp.GetRequiredService<IFileSync>(),
+            remoteFactory: sp.GetRequiredService<Func<StorageVolume, IBlobReader>>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
             sp.GetRequiredService<IBlobLocationCatalog>()));
+        services.AddSingleton<IClusterMembership>(sp => new ClusterMembership(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<IVolumeRegistry>(),
+            sp.GetService<TimeProvider>()));
+        services.AddSingleton<IGossipTransport>(sp => new HttpGossipTransport(
+            sp.GetRequiredService<ClusterHttpClients>().GossipClient,
+            sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
+        services.AddSingleton<GossipService>(sp => new GossipService(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<IClusterMembership>(),
+            sp.GetRequiredService<IGossipTransport>(),
+            sp.GetService<ILogger<GossipService>>()));
+        services.AddHostedService(sp => sp.GetRequiredService<GossipService>());
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
         services.AddSingleton<IIdentityRegistry>(sp =>
@@ -86,7 +118,7 @@ internal static class VesselServiceExtensions
             var serializer = sp.GetRequiredService<IWebhookYamlSerializer>();
             var store = new SqliteWebhookStore(options, clock);
 
-            var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, "webhooks.yaml");
+            var yamlPath = config.WebhooksFile ?? Path.Combine(config.DataRoot, VesselDefaults.WebhooksDefaultFileName);
             if (File.Exists(yamlPath)
                 && serializer.LoadFromYaml(File.ReadAllText(yamlPath), clock).TryGetValue(out var staticWebhooks, out _))
             {
@@ -161,5 +193,24 @@ internal static class VesselServiceExtensions
 #if VESSEL3_UI
         services.AddSingleton<UiServingMiddleware>();
 #endif
+    }
+
+    private sealed class ClusterHttpClients : IDisposable
+    {
+        public HttpClient GossipClient { get; } = new(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+        {
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+
+        public HttpClient BlobClient { get; } = new(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2) })
+        {
+            Timeout = TimeSpan.FromSeconds(15),
+        };
+
+        public void Dispose()
+        {
+            GossipClient.Dispose();
+            BlobClient.Dispose();
+        }
     }
 }

@@ -22,25 +22,31 @@ internal sealed record VesselConfig(
     bool OciEnabled = true,
     bool WebDavEnabled = true,
     string? WebhooksFile = null,
-    string LogFormat = "text",
+    string LogFormat = VesselDefaults.DefaultLogFormat,
     LogLevel LogLevel = LogLevel.Information,
     bool AccessLogEnabled = true,
     string? NodeId = null,
     OtelConfig? Otel = null,
-    IReadOnlyList<StorageVolume>? Volumes = null)
+    IReadOnlyList<StorageVolume>? Volumes = null,
+    ClusterMembershipOptions? Cluster = null)
 {
+    private const string WriteProbeFileName = ".vessel3-write-test";
+    private const string ListDelimiters = ",;";
+    private const string LogLevelInfoShort = "info";
+    private const string LogLevelWarnShort = "warn";
+
     public static bool TryCreate([NotNullWhen(true)] out VesselConfig? config, [NotNullWhen(false)] out string? error)
     {
-        var dataRoot = ReadString("VESSEL3_DATA", Path.Combine(AppContext.BaseDirectory, "data"))!;
+        var dataRoot = ReadString(VesselEnvVars.Data, Path.Combine(AppContext.BaseDirectory, VesselDefaults.DataDirectoryName))!;
         if (!EnsureDataRootWritable(dataRoot, out error))
         {
             config = null;
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("XDG_DATA_HOME")))
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(VesselEnvVars.XdgDataHome)))
         {
-            Environment.SetEnvironmentVariable("XDG_DATA_HOME", Path.Combine(dataRoot, ".xdg"));
+            Environment.SetEnvironmentVariable(VesselEnvVars.XdgDataHome, Path.Combine(dataRoot, VesselDefaults.XdgSubdirectory));
         }
 
         if (!OidcOptions.FromEnvironment().TryGetValue(out var oidc, out var oidcError))
@@ -50,36 +56,51 @@ internal sealed record VesselConfig(
             return false;
         }
 
-        var accessKey = ReadString("VESSEL3_ACCESS_KEY");
-        var secretKey = ReadString("VESSEL3_SECRET_KEY");
-        var region = ReadString("VESSEL3_REGION", "us-east-1")!;
-        var baseDomains = ReadDomains("VESSEL3_DOMAIN");
+        var accessKey = ReadString(VesselEnvVars.AccessKey);
+        var secretKey = ReadString(VesselEnvVars.SecretKey);
+        var region = ReadString(VesselEnvVars.Region, VesselDefaults.DefaultRegion)!;
+        var baseDomains = ReadDomains(VesselEnvVars.Domain);
 
-        var gcMaxWaitSeconds = ReadLong("VESSEL3_GC_MAX_WAIT_SECONDS", 120);
-        var lifecycleIntervalSeconds = ReadLong("VESSEL3_LIFECYCLE_INTERVAL_SECONDS", 3600);
-        var compactIntervalSeconds = ReadLong("VESSEL3_COMPACT_INTERVAL_SECONDS", 3600);
-        var compactThresholdBytes = ReadLong("VESSEL3_COMPACT_THRESHOLD_BYTES", 64L * 1024 * 1024);
-        var slowRequestMilliseconds = ReadLong("VESSEL3_SLOW_REQUEST_MS", 1000);
+        var gcMaxWaitSeconds = ReadLong(VesselEnvVars.GcMaxWaitSeconds, 120);
+        var lifecycleIntervalSeconds = ReadLong(VesselEnvVars.LifecycleIntervalSeconds, 3600);
+        var compactIntervalSeconds = ReadLong(VesselEnvVars.CompactIntervalSeconds, 3600);
+        var compactThresholdBytes = ReadLong(VesselEnvVars.CompactThresholdBytes, 64L * 1024 * 1024);
+        var slowRequestMilliseconds = ReadLong(VesselEnvVars.SlowRequestMs, 1000);
 
-        var metricsToken = ReadString("VESSEL3_METRICS_TOKEN");
-        var metricsAllowAnonymous = ReadBool("VESSEL3_METRICS_ALLOW_ANONYMOUS");
-        var adminUsers = ReadList("VESSEL3_ADMIN_USERS");
+        var metricsToken = ReadString(VesselEnvVars.MetricsToken);
+        var metricsAllowAnonymous = ReadBool(VesselEnvVars.MetricsAllowAnonymous);
+        var adminUsers = ReadList(VesselEnvVars.AdminUsers);
 
-        var ociEnabled = ReadFeatureFlag("VESSEL3_OCI_ENABLED");
-        var webDavEnabled = ReadFeatureFlag("VESSEL3_WEBDAV_ENABLED");
+        var ociEnabled = ReadFeatureFlag(VesselEnvVars.OciEnabled);
+        var webDavEnabled = ReadFeatureFlag(VesselEnvVars.WebDavEnabled);
 
-        var webhooksFile = ReadString("VESSEL3_WEBHOOKS_FILE");
-        var logFormat = ReadString("VESSEL3_LOG_FORMAT", "text")!.ToLowerInvariant();
-        var logLevel = ReadLogLevel("VESSEL3_LOG_LEVEL", LogLevel.Information);
-        var accessLogEnabled = ReadFeatureFlag("VESSEL3_ACCESS_LOG");
-        var nodeId = ReadString("VESSEL3_NODE_ID", Environment.MachineName);
+        var webhooksFile = ReadString(VesselEnvVars.WebhooksFile);
+        var logFormat = ReadString(VesselEnvVars.LogFormat, VesselDefaults.DefaultLogFormat)!.ToLowerInvariant();
+        var logLevel = ReadLogLevel(VesselEnvVars.LogLevel, LogLevel.Information);
+        var accessLogEnabled = ReadFeatureFlag(VesselEnvVars.AccessLog);
+        var nodeId = ReadString(VesselEnvVars.NodeId, Environment.MachineName)!;
 
-        var otelEndpoint = ReadString("VESSEL3_OTEL_EXPORTER_OTLP_ENDPOINT");
-        var otelEnabled = ReadBool("VESSEL3_OTEL_ENABLED") || !string.IsNullOrWhiteSpace(otelEndpoint);
-        var otelServiceName = ReadString("VESSEL3_OTEL_SERVICE_NAME", "vessel3")!;
+        var advertiseUrl = ReadString(VesselEnvVars.AdvertiseUrl, string.Empty)!;
+        var seedPeers = ParsePeerSeeds(Environment.GetEnvironmentVariable(VesselEnvVars.Peers));
+        var clusterSecret = ReadString(VesselEnvVars.ClusterSecret) ?? secretKey;
+        var gossipIntervalMs = ReadLong(VesselEnvVars.GossipIntervalMs, 1000);
+        var peerSuspectMs = ReadLong(VesselEnvVars.PeerSuspectMs, 5000);
+        var peerDeadMs = ReadLong(VesselEnvVars.PeerDeadMs, 15000);
+        var cluster = new ClusterMembershipOptions(
+            nodeId,
+            advertiseUrl,
+            seedPeers,
+            TimeSpan.FromMilliseconds(gossipIntervalMs),
+            TimeSpan.FromMilliseconds(peerSuspectMs),
+            TimeSpan.FromMilliseconds(peerDeadMs),
+            clusterSecret);
+
+        var otelEndpoint = ReadString(VesselEnvVars.OtelExporterOtlpEndpoint);
+        var otelEnabled = ReadBool(VesselEnvVars.OtelEnabled) || !string.IsNullOrWhiteSpace(otelEndpoint);
+        var otelServiceName = ReadString(VesselEnvVars.OtelServiceName, VesselDefaults.ServiceName)!;
         var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
 
-        if (!TryReadVolumes("VESSEL3_VOLUMES", dataRoot, out var volumes, out error))
+        if (!TryReadVolumes(VesselEnvVars.Volumes, dataRoot, out var volumes, out error, nodeId))
         {
             config = null;
             return false;
@@ -108,7 +129,8 @@ internal sealed record VesselConfig(
             accessLogEnabled,
             nodeId,
             otel,
-            volumes);
+            volumes,
+            cluster);
 
         error = null;
         return true;
@@ -119,8 +141,8 @@ internal sealed record VesselConfig(
         try
         {
             Directory.CreateDirectory(dataRoot);
-            var probe = Path.Combine(dataRoot, ".vessel3-write-test");
-            File.WriteAllText(probe, "");
+            var probe = Path.Combine(dataRoot, WriteProbeFileName);
+            File.WriteAllText(probe, string.Empty);
             File.Delete(probe);
             error = null;
             return true;
@@ -137,21 +159,21 @@ internal sealed record VesselConfig(
     private static bool ReadFeatureFlag(string name, bool defaultValue = true)
     {
         var value = Environment.GetEnvironmentVariable(name);
-        return string.IsNullOrEmpty(value) ? defaultValue : !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+        return string.IsNullOrEmpty(value) ? defaultValue : !string.Equals(value, bool.FalseString, StringComparison.OrdinalIgnoreCase);
     }
 
     private static readonly FrozenDictionary<string, LogLevel> LogLevelByName =
         new Dictionary<string, LogLevel>(StringComparer.OrdinalIgnoreCase)
         {
-            ["trace"] = LogLevel.Trace,
-            ["debug"] = LogLevel.Debug,
-            ["info"] = LogLevel.Information,
-            ["information"] = LogLevel.Information,
-            ["warn"] = LogLevel.Warning,
-            ["warning"] = LogLevel.Warning,
-            ["error"] = LogLevel.Error,
-            ["critical"] = LogLevel.Critical,
-            ["none"] = LogLevel.None,
+            [nameof(LogLevel.Trace)] = LogLevel.Trace,
+            [nameof(LogLevel.Debug)] = LogLevel.Debug,
+            [LogLevelInfoShort] = LogLevel.Information,
+            [nameof(LogLevel.Information)] = LogLevel.Information,
+            [LogLevelWarnShort] = LogLevel.Warning,
+            [nameof(LogLevel.Warning)] = LogLevel.Warning,
+            [nameof(LogLevel.Error)] = LogLevel.Error,
+            [nameof(LogLevel.Critical)] = LogLevel.Critical,
+            [nameof(LogLevel.None)] = LogLevel.None,
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private static LogLevel ReadLogLevel(string name, LogLevel fallback)
@@ -170,7 +192,7 @@ internal sealed record VesselConfig(
         long.TryParse(Environment.GetEnvironmentVariable(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedValue) ? parsedValue : fallback;
 
     private static bool ReadBool(string name) =>
-        string.Equals(Environment.GetEnvironmentVariable(name), "true", StringComparison.OrdinalIgnoreCase);
+        string.Equals(Environment.GetEnvironmentVariable(name), bool.TrueString, StringComparison.OrdinalIgnoreCase);
 
     private static string[] ReadDomains(string name)
     {
@@ -191,6 +213,27 @@ internal sealed record VesselConfig(
                 .Distinct()];
     }
 
+    internal static string[] ParsePeerSeeds(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        List<string> seeds = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        var span = raw.AsSpan();
+        foreach (var range in span.SplitAny(ListDelimiters))
+        {
+            var trimmed = span[range].Trim().TrimEnd('/');
+            if (trimmed.IsEmpty)
+                continue;
+            var url = trimmed.ToString();
+            if (seen.Add(url))
+                seeds.Add(url);
+        }
+
+        return [.. seeds];
+    }
+
     private static readonly FrozenDictionary<string, VolumeCapabilities> CapabilityByName =
         new Dictionary<string, VolumeCapabilities>(StringComparer.OrdinalIgnoreCase)
         {
@@ -206,11 +249,12 @@ internal sealed record VesselConfig(
         string? raw,
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
-        [NotNullWhen(false)] out string? error)
+        [NotNullWhen(false)] out string? error,
+        string? nodeId = null)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
             error = null;
             return true;
         }
@@ -220,7 +264,7 @@ internal sealed record VesselConfig(
         var rawSpan = raw.AsSpan();
         Span<Range> tokens = stackalloc Range[5];
 
-        foreach (var entryRange in rawSpan.SplitAny(",;"))
+        foreach (var entryRange in rawSpan.SplitAny(ListDelimiters))
         {
             var partSpan = rawSpan[entryRange].Trim();
             if (partSpan.IsEmpty)
@@ -259,7 +303,7 @@ internal sealed record VesselConfig(
             }
 
             var poolSpan = tokenCount > 2 ? partSpan[tokens[2]] : [];
-            var pool = poolSpan.IsEmpty ? "default" : poolSpan.ToString();
+            var pool = poolSpan.IsEmpty ? VesselDefaults.DefaultVolumePool : poolSpan.ToString();
             var flagsSpan = tokenCount > 3 ? partSpan[tokens[3]] : [];
 
             if (!TryParseCapabilities(flagsSpan, idSpan, out var flags, out error))
@@ -268,12 +312,12 @@ internal sealed record VesselConfig(
                 return false;
             }
 
-            list.Add(new StorageVolume(id, pathSpan.ToString(), pool, flags));
+            list.Add(new StorageVolume(id, pathSpan.ToString(), pool, flags, NodeId: nodeId));
         }
 
         if (list.Count == 0)
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
             error = null;
             return true;
         }
@@ -329,6 +373,7 @@ internal sealed record VesselConfig(
         string name,
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
-        [NotNullWhen(false)] out string? error) =>
-        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error);
+        [NotNullWhen(false)] out string? error,
+        string? nodeId = null) =>
+        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error, nodeId);
 }

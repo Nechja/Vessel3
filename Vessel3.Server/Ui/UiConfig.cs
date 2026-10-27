@@ -5,7 +5,7 @@ namespace Vessel3.Server.Ui;
 
 internal sealed record UiOidc(string Issuer, string ClientId, string? AuthorizationEndpoint, string? TokenEndpoint, string? EndSessionEndpoint);
 
-internal sealed record UiConfig(string AccessKey, string SecretKey, string Region, UiOidc? Oidc);
+internal sealed record UiConfig(string AccessKey, string SecretKey, string Region, UiOidc? Oidc, string? NodeId = null, bool ClusterEnabled = false);
 
 [JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(UiConfig))]

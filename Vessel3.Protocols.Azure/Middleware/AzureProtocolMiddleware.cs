@@ -15,10 +15,7 @@ internal sealed class AzureProtocolMiddleware(
 
     public async Task InvokeAsync(HttpContext ctx, RequestDelegate next)
     {
-        if (ctx.Request.Path.StartsWithSegments("/_admin") ||
-            ctx.Request.Path.StartsWithSegments("/_ui") ||
-            ctx.Request.Path.StartsWithSegments("/v1") ||
-            ctx.Request.Path.StartsWithSegments("/v2") ||
+        if (ReservedRoutePrefixes.Matches(ctx.Request.Path.Value) ||
             ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
         {
             await next(ctx);

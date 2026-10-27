@@ -6,6 +6,9 @@ namespace Vessel3.Server.Ui;
 
 internal static class UiEndpoints
 {
+    private const string BlazorFrameworkPrefix = "_framework/";
+    private const string BlazorContentPrefix = "_content/";
+
     public static bool BasicAuthOk(string authorization, string accessKey, string secretKey)
     {
         const string scheme = "Basic ";
@@ -36,8 +39,8 @@ internal static class UiEndpoints
     }
 
     public static bool IsAssetPath(string rel) =>
-        rel.StartsWith("_framework/", StringComparison.Ordinal)
-        || rel.StartsWith("_content/", StringComparison.Ordinal)
+        rel.StartsWith(BlazorFrameworkPrefix, StringComparison.Ordinal)
+        || rel.StartsWith(BlazorContentPrefix, StringComparison.Ordinal)
         || (!rel.Contains('/', StringComparison.Ordinal) && rel.Contains('.', StringComparison.Ordinal));
 }
 #endif

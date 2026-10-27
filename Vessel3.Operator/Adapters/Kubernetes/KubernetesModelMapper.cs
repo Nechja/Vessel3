@@ -16,7 +16,13 @@ internal static class KubernetesModelMapper
             AdminSecretName: cr.Spec.Auth.AdminSecretName,
             Image: cr.Spec.Image,
             ImagePullPolicy: cr.Spec.ImagePullPolicy,
-            Domains: cr.Spec.Domains);
+            Domains: cr.Spec.Domains,
+            Volumes: cr.Spec.Volumes is { Count: > 0 } vols
+                ? [.. vols.Select(static v => new ServerVolumeDeclaration(v.Id, v.Path, v.Pool, v.Capabilities, v.Size, v.StorageClassName))]
+                : null,
+            Cluster: cr.Spec.Cluster is { } cl
+                ? new ServerClusterDeclaration(cl.Enabled, cl.GossipIntervalMs, cl.PeerSuspectMs, cl.PeerDeadMs, cl.SecretName, cl.Peers)
+                : null);
 
     public static BucketDeclaration ToDeclaration(VesselBucketCustomResource cr)
     {

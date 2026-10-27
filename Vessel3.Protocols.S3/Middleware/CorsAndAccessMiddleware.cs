@@ -32,13 +32,7 @@ internal sealed class CorsAndAccessMiddleware(IBucketRegistry registry, IS3Subre
             return vhBucket;
         }
 
-        if (ctx.Request.Path.StartsWithSegments("/_admin")
-            || ctx.Request.Path.StartsWithSegments("/_ui")
-            || ctx.Request.Path.StartsWithSegments("/_site")
-            || ctx.Request.Path.StartsWithSegments("/v1")
-            || ctx.Request.Path.StartsWithSegments("/v2")
-            || ctx.Request.Path.StartsWithSegments("/dav")
-            || ctx.Request.Path.StartsWithSegments("/webdav")
+        if (ReservedRoutePrefixes.Matches(ctx.Request.Path.Value)
             || ctx.Request.Path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
         {
             return null;

@@ -10,19 +10,29 @@ namespace Vessel3.Server.Ui;
 
 internal sealed class UiServingMiddleware(
     VesselConfig config,
+    ClusterMembershipOptions clusterOptions,
     ISigV4Verifier verifier,
     IHttpResultMapper results,
     IAdminService adminService,
     IOidcDiscovery? oidcDiscovery = null) : IMiddleware
 {
-    private readonly ManifestEmbeddedFileProvider assets = new(Assembly.GetExecutingAssembly(), "wwwroot");
+    private const string EmbeddedAssetsRoot = "wwwroot";
+    private const string BasicChallengeHeader = "Basic realm=\"vessel3\"";
+    private const string ConfigFileName = "config.json";
+    private const string IndexDocumentName = "index.html";
+    private const string CacheControlNoStore = "no-store";
+    private const string CacheControlNoCache = "no-cache";
+    private const string AdminGcRelativePath = "admin/gc";
+    private const string AdminLifecycleRelativePath = "admin/lifecycle";
+
+    private readonly ManifestEmbeddedFileProvider assets = new(Assembly.GetExecutingAssembly(), EmbeddedAssetsRoot);
     private readonly FileExtensionContentTypeProvider contentTypes = new();
     private readonly string etag = $"\"{Assembly.GetExecutingAssembly().ManifestModule.ModuleVersionId:N}\"";
     private readonly bool basicGate = config.Oidc is null && config.AccessKey is not null && config.SecretKey is not null;
 
     public async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
-        if (!context.Request.Path.StartsWithSegments("/_ui", out var remaining))
+        if (!context.Request.Path.StartsWithSegments(ReservedRoutePrefixes.Ui, out var remaining))
         {
             await next(context);
             return;
@@ -31,15 +41,15 @@ internal sealed class UiServingMiddleware(
         if (basicGate && !UiEndpoints.BasicAuthOk(context.Request.Headers.Authorization.ToString(), config.AccessKey!, config.SecretKey!))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.Headers.WWWAuthenticate = "Basic realm=\"vessel3\"";
+            context.Response.Headers.WWWAuthenticate = BasicChallengeHeader;
             return;
         }
 
-        var relativePath = remaining.HasValue ? remaining.Value!.TrimStart('/') : "";
+        var relativePath = remaining.HasValue ? remaining.Value!.TrimStart('/') : string.Empty;
 
         if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
         {
-            if (relativePath == "config.json")
+            if (relativePath == ConfigFileName)
             {
                 await ServeConfig(context);
                 return;
@@ -65,17 +75,18 @@ internal sealed class UiServingMiddleware(
 
     private async Task ServeConfig(HttpContext context)
     {
+        var nodeId = clusterOptions.IsClusterEnabled ? clusterOptions.NodeId : null;
         var uiConfig = config.Oidc is null
-            ? new UiConfig(config.AccessKey ?? "", config.SecretKey ?? "", config.Region, null)
+            ? new UiConfig(config.AccessKey ?? string.Empty, config.SecretKey ?? string.Empty, config.Region, null, nodeId, clusterOptions.IsClusterEnabled)
             : await OidcConfig(context, config.Oidc, config.Region);
-        context.Response.ContentType = "application/json";
-        context.Response.Headers.CacheControl = "no-store";
+        context.Response.ContentType = VesselMediaTypes.Json;
+        context.Response.Headers.CacheControl = CacheControlNoStore;
         await System.Text.Json.JsonSerializer.SerializeAsync(context.Response.Body, uiConfig, UiJsonContext.Default.UiConfig, context.RequestAborted);
     }
 
     private async Task ServeStaticAsset(HttpContext context, string relativePath)
     {
-        var path = string.IsNullOrEmpty(relativePath) ? "index.html" : relativePath;
+        var path = string.IsNullOrEmpty(relativePath) ? IndexDocumentName : relativePath;
         var fileInfo = assets.GetFileInfo(path);
         if (!fileInfo.Exists || fileInfo.IsDirectory)
         {
@@ -84,18 +95,18 @@ internal sealed class UiServingMiddleware(
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
-            fileInfo = assets.GetFileInfo("index.html");
+            fileInfo = assets.GetFileInfo(IndexDocumentName);
         }
 
         context.Response.Headers.ETag = etag;
-        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers.CacheControl = CacheControlNoCache;
         if (context.Request.Headers.IfNoneMatch.ToString() == etag)
         {
             context.Response.StatusCode = StatusCodes.Status304NotModified;
             return;
         }
 
-        context.Response.ContentType = contentTypes.TryGetContentType(fileInfo.Name, out var contentType) ? contentType : "application/octet-stream";
+        context.Response.ContentType = contentTypes.TryGetContentType(fileInfo.Name, out var contentType) ? contentType : VesselMediaTypes.OctetStream;
         context.Response.ContentLength = fileInfo.Length;
         if (HttpMethods.IsHead(context.Request.Method))
         {
@@ -108,13 +119,13 @@ internal sealed class UiServingMiddleware(
 
     private async Task<bool> DispatchAdminAction(HttpContext context, string relativePath)
     {
-        if (relativePath == "admin/gc" && HttpMethods.IsPost(context.Request.Method))
+        if (relativePath == AdminGcRelativePath && HttpMethods.IsPost(context.Request.Method))
         {
             await adminService.RunGc(context);
             return true;
         }
 
-        if (relativePath == "admin/lifecycle" && HttpMethods.IsPost(context.Request.Method))
+        if (relativePath == AdminLifecycleRelativePath && HttpMethods.IsPost(context.Request.Method))
         {
             await adminService.RunLifecycle(context);
             return true;
@@ -126,8 +137,11 @@ internal sealed class UiServingMiddleware(
     private async Task<UiConfig> OidcConfig(HttpContext context, OidcOptions oidc, string region)
     {
         var discovered = oidcDiscovery is not null ? await oidcDiscovery.Get(context.RequestAborted) : null;
-        return new UiConfig("", "", region,
-            new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint));
+        var nodeId = clusterOptions.IsClusterEnabled ? clusterOptions.NodeId : null;
+        return new UiConfig(string.Empty, string.Empty, region,
+            new UiOidc(oidc.Issuer, oidc.ClientId, discovered?.AuthorizationEndpoint, discovered?.TokenEndpoint, discovered?.EndSessionEndpoint),
+            nodeId,
+            clusterOptions.IsClusterEnabled);
     }
 }
 #endif

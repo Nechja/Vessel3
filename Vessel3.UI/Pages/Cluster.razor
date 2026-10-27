@@ -1,0 +1,523 @@
+@page "/cluster"
+@using System.Collections.Frozen
+@using System.Globalization
+@implements IAsyncDisposable
+@inject IVesselClient Client
+@inject UiNotifications Toast
+
+<div class="stack" style="gap: var(--space-4);">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <span class="toolbar-title">Cluster &amp; Volumes</span>
+            @if (status is { } s)
+            {
+                <span class="counter">@(s.Peers.Count + 1) nodes · @s.Volumes.Count volumes</span>
+            }
+        </div>
+        <div class="toolbar-actions">
+            <button type="button" class="btn @(autoRefresh ? "btn-primary" : "btn-ghost") btn-sm" @onclick="ToggleAutoRefresh">
+                <Icon Name="refresh" /> @(autoRefresh ? "auto-refresh: on" : "auto-refresh: off")
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="RefreshStatus" disabled="@loading">
+                <Icon Name="refresh" /> refresh
+            </button>
+        </div>
+    </div>
+
+    @if (status is { } st)
+    {
+        <div class="grid grid-4">
+            <div class="stat-card">
+                <div class="stat-kicker">Local Node</div>
+                <div class="stat-value">@st.NodeId</div>
+                <div class="stat-sub mono">
+                    @if (!string.IsNullOrEmpty(st.LocalNode.Endpoint))
+                    {
+                        @st.LocalNode.Endpoint
+                    }
+                    else
+                    {
+                        <span>standalone (@st.Region)</span>
+                    }
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-kicker">Cluster Membership</div>
+                <div class="stat-value">@AlivePeerCount / @(st.Peers.Count + 1)</div>
+                <div class="stat-sub">
+                    @if (st.Peers.Count == 0)
+                    {
+                        <span>@(st.ClusterEnabled ? "awaiting gossip peers" : "single-node topology")</span>
+                    }
+                    else
+                    {
+                        <span>@SuspectPeerCount suspect · @DeadPeerCount dead</span>
+                    }
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-kicker">Storage Volumes</div>
+                <div class="stat-value">@OnlineVolumeCount / @st.Volumes.Count</div>
+                <div class="stat-sub">
+                    @LocalVolumeCount local · @RemoteVolumeCount remote · @PoolNames.Count @(PoolNames.Count == 1 ? "pool" : "pools")
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-kicker">Local Disk Capacity</div>
+                @if (TotalLocalCapacityBytes > 0)
+                {
+                    <div class="stat-value">@Fmt.Bytes(TotalLocalAvailableBytes) free</div>
+                    <div style="margin-top: var(--space-2);">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: @(LocalUsedPercent.ToString("F1", CultureInfo.InvariantCulture))%;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-sub mono">
+                        @Fmt.Bytes(TotalLocalUsedBytes) used of @Fmt.Bytes(TotalLocalCapacityBytes)
+                    </div>
+                }
+                else
+                {
+                    <div class="stat-value">—</div>
+                    <div class="stat-sub">capacity metrics unavailable</div>
+                }
+            </div>
+        </div>
+
+        <div class="stack" style="gap: var(--space-3);">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 style="margin: 0;">Storage Volumes</h2>
+                    <span class="counter">@FilteredVolumes.Count</span>
+                </div>
+                <div class="toolbar-actions">
+                    <div class="row align-center" style="gap: var(--space-2);">
+                        <span class="muted" style="font-size: var(--text-xs);">Scope:</span>
+                        <select class="input mono" @bind="scopeFilter" style="font-size: var(--text-xs); width: 120px;">
+                            <option value="">All Scopes</option>
+                            <option value="@ScopeLocal">Local Only</option>
+                            <option value="@ScopeRemote">Remote Only</option>
+                        </select>
+                    </div>
+                    <div class="row align-center" style="gap: var(--space-2);">
+                        <span class="muted" style="font-size: var(--text-xs);">Pool:</span>
+                        <select class="input mono" @bind="poolFilter" style="font-size: var(--text-xs); width: 140px;">
+                            <option value="">All Pools</option>
+                            @foreach (var pool in PoolNames)
+                            {
+                                <option value="@pool">@pool</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>volume id</th>
+                            <th style="width: 150px;">node / scope</th>
+                            <th style="width: 110px;">pool</th>
+                            <th>capabilities</th>
+                            <th>location / endpoint</th>
+                            <th style="width: 210px;">capacity</th>
+                            <th style="width: 110px;">status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredVolumes.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="empty-state">no storage volumes matching filter criteria.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var vol in FilteredVolumes)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="row align-center" style="gap: var(--space-2);">
+                                            <span class="mono" style="font-weight: var(--weight-semibold);">@vol.Id</span>
+                                            @if (vol.IsDefaultIngest)
+                                            {
+                                                <span class="badge badge-accent mono" style="font-size: 10px;">default ingest</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="row align-center" style="gap: var(--space-1);">
+                                            <span class="badge @(vol.IsRemote ? "badge-accent" : "badge-mint") mono" style="font-size: 10px;">
+                                                @(vol.IsRemote ? "remote" : "local")
+                                            </span>
+                                            @if (!string.IsNullOrEmpty(vol.NodeId))
+                                            {
+                                                <span class="mono muted" style="font-size: 11px;">@vol.NodeId</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-neutral mono">@vol.Pool</span>
+                                    </td>
+                                    <td>
+                                        <div class="row" style="gap: 4px;">
+                                            @foreach (var cap in vol.Capabilities)
+                                            {
+                                                <span class="badge @GetCapabilityBadgeClass(cap) mono" style="font-size: 10px;">@cap</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="mono muted" style="font-size: 11px; word-break: break-all;">@vol.Path</span>
+                                    </td>
+                                    <td>
+                                        @if (vol.CapacityBytes is > 0 and var capBytes && vol.AvailableBytes is { } availBytes)
+                                        {
+                                            var usedBytes = Math.Max(0L, capBytes - availBytes);
+                                            var pct = Math.Clamp(usedBytes * 100.0 / capBytes, 0.0, 100.0);
+                                            <div class="stack" style="gap: 4px;">
+                                                <div class="progress-track">
+                                                    <div class="progress-fill" style="width: @(pct.ToString("F1", CultureInfo.InvariantCulture))%;"></div>
+                                                </div>
+                                                <span class="mono muted" style="font-size: 10px;">
+                                                    @Fmt.Bytes(availBytes) free / @Fmt.Bytes(capBytes)
+                                                </span>
+                                            </div>
+                                        }
+                                        else if (vol.AvailableBytes is { } availOnly)
+                                        {
+                                            <span class="mono muted" style="font-size: 11px;">@Fmt.Bytes(availOnly) free</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono muted" style="font-size: 11px;">—</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetVolumeStatusBadgeClass(vol.Status) mono">@vol.Status</span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="stack" style="gap: var(--space-3);">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 style="margin: 0;">Cluster Membership (SWIM Gossip)</h2>
+                    <span class="counter">@(st.Peers.Count + 1)</span>
+                </div>
+            </div>
+
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 200px;">node id</th>
+                            <th style="width: 240px;">gossip endpoint</th>
+                            <th style="width: 110px;">status</th>
+                            <th style="width: 110px;">incarnation</th>
+                            <th style="width: 160px;">last seen</th>
+                            <th>advertised volumes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var (peer, isSelf) in AllNodes)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="row align-center" style="gap: var(--space-2);">
+                                        <span class="mono" style="font-weight: var(--weight-semibold);">@peer.NodeId</span>
+                                        @if (isSelf)
+                                        {
+                                            <span class="badge badge-accent mono" style="font-size: 10px;">self</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="mono muted" style="font-size: 11px;">
+                                        @(string.IsNullOrEmpty(peer.Endpoint) ? "local-only" : peer.Endpoint)
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge @GetPeerStatusBadgeClass(peer.Status) mono">@peer.Status</span>
+                                </td>
+                                <td class="mono muted">@peer.Incarnation</td>
+                                <td class="mono muted" style="font-size: 11px;" title="@peer.LastSeenUtc.ToString("u")">
+                                    @(isSelf ? "now" : FormatAge(peer.LastSeenUtc))
+                                </td>
+                                <td>
+                                    @if (peer.Volumes.Count == 0)
+                                    {
+                                        <span class="mono muted" style="font-size: 11px;">none</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="row" style="gap: 6px;">
+                                            @foreach (var adv in peer.Volumes)
+                                            {
+                                                <span class="badge @GetVolumeStatusBadgeClass(adv.Status) mono" style="font-size: 10px;">
+                                                    @adv.VolumeId (@adv.Pool)
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (loading)
+    {
+        <div class="panel empty-state">loading cluster and volume topology...</div>
+    }
+    else
+    {
+        <div class="panel empty-state">cluster status unavailable.</div>
+    }
+</div>
+
+@code {
+    private const string ScopeLocal = "local";
+    private const string ScopeRemote = "remote";
+    private const string BadgeMint = "badge-mint";
+    private const string BadgeNeutral = "badge-neutral";
+    private const string BadgeWarning = "badge-warning";
+    private const string BadgeDanger = "badge-danger";
+    private const string BadgeAccent = "badge-accent";
+
+    private static readonly FrozenDictionary<string, string> VolumeStatusBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [VesselVolumeStatuses.Online] = BadgeMint,
+        [VesselVolumeStatuses.Standby] = BadgeNeutral,
+        [VesselVolumeStatuses.Waking] = BadgeWarning,
+        [VesselVolumeStatuses.Degraded] = BadgeWarning,
+        [VesselVolumeStatuses.Faulted] = BadgeDanger,
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenDictionary<string, string> PeerStatusBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [VesselPeerStatuses.Alive] = BadgeMint,
+        [VesselPeerStatuses.Suspect] = BadgeWarning,
+        [VesselPeerStatuses.Dead] = BadgeDanger,
+        [VesselPeerStatuses.Left] = BadgeNeutral,
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenDictionary<string, string> CapabilityBadges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [VesselVolumeCapabilities.Ingest] = BadgeMint,
+        [VesselVolumeCapabilities.Remote] = BadgeAccent,
+        [VesselVolumeCapabilities.ReadOnly] = BadgeNeutral,
+        [VesselVolumeCapabilities.OnDemand] = BadgeWarning,
+        [VesselVolumeCapabilities.Mirrored] = BadgeAccent,
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private ClusterStatusDto? status;
+    private bool loading = true;
+    private bool autoRefresh;
+    private string scopeFilter = string.Empty;
+    private string poolFilter = string.Empty;
+    private CancellationTokenSource? refreshCts;
+
+    private int AlivePeerCount =>
+        status is null
+            ? 0
+            : (string.Equals(status.LocalNode.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+              + status.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase));
+
+    private int SuspectPeerCount =>
+        status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Suspect, StringComparison.OrdinalIgnoreCase)) ?? 0;
+
+    private int DeadPeerCount =>
+        status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Dead, StringComparison.OrdinalIgnoreCase)) ?? 0;
+
+    private int OnlineVolumeCount =>
+        status?.Volumes.Count(static v => string.Equals(v.Status, VesselVolumeStatuses.Online, StringComparison.OrdinalIgnoreCase)) ?? 0;
+
+    private int LocalVolumeCount =>
+        status?.Volumes.Count(static v => !v.IsRemote) ?? 0;
+
+    private int RemoteVolumeCount =>
+        status?.Volumes.Count(static v => v.IsRemote) ?? 0;
+
+    private IReadOnlyList<string> PoolNames =>
+        status is null
+            ? []
+            : [.. status.Volumes.Select(static v => v.Pool).Distinct(StringComparer.Ordinal).OrderBy(static p => p, StringComparer.Ordinal)];
+
+    private long TotalLocalCapacityBytes =>
+        status?.Volumes
+            .Where(static v => !v.IsRemote && v.CapacityBytes is > 0)
+            .Sum(static v => v.CapacityBytes ?? 0L) ?? 0L;
+
+    private long TotalLocalAvailableBytes =>
+        status?.Volumes
+            .Where(static v => !v.IsRemote && v.CapacityBytes is > 0)
+            .Sum(static v => v.AvailableBytes ?? 0L) ?? 0L;
+
+    private long TotalLocalUsedBytes =>
+        Math.Max(0L, TotalLocalCapacityBytes - TotalLocalAvailableBytes);
+
+    private double LocalUsedPercent =>
+        TotalLocalCapacityBytes > 0
+            ? Math.Clamp(TotalLocalUsedBytes * 100.0 / TotalLocalCapacityBytes, 0.0, 100.0)
+            : 0.0;
+
+    private IReadOnlyList<VolumeDto> FilteredVolumes
+    {
+        get
+        {
+            if (status is null)
+            {
+                return [];
+            }
+
+            IEnumerable<VolumeDto> query = status.Volumes;
+            if (scopeFilter == ScopeLocal)
+            {
+                query = query.Where(static v => !v.IsRemote);
+            }
+            else if (scopeFilter == ScopeRemote)
+            {
+                query = query.Where(static v => v.IsRemote);
+            }
+
+            if (!string.IsNullOrEmpty(poolFilter))
+            {
+                query = query.Where(v => string.Equals(v.Pool, poolFilter, StringComparison.Ordinal));
+            }
+
+            return [.. query];
+        }
+    }
+
+    private IReadOnlyList<(ClusterPeerDto Peer, bool IsSelf)> AllNodes
+    {
+        get
+        {
+            if (status is null)
+            {
+                return [];
+            }
+
+            var list = new List<(ClusterPeerDto, bool)>(status.Peers.Count + 1)
+            {
+                (status.LocalNode, true),
+            };
+            foreach (var peer in status.Peers.OrderBy(static p => p.NodeId, StringComparer.Ordinal))
+            {
+                list.Add((peer, false));
+            }
+
+            return list;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+    }
+
+    private async Task RefreshStatus()
+    {
+        loading = true;
+        try
+        {
+            var res = await Client.GetClusterStatus();
+            if (res.TryGetValue(out var current, out var err))
+            {
+                status = current;
+            }
+            else
+            {
+                Toast.Error(err.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Cluster status error: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void ToggleAutoRefresh()
+    {
+        autoRefresh = !autoRefresh;
+        if (autoRefresh)
+        {
+            StartAutoRefresh();
+        }
+        else
+        {
+            refreshCts?.Cancel();
+        }
+    }
+
+    private void StartAutoRefresh()
+    {
+        refreshCts?.Cancel();
+        refreshCts?.Dispose();
+        refreshCts = new CancellationTokenSource();
+        var token = refreshCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshStatus();
+                    StateHasChanged();
+                });
+            }
+        }, token);
+    }
+
+    private static string GetVolumeStatusBadgeClass(string status) =>
+        VolumeStatusBadges.GetValueOrDefault(status, BadgeNeutral);
+
+    private static string GetPeerStatusBadgeClass(string status) =>
+        PeerStatusBadges.GetValueOrDefault(status, BadgeNeutral);
+
+    private static string GetCapabilityBadgeClass(string capability) =>
+        CapabilityBadges.GetValueOrDefault(capability, BadgeNeutral);
+
+    private static string FormatAge(DateTimeOffset timestamp)
+    {
+        var elapsed = DateTimeOffset.UtcNow - timestamp;
+        if (elapsed.TotalSeconds < 1)
+        {
+            return "just now";
+        }
+        if (elapsed.TotalSeconds < 60)
+        {
+            return $"{(int)elapsed.TotalSeconds}s ago";
+        }
+        if (elapsed.TotalMinutes < 60)
+        {
+            return $"{(int)elapsed.TotalMinutes}m ago";
+        }
+        return timestamp.ToString("HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        refreshCts?.Cancel();
+        refreshCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

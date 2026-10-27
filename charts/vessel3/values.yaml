@@ -68,6 +68,32 @@ storage:
   accessModes:
     - ReadWriteOnce
 
+# Optional multi-volume topology entries.
+# Each item supports:
+#   - id: nvme-hot
+#     path: /volumes/nvme-hot
+#     pool: hot
+#     capabilities: Ingest
+#     size: 50Gi
+#     storageClassName: ""
+#     accessModes: [ReadWriteOnce]
+#     existingClaim: ""
+volumes: []
+
+# SWIM gossip cluster membership & cross-node volume discovery.
+# Automatically enabled when replicaCount > 1 or cluster.enabled is true.
+cluster:
+  enabled: false
+  gossipIntervalMs: 1000
+  peerSuspectMs: 5000
+  peerDeadMs: 15000
+  # Optional Secret holding the shared cluster secret (falls back to auth secretKey).
+  secretName: ""
+  secretKey: cluster-secret
+  secret: ""
+  # Optional additional external seed peer URLs (in addition to StatefulSet replicas).
+  peers: []
+
 # Root credentials. With neither secretName nor accessKey/secretKey set the
 # server runs with auth DISABLED (every request is anonymous admin).
 auth:
@@ -82,6 +108,8 @@ auth:
 config:
   # SigV4 signing region; clients must sign for the same one.
   region: ""
+  # Raw VESSEL3_VOLUMES string override (e.g. "hot:/data/hot:nvme:Ingest,cold:/data/cold:archive:OnDemand").
+  volumes: ""
   oidc:
     issuer: ""
     clientId: ""

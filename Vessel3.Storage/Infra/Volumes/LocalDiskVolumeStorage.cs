@@ -1,5 +1,4 @@
 #pragma warning disable CA5350
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Vessel3.IO;
@@ -8,7 +7,10 @@ namespace Vessel3.Storage;
 
 internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fileSync) : IVolumeStorage
 {
-    private static readonly SearchValues<char> HexLowerChars = SearchValues.Create("0123456789abcdef");
+    private const string GuidFormatDigits = "N";
+    private const string AllFilesPattern = "*";
+    private const string NoSpaceLeftMessage = "No space left";
+    private const string DiskIsFullMessage = "disk is full";
 
     private readonly ConcurrentDictionary<string, bool> ensuredDirs = new(StringComparer.Ordinal);
     private volatile bool tmpDirEnsured;
@@ -24,7 +26,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
         }
 
         Span<char> id = stackalloc char[32];
-        Guid.NewGuid().TryFormat(id, out _, "N");
+        Guid.NewGuid().TryFormat(id, out _, GuidFormatDigits);
         var tempPath = Path.Join(volume.TmpDir.AsSpan(), id);
         var moved = false;
 
@@ -182,7 +184,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
         if (!Directory.Exists(rootFull)) yield break;
         foreach (var dir in Directory.EnumerateDirectories(rootFull))
         {
-            if (IsValidShard(Path.GetFileName(dir.AsSpan())))
+            if (Sha256Hex.IsValidShard(Path.GetFileName(dir.AsSpan())))
                 yield return Path.GetFileName(dir);
         }
     }
@@ -191,9 +193,9 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
     {
         var dir = Path.Combine(Path.GetFullPath(volume.BlobsRoot), shard);
         if (!Directory.Exists(dir)) yield break;
-        foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        foreach (var path in Directory.EnumerateFiles(dir, AllFilesPattern, SearchOption.AllDirectories))
         {
-            if (IsLikelySha(Path.GetFileName(path.AsSpan())))
+            if (Sha256Hex.IsValid(Path.GetFileName(path.AsSpan())))
                 yield return Path.GetFileName(path);
         }
     }
@@ -222,16 +224,10 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
     private string PathFor(string sha) =>
         Path.Join(volume.BlobsRoot.AsSpan(), sha.AsSpan(0, 2), sha.AsSpan(2, 2), sha.AsSpan());
 
-    private static bool IsValidShard(ReadOnlySpan<char> name) =>
-        name.Length == 2 && !name.ContainsAnyExcept(HexLowerChars);
-
-    private static bool IsLikelySha(ReadOnlySpan<char> name) =>
-        name.Length == 64 && !name.ContainsAnyExcept(HexLowerChars);
-
     private static bool IsOutOfSpace(IOException ex) =>
         ex.HResult is unchecked((int)0x80070027) or unchecked((int)0x80070070)
-            || ex.Message.Contains("No space left", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("disk is full", StringComparison.OrdinalIgnoreCase);
+            || ex.Message.Contains(NoSpaceLeftMessage, StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains(DiskIsFullMessage, StringComparison.OrdinalIgnoreCase);
 
     private static void TryDelete(string path)
     {

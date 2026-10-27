@@ -65,6 +65,9 @@ public sealed class KubernetesManifestAndChartTests
         Assert.Contains($"path: {WellKnownRoutes.Healthz}", content);
         Assert.Contains($"path: {WellKnownRoutes.Readyz}", content);
         Assert.Contains("port: 9000", content);
+        Assert.Contains("volumes: []", content);
+        Assert.Contains("cluster:", content);
+        Assert.Contains("gossipIntervalMs: 1000", content);
     }
 
     [Fact]
@@ -100,6 +103,9 @@ public sealed class KubernetesManifestAndChartTests
 
         var telemetryContent = File.ReadAllText(telemetryPath);
         Assert.Contains("kind: VesselServer", telemetryContent);
+        Assert.Contains("replicas: 3", telemetryContent);
+        Assert.Contains("volumes:", telemetryContent);
+        Assert.Contains("cluster:", telemetryContent);
         Assert.Contains("kind: VesselBucket", telemetryContent);
         Assert.Contains("name: mimir-blocks", telemetryContent);
         Assert.Contains("name: tempo-traces", telemetryContent);

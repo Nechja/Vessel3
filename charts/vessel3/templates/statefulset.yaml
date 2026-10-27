@@ -79,6 +79,33 @@ spec:
                   name: {{ . }}
                   key: {{ $.Values.metrics.token.key }}
             {{- end }}
+            {{- with include "vessel3.volumesSpec" . }}
+            - name: VESSEL3_VOLUMES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if include "vessel3.clusterEnabled" . }}
+            - name: VESSEL3_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: VESSEL3_ADVERTISE_URL
+              value: {{ printf "http://$(VESSEL3_NODE_ID).%s.%s.svc.cluster.local:%d" (include "vessel3.fullname" .) .Release.Namespace (int .Values.service.port) | quote }}
+            - name: VESSEL3_PEERS
+              value: {{ include "vessel3.peers" . | quote }}
+            - name: VESSEL3_GOSSIP_INTERVAL_MS
+              value: {{ .Values.cluster.gossipIntervalMs | quote }}
+            - name: VESSEL3_PEER_SUSPECT_MS
+              value: {{ .Values.cluster.peerSuspectMs | quote }}
+            - name: VESSEL3_PEER_DEAD_MS
+              value: {{ .Values.cluster.peerDeadMs | quote }}
+            {{- with include "vessel3.clusterSecretName" . }}
+            - name: VESSEL3_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.cluster.secretKey }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -107,15 +134,32 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- range .Values.volumes }}
+            {{- if or .size .existingClaim }}
+            - name: vol-{{ .id }}
+              mountPath: {{ .path }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-      {{- if or .Values.storage.existingClaim .Values.extraVolumes }}
+      {{- $hasExistingVolumeClaims := false }}
+      {{- range .Values.volumes }}
+      {{- if .existingClaim }}{{- $hasExistingVolumeClaims = true }}{{- end }}
+      {{- end }}
+      {{- if or .Values.storage.existingClaim .Values.extraVolumes $hasExistingVolumeClaims }}
       volumes:
         {{- with .Values.storage.existingClaim }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ . }}
+        {{- end }}
+        {{- range .Values.volumes }}
+        {{- if .existingClaim }}
+        - name: vol-{{ .id }}
+          persistentVolumeClaim:
+            claimName: {{ .existingClaim }}
+        {{- end }}
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
@@ -133,8 +177,13 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-  {{- if not .Values.storage.existingClaim }}
+  {{- $hasVolumeTemplates := not .Values.storage.existingClaim }}
+  {{- range .Values.volumes }}
+  {{- if and .size (not .existingClaim) }}{{- $hasVolumeTemplates = true }}{{- end }}
+  {{- end }}
+  {{- if $hasVolumeTemplates }}
   volumeClaimTemplates:
+    {{- if not .Values.storage.existingClaim }}
     - metadata:
         name: data
         labels:
@@ -148,4 +197,22 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.size }}
+    {{- end }}
+    {{- range .Values.volumes }}
+    {{- if and .size (not .existingClaim) }}
+    - metadata:
+        name: vol-{{ .id }}
+        labels:
+          {{- include "vessel3.labels" $ | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml (.accessModes | default (list "ReadWriteOnce")) | nindent 10 }}
+        {{- if .storageClassName }}
+        storageClassName: {{ .storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .size }}
+    {{- end }}
+    {{- end }}
   {{- end }}

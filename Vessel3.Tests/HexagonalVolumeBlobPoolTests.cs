@@ -260,7 +260,7 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         Assert.Equal(2, registry.ReadPriorityStorages.Count);
         Assert.Single(registry.WritableStorages);
         Assert.Equal("fast", registry.DefaultIngestStorage.VolumeId);
-        Assert.True(registry.TryGetReadableStorage("peer-vault", out var resolvedPeerStorage));
+        Assert.True(registry.TryGetOnlineReader("peer-vault", out var resolvedPeerStorage));
         Assert.Same(peerStorage, resolvedPeerStorage);
         Assert.Single(registry.GetPool("remote-pool"));
         Assert.True(await pool.Exists(stored2.Sha));
@@ -301,7 +301,7 @@ public sealed class HexagonalVolumeBlobPoolTests : IDisposable
         Assert.Equal(5000, faultedVol.CapacityBytes);
         Assert.DoesNotContain(registry.ReadPriorityVolumes, v => v.Id == "vault");
         Assert.DoesNotContain(registry.ReadPriorityStorages, s => s.VolumeId == "vault");
-        Assert.False(registry.TryGetReadableStorage("vault", out _));
+        Assert.False(registry.TryGetOnlineLocalStorage("vault", out _));
 
         Assert.False(await pool.Exists(stored.Sha));
         Assert.Null(catalog.LocateBlob(stored.Sha));

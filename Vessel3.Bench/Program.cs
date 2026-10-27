@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
@@ -71,7 +72,10 @@ var scenarioRunners = new Dictionary<string, Func<Task<LatencySummary>>>(StringC
     ["azure-list"] = () => Scenarios.AzureList(azure, opts),
     ["webdav-propfind"] = () => Scenarios.WebDavPropfind(webdavHttp, opts),
     ["webdav-get"] = () => Scenarios.WebDavGet(webdavHttp, opts),
-};
+    ["cluster-gossip"] = () => Scenarios.ClusterGossip(endpoint, secretKey, opts),
+    ["cluster-blob-get"] = () => Scenarios.ClusterBlobGet(vessel, endpoint, secretKey, opts),
+    ["cluster-blob-head"] = () => Scenarios.ClusterBlobHead(vessel, endpoint, secretKey, opts),
+}.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
 if (!scenarioRunners.TryGetValue(scenario, out var runScenario))
 {
@@ -232,6 +236,9 @@ static void PrintUsage()
     Console.WriteLine("  azure-list       Azure Blob list blobs against pre-seeded container");
     Console.WriteLine("  webdav-propfind  WebDAV PROPFIND with Depth: 1 against collection");
     Console.WriteLine("  webdav-get       WebDAV GET against pre-seeded collection");
+    Console.WriteLine("  cluster-gossip   POST /_cluster/gossip heartbeat exchange");
+    Console.WriteLine("  cluster-blob-get GET /_cluster/blobs/{sha} cross-node blob read");
+    Console.WriteLine("  cluster-blob-head HEAD /_cluster/blobs/{sha} cross-node blob existence probe");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");

@@ -96,6 +96,44 @@ public readonly record struct ServerLogEntryDto(
     string? TraceId,
     string? ErrorDetails);
 
+public readonly record struct AdvertisedVolumeDto(
+    string VolumeId,
+    string Pool,
+    IReadOnlyList<string> Capabilities,
+    string Status,
+    long? CapacityBytes = null,
+    long? AvailableBytes = null);
+
+public readonly record struct ClusterPeerDto(
+    string NodeId,
+    string Endpoint,
+    long Incarnation,
+    string Status,
+    DateTimeOffset LastSeenUtc,
+    IReadOnlyList<AdvertisedVolumeDto> Volumes);
+
+public readonly record struct VolumeDto(
+    string Id,
+    string Path,
+    string Pool,
+    IReadOnlyList<string> Capabilities,
+    string Status,
+    bool IsRemote,
+    bool IsWritable,
+    bool IsReadable,
+    bool IsDefaultIngest,
+    long? CapacityBytes = null,
+    long? AvailableBytes = null,
+    string? NodeId = null);
+
+public readonly record struct ClusterStatusDto(
+    string NodeId,
+    string Region,
+    bool ClusterEnabled,
+    ClusterPeerDto LocalNode,
+    IReadOnlyList<ClusterPeerDto> Peers,
+    IReadOnlyList<VolumeDto> Volumes);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(BucketDto))]
 [JsonSerializable(typeof(IReadOnlyList<BucketDto>))]
@@ -136,4 +174,14 @@ public readonly record struct ServerLogEntryDto(
 [JsonSerializable(typeof(ServerLogEntryDto))]
 [JsonSerializable(typeof(IReadOnlyList<ServerLogEntryDto>))]
 [JsonSerializable(typeof(List<ServerLogEntryDto>))]
+[JsonSerializable(typeof(AdvertisedVolumeDto))]
+[JsonSerializable(typeof(IReadOnlyList<AdvertisedVolumeDto>))]
+[JsonSerializable(typeof(List<AdvertisedVolumeDto>))]
+[JsonSerializable(typeof(ClusterPeerDto))]
+[JsonSerializable(typeof(IReadOnlyList<ClusterPeerDto>))]
+[JsonSerializable(typeof(List<ClusterPeerDto>))]
+[JsonSerializable(typeof(VolumeDto))]
+[JsonSerializable(typeof(IReadOnlyList<VolumeDto>))]
+[JsonSerializable(typeof(List<VolumeDto>))]
+[JsonSerializable(typeof(ClusterStatusDto))]
 internal partial class NativeJsonContext : JsonSerializerContext;
