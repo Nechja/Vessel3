@@ -7,9 +7,13 @@ internal interface IBucketIndex : IDisposable
     long MaxSeq();
     void MarkApplied(long seq);
     long AppliedSeq();
+    long GetPeerCursor(string nodeId);
+    void SetPeerCursor(string nodeId, long originSeq);
+    void PurgeSupersededVersionsExceptLatest(string key);
     string? GetOwner();
     void SetOwner(string ownerId);
     void SnapshotTo(string path);
+    void ReplaceFromSnapshot(string snapshotFilePath) { }
     void Insert(PutEvent ev);
     void Insert(DeleteMarkerEvent ev);
     void Remove(string key, string versionId);

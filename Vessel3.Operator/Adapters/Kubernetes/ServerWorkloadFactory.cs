@@ -12,6 +12,9 @@ public static class ServerWorkloadFactory
         || server.Cluster?.Enabled == true
         || server.Cluster?.Peers is { Count: > 0 };
 
+    public static string GetPeersServiceName(string serverName) =>
+        $"{serverName}{KubernetesConstants.PeersServiceSuffix}";
+
     public static Dictionary<string, string> CreateLabels(string instanceName) => new()
     {
         [KubernetesConstants.LabelAppName] = KubernetesConstants.AppName,
@@ -37,7 +40,33 @@ public static class ServerWorkloadFactory
             Spec = new V1ServiceSpec
             {
                 Type = KubernetesConstants.ServiceTypeClusterIp,
-                PublishNotReadyAddresses = IsClusterEnabled(server) ? true : null,
+                Selector = labels,
+                Ports = ports
+            }
+        };
+    }
+
+    public static V1Service CreatePeersService(ServerDeclaration server)
+    {
+        var labels = CreateLabels(server.Identity.Name);
+        List<V1ServicePort> ports =
+        [
+            new()
+            {
+                Name = KubernetesConstants.ServicePortName,
+                Port = server.Port,
+                TargetPort = server.Port
+            }
+        ];
+
+        return new V1Service
+        {
+            Metadata = CreateMetadata(GetPeersServiceName(server.Identity.Name), server.Identity.Namespace, labels),
+            Spec = new V1ServiceSpec
+            {
+                Type = KubernetesConstants.ServiceTypeClusterIp,
+                ClusterIP = KubernetesConstants.ClusterIpNone,
+                PublishNotReadyAddresses = true,
                 Selector = labels,
                 Ports = ports
             }
@@ -49,13 +78,16 @@ public static class ServerWorkloadFactory
         var labels = CreateLabels(server.Identity.Name);
         var podTemplate = CreatePodTemplate(server, credentials, labels);
         var claimTemplates = CreateVolumeClaimTemplates(server);
+        var serviceName = IsClusterEnabled(server)
+            ? GetPeersServiceName(server.Identity.Name)
+            : server.Identity.Name;
 
         return new V1StatefulSet
         {
             Metadata = CreateMetadata(server.Identity.Name, server.Identity.Namespace, labels),
             Spec = new V1StatefulSetSpec
             {
-                ServiceName = server.Identity.Name,
+                ServiceName = serviceName,
                 Replicas = server.Replicas,
                 Selector = new V1LabelSelector { MatchLabels = labels },
                 Template = podTemplate,
@@ -129,6 +161,7 @@ public static class ServerWorkloadFactory
 
         if (IsClusterEnabled(server))
         {
+            var peersServiceName = GetPeersServiceName(server.Identity.Name);
             env.Add(new V1EnvVar
             {
                 Name = KubernetesConstants.EnvVesselNodeId,
@@ -140,12 +173,12 @@ public static class ServerWorkloadFactory
             env.Add(new V1EnvVar
             {
                 Name = KubernetesConstants.EnvVesselAdvertiseUrl,
-                Value = $"http://$({KubernetesConstants.EnvVesselNodeId}).{server.Identity.Name}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}"
+                Value = $"http://$({KubernetesConstants.EnvVesselNodeId}).{peersServiceName}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}"
             });
             env.Add(new V1EnvVar
             {
                 Name = KubernetesConstants.EnvVesselPeers,
-                Value = BuildPeersList(server)
+                Value = BuildPeersList(server, peersServiceName)
             });
 
             if (server.Cluster is { } cluster)
@@ -171,12 +204,12 @@ public static class ServerWorkloadFactory
         return env;
     }
 
-    private static string BuildPeersList(ServerDeclaration server)
+    private static string BuildPeersList(ServerDeclaration server, string peersServiceName)
     {
         var peers = new List<string>(Math.Max(0, server.Replicas) + (server.Cluster?.Peers?.Count ?? 0));
         for (var i = 0; i < server.Replicas; i++)
         {
-            peers.Add($"http://{server.Identity.Name}-{i}.{server.Identity.Name}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}");
+            peers.Add($"http://{server.Identity.Name}-{i}.{peersServiceName}.{server.Identity.Namespace}.{KubernetesConstants.ClusterDnsSuffix}:{server.Port}");
         }
 
         if (server.Cluster?.Peers is { Count: > 0 } extraPeers)

@@ -41,3 +41,23 @@ internal sealed record CallerIdentity(
     public bool CanWrite => Role != UserRole.ReadOnly;
 }
 
+internal sealed record ReplicatedUserEntry(
+    string Id,
+    string Username,
+    UserRole Role,
+    UserStatus Status,
+    DateTimeOffset CreatedAt,
+    long UpdatedAtUnixMs);
+
+internal sealed record DeletedUserTombstone(
+    string UserId,
+    string Username,
+    long DeletedAtUnixMs);
+
+internal sealed record IdentityReplicationSnapshot(
+    long Generation,
+    IReadOnlyList<ReplicatedUserEntry> Users,
+    IReadOnlyList<AccessKey> AccessKeys,
+    IReadOnlyList<DeletedUserTombstone> DeletedUsers);
+
+

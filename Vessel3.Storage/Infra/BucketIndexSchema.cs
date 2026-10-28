@@ -37,13 +37,19 @@ internal static class BucketIndexSchema
                 retention_mode TEXT,
                 retain_until  INTEGER,
                 legal_hold    INTEGER,
-                system_headers TEXT NOT NULL DEFAULT '{}'
+                system_headers TEXT NOT NULL DEFAULT '{}',
+                origin_node   TEXT NOT NULL DEFAULT '',
+                origin_seq    INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
             CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT PRIMARY KEY,
                 value INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS peer_cursors (
+                node_id         TEXT PRIMARY KEY,
+                last_origin_seq INTEGER NOT NULL
             );
             """;
         cmd.ExecuteNonQuery();
@@ -74,6 +80,9 @@ internal static class BucketIndexSchema
             alter.CommandText = "ALTER TABLE versions ADD COLUMN system_headers TEXT NOT NULL DEFAULT '{}'";
             alter.ExecuteNonQuery();
         }
+
+        AddColumnIfMissing(conn, "origin_node", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(conn, "origin_seq", "INTEGER NOT NULL DEFAULT 0");
     }
 
     private static bool HasColumn(SqliteConnection conn, string table, string column)

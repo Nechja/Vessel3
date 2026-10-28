@@ -22,6 +22,15 @@ internal sealed partial class BucketIndex
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    public long GetPeerCursor(string nodeId)
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT COALESCE((SELECT last_origin_seq FROM peer_cursors WHERE node_id = @nodeId), 0)";
+        cmd.Parameters.AddWithValue("@nodeId", nodeId);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
     public string? GetOwner()
     {
         using var rh = ReadCmd();

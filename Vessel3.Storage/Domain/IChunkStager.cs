@@ -24,6 +24,16 @@ internal sealed record CommitChunksOutcome(
     string VersionId,
     long TotalSize);
 
+internal sealed record UploadSessionSnapshot(
+    StagedSession Session,
+    IReadOnlyList<StagedChunk> Chunks);
+
+internal interface IClusterUploadResolver
+{
+    IReadOnlyList<UploadSessionSnapshot> FetchPeerSessions(string sessionId);
+    bool DeletePeerSessions(string sessionId);
+}
+
 internal interface IChunkStager
 {
     Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata);
@@ -40,6 +50,8 @@ internal interface IChunkStager
         CancellationToken ct,
         IReadOnlyDictionary<string, string>? metadataOverride = null,
         string? contentTypeOverride = null);
+    UploadSessionSnapshot? GetLocalSessionSnapshot(string sessionId) => null;
+    bool DeleteLocalSession(string sessionId) => false;
     IEnumerable<string> EnumerateInFlightChunkShas();
     int ReapAbandonedSessions(DateTime cutoffUtc);
 }

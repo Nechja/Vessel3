@@ -1,13 +1,29 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Vessel3.Storage;
 
 internal sealed record BucketInfo(string Name, DateTimeOffset CreatedAt, string? OwnerId = null);
-internal sealed record BucketRegistryOptions(string Root);
+internal sealed record BucketRegistryOptions(string Root, string? NodeId = null);
 internal sealed record VersionsPage(IReadOnlyList<AllVersionsEntry> Entries, bool IsTruncated);
 internal sealed record CurrentPage(IReadOnlyList<VersionListEntry> Entries, bool IsTruncated);
+
+internal sealed record BucketCatalogEntry(
+    string Name,
+    long CreatedAtUnixMs,
+    long DeletedAtUnixMs,
+    long AppliedSeq,
+    long FirstAvailableLogSeq,
+    BucketConfigSnapshot? Config = null);
+
+internal interface IClusterBucketSyncer
+{
+    bool TrySyncBucketCatalog(string bucket);
+    bool TrySyncBucketEvents(string bucket);
+}
 
 internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
 {
@@ -96,6 +112,9 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
         AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure f ? f.Error : RemoveCors(bucket);
 
     IEnumerable<Bucket> OpenBuckets();
+    Bucket? GetOpenBucket(string bucket) => null;
+    IReadOnlyList<BucketCatalogEntry> GetCatalogEntries() => [];
+    bool ReconcileCatalogEntry(BucketCatalogEntry entry) => false;
     Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance);
     Result<Retention?> GetRetention(string bucket, string key, string versionId);
     Result PutLegalHold(string bucket, string key, string versionId, bool on);
@@ -105,8 +124,13 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
 internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fileSync, IDurableWrite durableWrite, IWebhookEventPublisher? publisher = null) : IBucketRegistry
 {
     private readonly string bucketsRoot = Path.Combine(options.Root, "buckets");
+    private readonly string tombstonesPath = Path.Combine(options.Root, "buckets", ".tombstones.txt");
     private readonly ConcurrentDictionary<string, Lazy<Bucket>> openBuckets = new();
+    private readonly ConcurrentDictionary<string, long> deletedBuckets = LoadTombstones(Path.Combine(options.Root, "buckets", ".tombstones.txt"));
     private readonly Lock createDeleteGate = new();
+    private int syncReentrancyGuard;
+
+    internal IClusterBucketSyncer? ClusterSync { get; set; }
 
     private static readonly SearchValues<char> ValidBucketChars =
         SearchValues.Create("abcdefghijklmnopqrstuvwxyz0123456789-.");
@@ -131,6 +155,8 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             var targetBucket = OpenLocked(bucket, path);
             if (ownerId is not null && targetBucket is not null)
                 targetBucket.SetOwner(ownerId);
+            if (deletedBuckets.TryRemove(bucket, out _))
+                PersistTombstonesLocked();
         }
         publisher?.Publish(VesselEvents.BucketCreated(bucket, ownerId));
         return true;
@@ -161,6 +187,8 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
                 lazyBucket.Value.Dispose();
 
             Directory.Delete(path, recursive: true);
+            deletedBuckets[bucket] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            PersistTombstonesLocked();
         }
         publisher?.Publish(VesselEvents.BucketDeleted(bucket));
         return Result.Ok;
@@ -171,17 +199,22 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             ? failure.Error
             : Delete(bucket);
 
-    public Result<bool> Exists(string bucket) =>
-        IsValidName(bucket)
-            ? Directory.Exists(Path.Combine(bucketsRoot, bucket))
-            : new InvalidBucketNameError(bucket);
+    public Result<bool> Exists(string bucket)
+    {
+        if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
+        var path = Path.Combine(bucketsRoot, bucket);
+        if (Directory.Exists(path)) return true;
+        if (TrySyncCatalogFromPeers(bucket) && Directory.Exists(path)) return true;
+        return false;
+    }
 
     public Result EnsureExists(string bucket)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
-        return Directory.Exists(Path.Combine(bucketsRoot, bucket))
-            ? Result.Ok
-            : new NoSuchBucketError(bucket);
+        var path = Path.Combine(bucketsRoot, bucket);
+        if (Directory.Exists(path) || (TrySyncCatalogFromPeers(bucket) && Directory.Exists(path)))
+            return Result.Ok;
+        return new NoSuchBucketError(bucket);
     }
 
     public IEnumerable<BucketInfo> List(string? ownerId = null)
@@ -194,7 +227,7 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             var bucketOwner = bucket?.GetOwner();
             if (ownerId is not null && !string.Equals(bucketOwner, ownerId, StringComparison.Ordinal))
                 continue;
-            yield return new BucketInfo(name, Directory.GetCreationTimeUtc(dir), bucketOwner);
+            yield return new BucketInfo(name, bucket?.CreatedAt ?? Directory.GetCreationTimeUtc(dir), bucketOwner);
         }
     }
 
@@ -231,10 +264,22 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         WithBucket(bucket, b => BucketPolicy.Authorize(caller, b, capability));
 
     public Result<PutEntry> GetCurrentPut(string bucket, string key) =>
-        WithKey(bucket, key, b => b.GetCurrentPut(key));
+        WithKey(bucket, key, b =>
+        {
+            var res = b.GetCurrentPut(key);
+            if (res is Result<PutEntry>.Failure { Error: NoSuchKeyError } && TrySyncEventsFromPeers(bucket))
+                return b.GetCurrentPut(key);
+            return res;
+        });
 
     public Result<PutEntry> GetVersion(string bucket, string key, string versionId) =>
-        WithKey(bucket, key, b => b.GetVersion(key, versionId));
+        WithKey(bucket, key, b =>
+        {
+            var res = b.GetVersion(key, versionId);
+            if (res is Result<PutEntry>.Failure { Error: NoSuchKeyError or NoSuchVersionError } && TrySyncEventsFromPeers(bucket))
+                return b.GetVersion(key, versionId);
+            return res;
+        });
 
     public Result<PutEntry> AppendPut(string bucket, string key, PutRequest req) =>
         WithKey<PutEntry>(bucket, key, b => b.AppendPut(key, req));
@@ -324,6 +369,99 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
     {
         foreach (var info in List())
             if (Open(info.Name) is { } b) yield return b;
+    }
+
+    public Bucket? GetOpenBucket(string bucket) =>
+        IsValidName(bucket) && Directory.Exists(Path.Combine(bucketsRoot, bucket))
+            ? Open(bucket)
+            : null;
+
+    public IReadOnlyList<BucketCatalogEntry> GetCatalogEntries()
+    {
+        var entries = new List<BucketCatalogEntry>();
+        foreach (var b in OpenBuckets())
+        {
+            entries.Add(new BucketCatalogEntry(
+                b.Name,
+                b.CreatedAt.ToUnixTimeMilliseconds(),
+                0,
+                b.AppliedSeq,
+                b.FirstAvailableLogSeq,
+                b.GetConfigSnapshot()));
+        }
+
+        foreach (var kvp in deletedBuckets)
+        {
+            if (entries.Exists(e => string.Equals(e.Name, kvp.Key, StringComparison.Ordinal)))
+                continue;
+            entries.Add(new BucketCatalogEntry(kvp.Key, 0, kvp.Value, 0, 1, null));
+        }
+
+        entries.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+        return entries;
+    }
+
+    public bool ReconcileCatalogEntry(BucketCatalogEntry entry)
+    {
+        if (!IsValidName(entry.Name)) return false;
+
+        var path = Path.Combine(bucketsRoot, entry.Name);
+        if (entry.DeletedAtUnixMs > 0)
+        {
+            lock (createDeleteGate)
+            {
+                if (Directory.Exists(path))
+                {
+                    var existing = OpenLocked(entry.Name, path);
+                    var createdMs = existing?.CreatedAt.ToUnixTimeMilliseconds() ?? 0;
+                    if (entry.DeletedAtUnixMs >= createdMs && existing is not null && existing.TrySealForDelete())
+                    {
+                        if (openBuckets.TryRemove(entry.Name, out var lazyBucket) && lazyBucket.IsValueCreated)
+                            lazyBucket.Value.Dispose();
+                        Directory.Delete(path, recursive: true);
+                        deletedBuckets[entry.Name] = entry.DeletedAtUnixMs;
+                        PersistTombstonesLocked();
+                        return false;
+                    }
+                    return Directory.Exists(path);
+                }
+
+                if (!deletedBuckets.TryGetValue(entry.Name, out var prevDel) || entry.DeletedAtUnixMs > prevDel)
+                {
+                    deletedBuckets[entry.Name] = entry.DeletedAtUnixMs;
+                    PersistTombstonesLocked();
+                }
+                return false;
+            }
+        }
+
+        lock (createDeleteGate)
+        {
+            if (!Directory.Exists(path))
+            {
+                if (deletedBuckets.TryGetValue(entry.Name, out var localDel) && localDel > entry.CreatedAtUnixMs)
+                    return false;
+
+                if (fileSync.CreateDirectoryDurable(path) is Result.Failure)
+                    return false;
+                var created = OpenLocked(entry.Name, path);
+                if (created is not null)
+                {
+                    if (entry.CreatedAtUnixMs > 0)
+                        created.SetCreatedAtUnixMs(entry.CreatedAtUnixMs);
+                    if (entry.Config is not null)
+                        created.ApplyConfigSnapshot(entry.Config, force: true);
+                }
+                if (deletedBuckets.TryRemove(entry.Name, out _))
+                    PersistTombstonesLocked();
+                return true;
+            }
+
+            var bucket = OpenLocked(entry.Name, path);
+            if (bucket is not null && entry.Config is not null)
+                bucket.ApplyConfigSnapshot(entry.Config);
+            return true;
+        }
     }
 
     public Result PutRetention(string bucket, string key, string versionId, Retention retention, bool bypassGovernance) =>
@@ -459,10 +597,39 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
             return ResolveEvictingOnFault(bucket, existing);
 
         var path = Path.Combine(bucketsRoot, bucket);
-        if (!Directory.Exists(path)) return null;
+        if (!Directory.Exists(path) && (!TrySyncCatalogFromPeers(bucket) || !Directory.Exists(path)))
+            return null;
 
         lock (createDeleteGate)
             return OpenLocked(bucket, path);
+    }
+
+    private bool TrySyncCatalogFromPeers(string bucket)
+    {
+        if (ClusterSync is null || Interlocked.CompareExchange(ref syncReentrancyGuard, 1, 0) != 0)
+            return false;
+        try
+        {
+            return ClusterSync.TrySyncBucketCatalog(bucket);
+        }
+        finally
+        {
+            Volatile.Write(ref syncReentrancyGuard, 0);
+        }
+    }
+
+    private bool TrySyncEventsFromPeers(string bucket)
+    {
+        if (ClusterSync is null || Interlocked.CompareExchange(ref syncReentrancyGuard, 1, 0) != 0)
+            return false;
+        try
+        {
+            return ClusterSync.TrySyncBucketEvents(bucket);
+        }
+        finally
+        {
+            Volatile.Write(ref syncReentrancyGuard, 0);
+        }
     }
 
     private Bucket? OpenLocked(string bucket, string path)
@@ -471,12 +638,39 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
 
         var lazy = openBuckets.GetOrAdd(bucket, _ => new Lazy<Bucket>(() =>
         {
-            var b = new Bucket(bucket, path, fileSync, durableWrite);
+            var b = new Bucket(bucket, path, fileSync, durableWrite, localNodeId: options.NodeId);
             b.Open();
             return b;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
         return ResolveEvictingOnFault(bucket, lazy);
+    }
+
+    private void PersistTombstonesLocked()
+    {
+        Directory.CreateDirectory(bucketsRoot);
+        var sb = new StringBuilder();
+        foreach (var kvp in deletedBuckets.OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            sb.Append(kvp.Key).Append('\t').Append(kvp.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
+        _ = durableWrite.AtomicReplace(tombstonesPath, sb.ToString());
+    }
+
+    private static ConcurrentDictionary<string, long> LoadTombstones(string filePath)
+    {
+        var dict = new ConcurrentDictionary<string, long>(StringComparer.Ordinal);
+        if (!File.Exists(filePath)) return dict;
+        foreach (var line in File.ReadAllLines(filePath))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var tab = line.IndexOf('\t');
+            if (tab <= 0) continue;
+            var name = line[..tab];
+            if (long.TryParse(line.AsSpan(tab + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ts))
+                dict[name] = ts;
+        }
+        return dict;
     }
 
     private Bucket? ResolveEvictingOnFault(string bucket, Lazy<Bucket> lazy)

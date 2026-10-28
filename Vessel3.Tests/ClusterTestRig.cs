@@ -37,13 +37,15 @@ internal sealed class ClusterTestRig : IAsyncDisposable
         string? clusterSecret = "rig-cluster-secret",
         bool backgroundGossip = false,
         TimeSpan? suspectTimeout = null,
-        TimeSpan? deadTimeout = null)
+        TimeSpan? deadTimeout = null,
+        VolumeCapabilities capabilities = VolumeCapabilities.Ingest,
+        bool useDefaultClusterVolume = false)
     {
         if (nodes.TryGetValue(nodeId, out var existing))
             await StopNode(existing.NodeId);
 
         var nodeDir = Path.Combine(rootDir, nodeId);
-        var volDir = Path.Combine(nodeDir, "vol-primary");
+        var volDir = useDefaultClusterVolume ? nodeDir : Path.Combine(nodeDir, "vol-primary");
         Directory.CreateDirectory(volDir);
 
         var logicalEndpoint = LogicalEndpoint(nodeId);
@@ -55,7 +57,7 @@ internal sealed class ClusterTestRig : IAsyncDisposable
             Id: $"{nodeId}-vol",
             Path: volDir,
             Pool: "default",
-            Capabilities: VolumeCapabilities.Ingest,
+            Capabilities: capabilities,
             Status: VolumeStatus.Online,
             NodeId: nodeId);
 
@@ -83,7 +85,7 @@ internal sealed class ClusterTestRig : IAsyncDisposable
             MetricsAllowAnonymous: true,
             Oidc: null,
             NodeId: nodeId,
-            Volumes: [volume],
+            Volumes: useDefaultClusterVolume ? null : [volume],
             Cluster: clusterOptions);
 
         var nodeHttpClient = router.CreateClientForSource(nodeId);
@@ -95,6 +97,12 @@ internal sealed class ClusterTestRig : IAsyncDisposable
         builder.Services.AddVessel(config);
         builder.Services.AddSingleton<TimeProvider>(Clock);
         builder.Services.AddSingleton<IGossipTransport>(new HttpGossipTransport(nodeHttpClient, clusterSecret));
+        builder.Services.AddSingleton<HttpClusterReplicationTransport>(sp => new HttpClusterReplicationTransport(
+            nodeHttpClient,
+            sp.GetRequiredService<IClusterMembership>(),
+            clusterSecret));
+        builder.Services.AddSingleton<IClusterReplicationTransport>(sp => sp.GetRequiredService<HttpClusterReplicationTransport>());
+        builder.Services.AddSingleton<IClusterUploadResolver>(sp => sp.GetRequiredService<HttpClusterReplicationTransport>());
         builder.Services.AddSingleton<Func<StorageVolume, IBlobReader>>(
             v => new HttpRemoteBlobReader(v.Id, v.Path, nodeHttpClient, clusterSecret));
 
@@ -120,7 +128,13 @@ internal sealed class ClusterTestRig : IAsyncDisposable
             app.Services.GetRequiredService<IBlobPool>(),
             app.Services.GetRequiredService<IClusterMembership>(),
             app.Services.GetRequiredService<GossipService>(),
-            app.Services.GetRequiredService<IGarbageCollector>());
+            app.Services.GetRequiredService<IGarbageCollector>(),
+            app.Services.GetRequiredService<IBucketRegistry>(),
+            app.Services.GetRequiredService<IIdentityRegistry>(),
+            app.Services.GetRequiredService<IChunkStager>(),
+            app.Services.GetRequiredService<IObjectStore>(),
+            app.Services.GetRequiredService<ClusterReplicationService>(),
+            app.Services.GetRequiredService<VolumeMirrorService>());
 
         nodes[nodeId] = node;
         return node;
@@ -143,6 +157,32 @@ internal sealed class ClusterTestRig : IAsyncDisposable
             foreach (var node in nodes.Values.ToArray())
             {
                 await node.GossipService.RunCycle(ct);
+            }
+        }
+    }
+
+    public async Task StepReplication(int rounds = 1, CancellationToken ct = default)
+    {
+        for (var r = 0; r < rounds; r++)
+        {
+            foreach (var node in nodes.Values.ToArray())
+            {
+                await node.ReplicationService.RunCycle(ct);
+            }
+        }
+    }
+
+    public async Task StepCluster(int rounds = 1, CancellationToken ct = default)
+    {
+        for (var r = 0; r < rounds; r++)
+        {
+            foreach (var node in nodes.Values.ToArray())
+            {
+                await node.GossipService.RunCycle(ct);
+            }
+            foreach (var node in nodes.Values.ToArray())
+            {
+                await node.ReplicationService.RunCycle(ct);
             }
         }
     }
@@ -196,7 +236,13 @@ internal sealed record ClusterTestNode(
     IBlobPool BlobPool,
     IClusterMembership Membership,
     GossipService GossipService,
-    IGarbageCollector GarbageCollector);
+    IGarbageCollector GarbageCollector,
+    IBucketRegistry BucketRegistry,
+    IIdentityRegistry IdentityRegistry,
+    IChunkStager ChunkStager,
+    IObjectStore ObjectStore,
+    ClusterReplicationService ReplicationService,
+    VolumeMirrorService MirrorService);
 
 internal sealed class ClusterChaosRouter
 {

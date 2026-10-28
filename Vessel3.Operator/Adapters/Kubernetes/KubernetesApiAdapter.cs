@@ -168,6 +168,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             var statefulSet = ServerWorkloadFactory.CreateStatefulSet(server, credentials);
 
             await ApplyService(server.Identity.Namespace, service, ct);
+            if (ServerWorkloadFactory.IsClusterEnabled(server))
+            {
+                var peersService = ServerWorkloadFactory.CreatePeersService(server);
+                await ApplyService(server.Identity.Namespace, peersService, ct);
+            }
             await ApplyStatefulSet(server.Identity.Namespace, statefulSet, ct);
 
             return Result.Ok;

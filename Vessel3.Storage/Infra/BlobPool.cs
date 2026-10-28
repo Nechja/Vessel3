@@ -25,7 +25,7 @@ internal interface IBlobPool
     int ReapAbandonedTempFiles(DateTime cutoffUtc);
 }
 
-internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog) : IBlobPool
+internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog catalog, IBlobMirrorQueue? mirrorQueue = null) : IBlobPool
 {
     public BlobPool(BlobPoolOptions options, IFileSync fileSync)
         : this(new VolumeRegistry([new StorageVolume(VesselDefaults.DefaultVolumeId, options.Root, VesselDefaults.DefaultVolumePool, VolumeCapabilities.Ingest)], fileSync), NullBlobLocationCatalog.Instance)
@@ -34,6 +34,9 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
 
     public async Task<Result<StoredBlob>> Write(Stream source, long? declaredSize, ChecksumIntent intent, CancellationToken ct)
     {
+        if (!registry.DefaultIngestVolume.IsWritable)
+            return new BucketIsReadOnlyError("Node volume is configured as read-only.");
+
         var storage = registry.DefaultIngestStorage;
         var writeResult = await storage.WriteStagedBlob(source, declaredSize, intent, ct);
 
@@ -41,6 +44,28 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
             return err;
 
         catalog.RecordLocation(stored.Sha, storage.VolumeId);
+
+        foreach (var mirror in registry.MirrorTargetStorages)
+        {
+            if (string.Equals(mirror.VolumeId, storage.VolumeId, StringComparison.Ordinal))
+                continue;
+
+            var mirrorVol = registry.GetVolume(mirror.VolumeId);
+            if (mirrorVol is { IsOnDemand: true })
+            {
+                mirrorQueue?.Enqueue(stored.Sha);
+                continue;
+            }
+
+            if ((await storage.OpenBlob(stored.Sha, ct)).TryGetValue(out var localStream, out _))
+            {
+                await using (localStream)
+                {
+                    _ = await mirror.WriteStagedBlob(localStream, stored.Size, ChecksumIntent.None, ct);
+                }
+            }
+        }
+
         return stored;
     }
 
@@ -52,6 +77,7 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
             if (registry.TryGetOnlineReader(locatedVolumeId, out var locatedReader)
                 && (await locatedReader.OpenBlob(sha, ct)).TryGetValue(out var locatedStream, out _))
             {
+                QueueSelfHealIfRemote(locatedVolumeId, sha);
                 return locatedStream;
             }
 
@@ -67,10 +93,20 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
                 continue;
 
             catalog.RecordLocation(sha, reader.VolumeId);
+            QueueSelfHealIfRemote(reader.VolumeId, sha);
             return stream;
         }
 
         return new NotFoundError($"blob {sha}");
+    }
+
+    private void QueueSelfHealIfRemote(string volumeId, string sha)
+    {
+        if (mirrorQueue is null || registry.MirrorTargetStorages.Count == 0)
+            return;
+
+        if (registry.GetVolume(volumeId) is { IsRemote: true })
+            mirrorQueue.Enqueue(sha);
     }
 
     public async Task<Result<Stream>> OpenLocalVolumeOnly(string sha, CancellationToken ct = default)
@@ -159,10 +195,23 @@ internal sealed class BlobPool(IVolumeRegistry registry, IBlobLocationCatalog ca
     public async Task<Result<bool>> Delete(string sha, CancellationToken ct = default)
     {
         var deletedAny = false;
+        HashSet<string> visited = new(StringComparer.Ordinal);
         foreach (var storage in registry.WritableStorages)
         {
-            if (await storage.DeleteBlob(sha, ct) is Result<bool>.Success { Value: true })
+            if (visited.Add(storage.VolumeId)
+                && await storage.DeleteBlob(sha, ct) is Result<bool>.Success { Value: true })
+            {
                 deletedAny = true;
+            }
+        }
+
+        foreach (var storage in registry.MirrorTargetStorages)
+        {
+            if (visited.Add(storage.VolumeId)
+                && await storage.DeleteBlob(sha, ct) is Result<bool>.Success { Value: true })
+            {
+                deletedAny = true;
+            }
         }
 
         catalog.RemoveLocation(sha);

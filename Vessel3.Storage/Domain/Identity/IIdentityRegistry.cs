@@ -18,4 +18,8 @@ internal interface IIdentityRegistry : IDisposable
     Result<CallerIdentity> AuthenticateAccessKey(string accessKeyId);
     Result EnsureBootstrapAdmin(string? accessKey, string? secretKey);
     Result EnsureAdminUsers(IReadOnlyList<string> adminPatterns);
+
+    long Generation => 0;
+    IdentityReplicationSnapshot ExportSnapshot() => new(0, [], [], []);
+    bool MergeSnapshot(IdentityReplicationSnapshot snapshot) => false;
 }

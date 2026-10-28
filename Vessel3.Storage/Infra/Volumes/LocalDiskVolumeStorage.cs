@@ -118,6 +118,7 @@ internal sealed class LocalDiskVolumeStorage(StorageVolume volume, IFileSync fil
             catch (IOException) when (File.Exists(finalPath))
             {
                 moved = true;
+                File.SetLastWriteTimeUtc(finalPath, DateTime.UtcNow);
                 TryDelete(tempPath);
             }
 

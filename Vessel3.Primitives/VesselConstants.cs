@@ -43,8 +43,19 @@ public static class VesselRoutes
     public const string ClusterGossipSubpath = "/gossip";
     public const string ClusterBlobsSubpath = "/blobs";
     public const string ClusterBlobRoutePattern = "/blobs/{sha}";
+    public const string ClusterCatalogSubpath = "/catalog";
+    public const string ClusterBucketEventsRoutePattern = "/buckets/{bucket}/events";
+    public const string ClusterBucketSnapshotRoutePattern = "/buckets/{bucket}/snapshot";
+    public const string ClusterUploadsRoutePattern = "/uploads/{sessionId}";
+    public const string ClusterIamDeltaSubpath = "/iam/delta";
+    public const string ClusterGcReferencesSubpath = "/gc/references";
     public const string ClusterGossipPath = $"{ReservedRoutePrefixes.Cluster}{ClusterGossipSubpath}";
     public const string ClusterBlobsPrefix = $"{ReservedRoutePrefixes.Cluster}{ClusterBlobsSubpath}/";
+    public const string ClusterCatalogPath = $"{ReservedRoutePrefixes.Cluster}{ClusterCatalogSubpath}";
+    public const string ClusterBucketsPrefix = $"{ReservedRoutePrefixes.Cluster}/buckets/";
+    public const string ClusterUploadsPrefix = $"{ReservedRoutePrefixes.Cluster}/uploads/";
+    public const string ClusterIamDeltaPath = $"{ReservedRoutePrefixes.Cluster}{ClusterIamDeltaSubpath}";
+    public const string ClusterGcReferencesPath = $"{ReservedRoutePrefixes.Cluster}{ClusterGcReferencesSubpath}";
 }
 
 public static class VesselQueryParams
@@ -55,6 +66,9 @@ public static class VesselQueryParams
     public const string Limit = "limit";
     public const string Level = "level";
     public const string Protocol = "protocol";
+    public const string AfterSeq = "afterSeq";
+    public const string AfterGeneration = "afterGen";
+    public const string OriginNodeId = "originNode";
 }
 
 public static class VesselProtocols

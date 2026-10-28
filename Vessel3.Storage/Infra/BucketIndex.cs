@@ -9,7 +9,7 @@ internal readonly record struct ObjectLockStatus(Retention? Retention, bool Lega
 
 internal sealed partial class BucketIndex(string dbPath) : IBucketIndex
 {
-    private readonly SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
+    private SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
     private SqliteConnection? writeConn;
     private SqliteTransaction? currentTx;
     private BucketIndexTxScope? currentTxScope;
@@ -22,6 +22,22 @@ internal sealed partial class BucketIndex(string dbPath) : IBucketIndex
         writeConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False");
         writeConn.Open();
         BucketIndexSchema.Initialize(writeConn);
+    }
+
+    public void ReplaceFromSnapshot(string snapshotFilePath)
+    {
+        HotCache.Clear();
+        var oldReaders = Interlocked.Exchange(ref readers, new SqliteReaderPool($"Data Source={dbPath};Mode=ReadOnly;Pooling=False"));
+        oldReaders.Dispose();
+        writeConn?.Dispose();
+        writeConn = null;
+
+        if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
+        if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
+        File.Copy(snapshotFilePath, dbPath, overwrite: true);
+
+        Open();
+        HotCache.Clear();
     }
 
     public void Dispose()

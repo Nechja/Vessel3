@@ -23,10 +23,11 @@ internal static class VesselServiceExtensions
 
     private static void AddVesselConfiguration(this IServiceCollection services, VesselConfig config)
     {
+        var resolvedNodeId = config.NodeId ?? config.Cluster?.NodeId ?? Environment.MachineName;
         services.AddSingleton(config);
         services.AddSingleton(new ServerRegion(config.Region));
         services.AddSingleton(new VirtualHostOptions(config.BaseDomains));
-        services.AddSingleton(new BucketRegistryOptions(config.DataRoot));
+        services.AddSingleton(new BucketRegistryOptions(config.DataRoot, resolvedNodeId));
         services.AddSingleton(new ChunkStagerOptions(Path.Combine(config.DataRoot, VesselDefaults.UploadsSubdirectory)));
         services.AddSingleton(new GcOptions(config.GcMaxWait, Path.Combine(config.DataRoot, VesselDefaults.GcTmpSubdirectory)));
         services.AddSingleton(new LifecycleServiceOptions(config.LifecycleInterval));
@@ -35,7 +36,7 @@ internal static class VesselServiceExtensions
         services.AddSingleton(new IdentityOptions(Path.Combine(config.DataRoot, VesselDefaults.IamSubdirectory)));
         services.AddSingleton(new WebhookStoreOptions(Path.Combine(config.DataRoot, VesselDefaults.WebhooksSubdirectory)));
         services.AddSingleton(config.Cluster ?? new ClusterMembershipOptions(
-            config.NodeId ?? Environment.MachineName,
+            resolvedNodeId,
             string.Empty,
             [],
             TimeSpan.FromSeconds(1),
@@ -50,8 +51,10 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IDurableWrite, DurableWrite>();
 
         var resolvedNodeId = config.NodeId ?? config.Cluster?.NodeId ?? Environment.MachineName;
-        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot, resolvedNodeId)];
+        var isClusterEnabled = config.Cluster?.IsClusterEnabled ?? false;
+        var volumes = config.Volumes ?? [StorageVolume.CreateDefault(config.DataRoot, resolvedNodeId, isClusterEnabled)];
         services.AddSingleton<IBlobLocationCatalog, MemoryBlobLocationCatalog>();
+        services.AddSingleton<IBlobMirrorQueue, BlobMirrorQueue>();
         services.AddSingleton(static _ => new ClusterHttpClients());
         services.AddSingleton<Func<StorageVolume, IBlobReader>>(sp =>
         {
@@ -65,7 +68,8 @@ internal static class VesselServiceExtensions
             remoteFactory: sp.GetRequiredService<Func<StorageVolume, IBlobReader>>()));
         services.AddSingleton<IBlobPool>(sp => new BlobPool(
             sp.GetRequiredService<IVolumeRegistry>(),
-            sp.GetRequiredService<IBlobLocationCatalog>()));
+            sp.GetRequiredService<IBlobLocationCatalog>(),
+            sp.GetRequiredService<IBlobMirrorQueue>()));
         services.AddSingleton<IClusterMembership>(sp => new ClusterMembership(
             sp.GetRequiredService<ClusterMembershipOptions>(),
             sp.GetRequiredService<IVolumeRegistry>(),
@@ -73,14 +77,27 @@ internal static class VesselServiceExtensions
         services.AddSingleton<IGossipTransport>(sp => new HttpGossipTransport(
             sp.GetRequiredService<ClusterHttpClients>().GossipClient,
             sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
+        services.AddSingleton<HttpClusterReplicationTransport>(sp => new HttpClusterReplicationTransport(
+            sp.GetRequiredService<ClusterHttpClients>().BlobClient,
+            sp.GetRequiredService<IClusterMembership>(),
+            sp.GetRequiredService<ClusterMembershipOptions>().ClusterSecret));
+        services.AddSingleton<IClusterReplicationTransport>(sp => sp.GetRequiredService<HttpClusterReplicationTransport>());
+        services.AddSingleton<IClusterUploadResolver>(sp => sp.GetRequiredService<HttpClusterReplicationTransport>());
         services.AddSingleton<GossipService>(sp => new GossipService(
             sp.GetRequiredService<ClusterMembershipOptions>(),
             sp.GetRequiredService<IClusterMembership>(),
             sp.GetRequiredService<IGossipTransport>(),
             sp.GetService<ILogger<GossipService>>()));
         services.AddHostedService(sp => sp.GetRequiredService<GossipService>());
+        services.AddSingleton<VolumeMirrorService>(sp => new VolumeMirrorService(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<IVolumeRegistry>(),
+            sp.GetRequiredService<IBlobMirrorQueue>(),
+            sp.GetService<ILogger<VolumeMirrorService>>()));
+        services.AddHostedService(sp => sp.GetRequiredService<VolumeMirrorService>());
         services.AddSingleton<IBucketRegistry, BucketRegistry>();
         services.AddSingleton<IBlobReferenceSource>(sp => sp.GetRequiredService<IBucketRegistry>());
+        services.AddSingleton<IBlobReferenceSource, ClusterBlobReferenceSource>();
         services.AddSingleton<IIdentityRegistry>(sp =>
         {
             var options = sp.GetRequiredService<IdentityOptions>();
@@ -92,8 +109,27 @@ internal static class VesselServiceExtensions
                 reg.EnsureAdminUsers(admins);
             return reg;
         });
+        services.AddSingleton<ClusterReplicationService>(sp => new ClusterReplicationService(
+            sp.GetRequiredService<ClusterMembershipOptions>(),
+            sp.GetRequiredService<IClusterMembership>(),
+            sp.GetRequiredService<IBucketRegistry>(),
+            sp.GetRequiredService<IIdentityRegistry>(),
+            sp.GetRequiredService<IVolumeRegistry>(),
+            sp.GetRequiredService<IBlobMirrorQueue>(),
+            sp.GetRequiredService<VolumeMirrorService>(),
+            sp.GetRequiredService<IClusterReplicationTransport>(),
+            sp.GetService<ILogger<ClusterReplicationService>>()));
+        services.AddHostedService(sp => sp.GetRequiredService<ClusterReplicationService>());
         services.AddSingleton<IObjectStore, ObjectStore>();
-        services.AddSingleton<IChunkStager, ChunkStager>();
+        services.AddSingleton<IChunkStager>(sp => new ChunkStager(
+            sp.GetRequiredService<ChunkStagerOptions>(),
+            sp.GetRequiredService<IBucketRegistry>(),
+            sp.GetRequiredService<IBlobPool>(),
+            sp.GetRequiredService<IDurableWrite>(),
+            sp.GetRequiredService<IGcGate>(),
+            sp.GetRequiredService<IChecksumValidator>(),
+            sp.GetRequiredService<IClusterUploadResolver>(),
+            sp.GetRequiredService<IBlobMirrorQueue>()));
         services.AddSingleton<IGcGate, GcGate>();
         services.AddSingleton<IGarbageCollector>(sp => new GarbageCollector(
             sp.GetRequiredService<IBlobPool>(),

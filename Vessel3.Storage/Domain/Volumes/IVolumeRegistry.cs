@@ -10,6 +10,7 @@ internal interface IVolumeRegistry
     IReadOnlyList<AdvertisedVolume> LocalAdvertisedVolumes { get; }
     IReadOnlyList<IVolumeStorage> LocalStorages { get; }
     IReadOnlyList<IVolumeStorage> WritableStorages { get; }
+    IReadOnlyList<IVolumeStorage> MirrorTargetStorages { get; }
     IReadOnlyList<IVolumeStorage> ReadPriorityStorages { get; }
     IReadOnlyList<IBlobReader> ReadPriorityReaders { get; }
     StorageVolume DefaultIngestVolume { get; }

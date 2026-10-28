@@ -4,6 +4,11 @@ using Microsoft.Data.Sqlite;
 
 namespace Vessel3.Storage;
 
+internal interface IClusterIamSyncer
+{
+    bool TrySyncIam();
+}
+
 internal sealed class IdentityRegistry : IIdentityRegistry
 {
     private const string KeyAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -13,7 +18,13 @@ internal sealed class IdentityRegistry : IIdentityRegistry
     private readonly Lock gate = new();
     private SqliteConnection? conn;
     private readonly IWebhookEventPublisher? publisher;
+    private long generation;
+    private int syncReentrancyGuard;
     private bool disposed;
+
+    internal IClusterIamSyncer? ClusterSync { get; set; }
+
+    public long Generation => Volatile.Read(ref generation);
 
     public IdentityRegistry(IdentityOptions options) : this(options, TimeProvider.System) { }
 
@@ -50,18 +61,22 @@ internal sealed class IdentityRegistry : IIdentityRegistry
 
             var id = "usr_" + Ulid.NewUlid().ToString();
             var now = clock.GetUtcNow();
+            var nowMs = now.ToUnixTimeMilliseconds();
 
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO users (id, username, role, status, created_at)
-                VALUES (@id, @username, @role, @status, @created_at);
+                INSERT INTO users (id, username, role, status, created_at, updated_at_ms)
+                VALUES (@id, @username, @role, @status, @created_at, @updated_at_ms);
+                DELETE FROM deleted_users WHERE username = @username;
                 """;
             cmd.Parameters.AddWithValue("@id", id);
             cmd.Parameters.AddWithValue("@username", username);
             cmd.Parameters.AddWithValue("@role", (int)role);
             cmd.Parameters.AddWithValue("@status", (int)UserStatus.Active);
             cmd.Parameters.AddWithValue("@created_at", now.ToString("O"));
+            cmd.Parameters.AddWithValue("@updated_at_ms", nowMs);
             cmd.ExecuteNonQuery();
+            BumpGenerationLocked();
 
             user = new User(id, username, role, UserStatus.Active, now);
         }
@@ -118,13 +133,16 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         lock (gate)
         {
             EnsureOpen();
+            var nowMs = clock.GetUtcNow().ToUnixTimeMilliseconds();
             using var cmd = conn!.CreateCommand();
-            cmd.CommandText = "UPDATE users SET role = @role WHERE id = @id;";
+            cmd.CommandText = "UPDATE users SET role = @role, updated_at_ms = MAX(updated_at_ms + 1, @now_ms) WHERE id = @id;";
             cmd.Parameters.AddWithValue("@role", (int)role);
+            cmd.Parameters.AddWithValue("@now_ms", nowMs);
             cmd.Parameters.AddWithValue("@id", userId);
-            return cmd.ExecuteNonQuery() == 0
-                ? new NotFoundError($"User {userId}")
-                : Result.Ok;
+            if (cmd.ExecuteNonQuery() == 0)
+                return new NotFoundError($"User {userId}");
+            BumpGenerationLocked();
+            return Result.Ok;
         }
     }
 
@@ -133,13 +151,16 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         lock (gate)
         {
             EnsureOpen();
+            var nowMs = clock.GetUtcNow().ToUnixTimeMilliseconds();
             using var cmd = conn!.CreateCommand();
-            cmd.CommandText = "UPDATE users SET status = @status WHERE id = @id;";
+            cmd.CommandText = "UPDATE users SET status = @status, updated_at_ms = MAX(updated_at_ms + 1, @now_ms) WHERE id = @id;";
             cmd.Parameters.AddWithValue("@status", (int)status);
+            cmd.Parameters.AddWithValue("@now_ms", nowMs);
             cmd.Parameters.AddWithValue("@id", userId);
-            return cmd.ExecuteNonQuery() == 0
-                ? new NotFoundError($"User {userId}")
-                : Result.Ok;
+            if (cmd.ExecuteNonQuery() == 0)
+                return new NotFoundError($"User {userId}");
+            BumpGenerationLocked();
+            return Result.Ok;
         }
     }
 
@@ -148,11 +169,29 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         lock (gate)
         {
             EnsureOpen();
-            using var cmd = conn!.CreateCommand();
-            cmd.CommandText = "DELETE FROM users WHERE id = @id;";
-            cmd.Parameters.AddWithValue("@id", userId);
-            if (cmd.ExecuteNonQuery() == 0)
+            string? username = null;
+            using (var getCmd = conn!.CreateCommand())
+            {
+                getCmd.CommandText = "SELECT username FROM users WHERE id = @id;";
+                getCmd.Parameters.AddWithValue("@id", userId);
+                username = getCmd.ExecuteScalar() as string;
+            }
+            if (username is null)
                 return new NotFoundError($"User {userId}");
+
+            var nowMs = clock.GetUtcNow().ToUnixTimeMilliseconds();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                DELETE FROM users WHERE id = @id;
+                INSERT INTO deleted_users (user_id, username, deleted_at_ms)
+                VALUES (@id, @username, @deleted_at_ms)
+                ON CONFLICT(user_id) DO UPDATE SET deleted_at_ms = excluded.deleted_at_ms;
+                """;
+            cmd.Parameters.AddWithValue("@id", userId);
+            cmd.Parameters.AddWithValue("@username", username);
+            cmd.Parameters.AddWithValue("@deleted_at_ms", nowMs);
+            cmd.ExecuteNonQuery();
+            BumpGenerationLocked();
         }
 
         publisher?.Publish(VesselEvents.UserDeleted(userId));
@@ -184,12 +223,21 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             cmd.Parameters.AddWithValue("@created_at", now.ToString("O"));
             cmd.Parameters.AddWithValue("@expires_at", expiresAt.HasValue ? expiresAt.Value.ToString("O") : DBNull.Value);
             cmd.ExecuteNonQuery();
+            BumpGenerationLocked();
 
             return new AccessKey(keyId, secretKey, userId, description, now, expiresAt, false);
         }
     }
 
     public Result<AccessKey> GetAccessKey(string accessKeyId)
+    {
+        var result = GetAccessKeyCore(accessKeyId);
+        if (result is Result<AccessKey>.Failure { Error: InvalidAccessKeyIdError } && TrySyncIamFromPeers())
+            return GetAccessKeyCore(accessKeyId);
+        return result;
+    }
+
+    private Result<AccessKey> GetAccessKeyCore(string accessKeyId)
     {
         lock (gate)
         {
@@ -234,13 +282,36 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             using var cmd = conn!.CreateCommand();
             cmd.CommandText = "UPDATE access_keys SET is_revoked = 1 WHERE id = @id;";
             cmd.Parameters.AddWithValue("@id", accessKeyId);
-            return cmd.ExecuteNonQuery() == 0
-                ? new NotFoundError($"AccessKey {accessKeyId}")
-                : Result.Ok;
+            if (cmd.ExecuteNonQuery() == 0)
+                return new NotFoundError($"AccessKey {accessKeyId}");
+            BumpGenerationLocked();
+            return Result.Ok;
         }
     }
 
     public Result<CallerIdentity> AuthenticateAccessKey(string accessKeyId)
+    {
+        var result = AuthenticateAccessKeyCore(accessKeyId);
+        if (result is Result<CallerIdentity>.Failure { Error: InvalidAccessKeyIdError } && TrySyncIamFromPeers())
+            return AuthenticateAccessKeyCore(accessKeyId);
+        return result;
+    }
+
+    private bool TrySyncIamFromPeers()
+    {
+        if (ClusterSync is null || Interlocked.CompareExchange(ref syncReentrancyGuard, 1, 0) != 0)
+            return false;
+        try
+        {
+            return ClusterSync.TrySyncIam();
+        }
+        finally
+        {
+            Volatile.Write(ref syncReentrancyGuard, 0);
+        }
+    }
+
+    private Result<CallerIdentity> AuthenticateAccessKeyCore(string accessKeyId)
     {
         lock (gate)
         {
@@ -318,17 +389,223 @@ internal sealed class IdentityRegistry : IIdentityRegistry
             }
             reader.Close();
 
+            var nowMs = clock.GetUtcNow().ToUnixTimeMilliseconds();
             foreach (var id in toPromote)
             {
                 using var updateCmd = conn.CreateCommand();
-                updateCmd.CommandText = "UPDATE users SET role = @role WHERE id = @id;";
+                updateCmd.CommandText = "UPDATE users SET role = @role, updated_at_ms = MAX(updated_at_ms + 1, @now_ms) WHERE id = @id;";
                 updateCmd.Parameters.AddWithValue("@role", (int)UserRole.Admin);
+                updateCmd.Parameters.AddWithValue("@now_ms", nowMs);
                 updateCmd.Parameters.AddWithValue("@id", id);
                 updateCmd.ExecuteNonQuery();
             }
+            if (toPromote.Count > 0)
+                BumpGenerationLocked();
 
             return Result.Ok;
         }
+    }
+
+    public IdentityReplicationSnapshot ExportSnapshot()
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            var users = new List<ReplicatedUserEntry>();
+            using (var uCmd = conn!.CreateCommand())
+            {
+                uCmd.CommandText = "SELECT id, username, role, status, created_at, updated_at_ms FROM users ORDER BY id ASC;";
+                using var r = uCmd.ExecuteReader();
+                while (r.Read())
+                {
+                    var created = DateTimeOffset.Parse(r.GetString(4), CultureInfo.InvariantCulture);
+                    var updatedMs = r.GetInt64(5);
+                    if (updatedMs <= 0) updatedMs = created.ToUnixTimeMilliseconds();
+                    users.Add(new ReplicatedUserEntry(
+                        r.GetString(0),
+                        r.GetString(1),
+                        (UserRole)r.GetInt32(2),
+                        (UserStatus)r.GetInt32(3),
+                        created,
+                        updatedMs));
+                }
+            }
+
+            var keys = new List<AccessKey>();
+            using (var kCmd = conn.CreateCommand())
+            {
+                kCmd.CommandText = """
+                    SELECT id, secret_key, user_id, description, created_at, expires_at, is_revoked
+                    FROM access_keys ORDER BY id ASC;
+                    """;
+                using var r = kCmd.ExecuteReader();
+                while (r.Read())
+                    keys.Add(ReadAccessKey(r));
+            }
+
+            var deleted = new List<DeletedUserTombstone>();
+            using (var dCmd = conn.CreateCommand())
+            {
+                dCmd.CommandText = "SELECT user_id, username, deleted_at_ms FROM deleted_users ORDER BY user_id ASC;";
+                using var r = dCmd.ExecuteReader();
+                while (r.Read())
+                    deleted.Add(new DeletedUserTombstone(r.GetString(0), r.GetString(1), r.GetInt64(2)));
+            }
+
+            return new IdentityReplicationSnapshot(generation, users, keys, deleted);
+        }
+    }
+
+    public bool MergeSnapshot(IdentityReplicationSnapshot snapshot)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            var changed = false;
+            var remappedUserIds = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            foreach (var tomb in snapshot.DeletedUsers)
+            {
+                using var checkDel = conn!.CreateCommand();
+                checkDel.CommandText = "SELECT deleted_at_ms FROM deleted_users WHERE user_id = @id;";
+                checkDel.Parameters.AddWithValue("@id", tomb.UserId);
+                var existingDelObj = checkDel.ExecuteScalar();
+                var existingDelMs = existingDelObj is null or DBNull ? 0L : Convert.ToInt64(existingDelObj, CultureInfo.InvariantCulture);
+
+                if (tomb.DeletedAtUnixMs > existingDelMs)
+                {
+                    using var insDel = conn.CreateCommand();
+                    insDel.CommandText = """
+                        INSERT INTO deleted_users (user_id, username, deleted_at_ms)
+                        VALUES (@id, @username, @del_ms)
+                        ON CONFLICT(user_id) DO UPDATE SET deleted_at_ms = excluded.deleted_at_ms;
+                        """;
+                    insDel.Parameters.AddWithValue("@id", tomb.UserId);
+                    insDel.Parameters.AddWithValue("@username", tomb.Username);
+                    insDel.Parameters.AddWithValue("@del_ms", tomb.DeletedAtUnixMs);
+                    insDel.ExecuteNonQuery();
+                    changed = true;
+                }
+
+                using var delUser = conn.CreateCommand();
+                delUser.CommandText = "DELETE FROM users WHERE id = @id AND updated_at_ms <= @del_ms;";
+                delUser.Parameters.AddWithValue("@id", tomb.UserId);
+                delUser.Parameters.AddWithValue("@del_ms", tomb.DeletedAtUnixMs);
+                if (delUser.ExecuteNonQuery() > 0)
+                    changed = true;
+            }
+
+            foreach (var u in snapshot.Users)
+            {
+                if (IsUserDeletedAfterLocked(u.Id, u.UpdatedAtUnixMs))
+                    continue;
+
+                using var byNameCmd = conn!.CreateCommand();
+                byNameCmd.CommandText = "SELECT id, role, status, updated_at_ms FROM users WHERE username = @username;";
+                byNameCmd.Parameters.AddWithValue("@username", u.Username);
+                using var r = byNameCmd.ExecuteReader();
+                if (r.Read())
+                {
+                    var localId = r.GetString(0);
+                    var localRole = (UserRole)r.GetInt32(1);
+                    var localStatus = (UserStatus)r.GetInt32(2);
+                    var localUpdated = r.GetInt64(3);
+                    r.Close();
+
+                    if (!string.Equals(localId, u.Id, StringComparison.Ordinal))
+                    {
+                        remappedUserIds[u.Id] = localId;
+                    }
+
+                    if (u.UpdatedAtUnixMs > localUpdated && (localRole != u.Role || localStatus != u.Status))
+                    {
+                        using var upd = conn.CreateCommand();
+                        upd.CommandText = "UPDATE users SET role = @role, status = @status, updated_at_ms = @upd WHERE id = @id;";
+                        upd.Parameters.AddWithValue("@role", (int)u.Role);
+                        upd.Parameters.AddWithValue("@status", (int)u.Status);
+                        upd.Parameters.AddWithValue("@upd", u.UpdatedAtUnixMs);
+                        upd.Parameters.AddWithValue("@id", localId);
+                        upd.ExecuteNonQuery();
+                        changed = true;
+                    }
+                    continue;
+                }
+                r.Close();
+
+                using var ins = conn.CreateCommand();
+                ins.CommandText = """
+                    INSERT INTO users (id, username, role, status, created_at, updated_at_ms)
+                    VALUES (@id, @username, @role, @status, @created_at, @updated_at_ms)
+                    ON CONFLICT(id) DO UPDATE SET
+                        role = CASE WHEN excluded.updated_at_ms > users.updated_at_ms THEN excluded.role ELSE users.role END,
+                        status = CASE WHEN excluded.updated_at_ms > users.updated_at_ms THEN excluded.status ELSE users.status END,
+                        updated_at_ms = MAX(users.updated_at_ms, excluded.updated_at_ms);
+                    """;
+                ins.Parameters.AddWithValue("@id", u.Id);
+                ins.Parameters.AddWithValue("@username", u.Username);
+                ins.Parameters.AddWithValue("@role", (int)u.Role);
+                ins.Parameters.AddWithValue("@status", (int)u.Status);
+                ins.Parameters.AddWithValue("@created_at", u.CreatedAt.ToString("O"));
+                ins.Parameters.AddWithValue("@updated_at_ms", u.UpdatedAtUnixMs);
+                ins.ExecuteNonQuery();
+                changed = true;
+            }
+
+            foreach (var k in snapshot.AccessKeys)
+            {
+                var targetUserId = remappedUserIds.GetValueOrDefault(k.UserId, k.UserId);
+                if (!UserExistsById(targetUserId))
+                    continue;
+
+                using var checkKey = conn!.CreateCommand();
+                checkKey.CommandText = "SELECT is_revoked FROM access_keys WHERE id = @id;";
+                checkKey.Parameters.AddWithValue("@id", k.Id);
+                var existingRevokedObj = checkKey.ExecuteScalar();
+                if (existingRevokedObj is not null and not DBNull)
+                {
+                    var localRevoked = Convert.ToInt32(existingRevokedObj, CultureInfo.InvariantCulture) != 0;
+                    if (k.IsRevoked && !localRevoked)
+                    {
+                        using var revCmd = conn.CreateCommand();
+                        revCmd.CommandText = "UPDATE access_keys SET is_revoked = 1 WHERE id = @id;";
+                        revCmd.Parameters.AddWithValue("@id", k.Id);
+                        revCmd.ExecuteNonQuery();
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                using var insKey = conn.CreateCommand();
+                insKey.CommandText = """
+                    INSERT INTO access_keys (id, secret_key, user_id, description, created_at, expires_at, is_revoked)
+                    VALUES (@id, @secret, @user_id, @desc, @created_at, @expires_at, @is_revoked);
+                    """;
+                insKey.Parameters.AddWithValue("@id", k.Id);
+                insKey.Parameters.AddWithValue("@secret", k.SecretKey);
+                insKey.Parameters.AddWithValue("@user_id", targetUserId);
+                insKey.Parameters.AddWithValue("@desc", (object?)k.Description ?? DBNull.Value);
+                insKey.Parameters.AddWithValue("@created_at", k.CreatedAt.ToString("O"));
+                insKey.Parameters.AddWithValue("@expires_at", k.ExpiresAt.HasValue ? k.ExpiresAt.Value.ToString("O") : DBNull.Value);
+                insKey.Parameters.AddWithValue("@is_revoked", k.IsRevoked ? 1 : 0);
+                insKey.ExecuteNonQuery();
+                changed = true;
+            }
+
+            if (changed)
+            {
+                SetGenerationLocked(Math.Max(generation, snapshot.Generation) + 1);
+            }
+            return changed;
+        }
+    }
+
+    private bool IsUserDeletedAfterLocked(string userId, long userUpdatedMs)
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = "SELECT deleted_at_ms FROM deleted_users WHERE user_id = @id;";
+        cmd.Parameters.AddWithValue("@id", userId);
+        var val = cmd.ExecuteScalar();
+        return val is not null and not DBNull && Convert.ToInt64(val, CultureInfo.InvariantCulture) >= userUpdatedMs;
     }
 
     public static bool MatchesAdminPattern(string username, IReadOnlyList<string>? patterns)
@@ -352,16 +629,18 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         if (reader.Read()) return ReadUser(reader);
         reader.Close();
 
-        var id = "usr_" + Ulid.NewUlid().ToString();
+        var id = "usr_bootstrap_admin";
         var now = clock.GetUtcNow();
         using var insertCmd = conn.CreateCommand();
         insertCmd.CommandText = """
-            INSERT INTO users (id, username, role, status, created_at)
-            VALUES (@id, 'admin', 0, 0, @now);
+            INSERT INTO users (id, username, role, status, created_at, updated_at_ms)
+            VALUES (@id, 'admin', 0, 0, @now, @now_ms);
             """;
         insertCmd.Parameters.AddWithValue("@id", id);
         insertCmd.Parameters.AddWithValue("@now", now.ToString("O"));
+        insertCmd.Parameters.AddWithValue("@now_ms", now.ToUnixTimeMilliseconds());
         insertCmd.ExecuteNonQuery();
+        BumpGenerationLocked();
 
         return new User(id, "admin", UserRole.Admin, UserStatus.Active, now);
     }
@@ -386,6 +665,7 @@ internal sealed class IdentityRegistry : IIdentityRegistry
         insertCmd.Parameters.AddWithValue("@user_id", userId);
         insertCmd.Parameters.AddWithValue("@now", now.ToString("O"));
         insertCmd.ExecuteNonQuery();
+        BumpGenerationLocked();
     }
 
     private void InitializeDatabase()
@@ -411,7 +691,8 @@ internal sealed class IdentityRegistry : IIdentityRegistry
                 username TEXT NOT NULL UNIQUE,
                 role INTEGER NOT NULL,
                 status INTEGER NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS access_keys (
@@ -424,9 +705,61 @@ internal sealed class IdentityRegistry : IIdentityRegistry
                 is_revoked INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS deleted_users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                deleted_at_ms INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
+
+            INSERT OR IGNORE INTO meta (key, value) VALUES ('iam_generation', 1);
+
             CREATE INDEX IF NOT EXISTS idx_access_keys_user ON access_keys(user_id);
             """;
         schema.ExecuteNonQuery();
+
+        EnsureColumnExists("users", "updated_at_ms", "INTEGER NOT NULL DEFAULT 0");
+        generation = ReadGenerationLocked();
+    }
+
+    private void EnsureColumnExists(string table, string column, string definition)
+    {
+        using var check = conn!.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $col;";
+        check.Parameters.AddWithValue("$col", column);
+        if (Convert.ToInt64(check.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+            return;
+
+        using var alter = conn.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        alter.ExecuteNonQuery();
+    }
+
+    private long ReadGenerationLocked()
+    {
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = "SELECT value FROM meta WHERE key = 'iam_generation';";
+        var val = cmd.ExecuteScalar();
+        return val is null or DBNull ? 1L : Convert.ToInt64(val, CultureInfo.InvariantCulture);
+    }
+
+    private void BumpGenerationLocked() =>
+        SetGenerationLocked(generation + 1);
+
+    private void SetGenerationLocked(long nextGen)
+    {
+        generation = nextGen;
+        using var cmd = conn!.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO meta (key, value) VALUES ('iam_generation', @val)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            """;
+        cmd.Parameters.AddWithValue("@val", nextGen);
+        cmd.ExecuteNonQuery();
     }
 
     private void EnsureOpen() =>
