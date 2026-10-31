@@ -46,6 +46,8 @@ public static class VesselRoutes
     public const string ClusterCatalogSubpath = "/catalog";
     public const string ClusterBucketEventsRoutePattern = "/buckets/{bucket}/events";
     public const string ClusterBucketSnapshotRoutePattern = "/buckets/{bucket}/snapshot";
+    public const string ClusterBucketEventsSuffix = "/events";
+    public const string ClusterBucketSnapshotSuffix = "/snapshot";
     public const string ClusterUploadsRoutePattern = "/uploads/{sessionId}";
     public const string ClusterIamDeltaSubpath = "/iam/delta";
     public const string ClusterGcReferencesSubpath = "/gc/references";

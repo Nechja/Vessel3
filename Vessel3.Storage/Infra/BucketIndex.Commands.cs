@@ -8,22 +8,31 @@ internal sealed partial class BucketIndex
     {
         using var cmd = WriteCmd();
         cmd.CommandText = """
-            INSERT INTO meta(key, value) VALUES('applied_seq', @seq)
+            INSERT INTO meta(key, value) VALUES(@key, @seq)
             ON CONFLICT(key) DO UPDATE SET value = max(value, excluded.value)
             """;
+        cmd.Parameters.AddWithValue("@key", BucketIndexSchema.MetaKeyAppliedSeq);
         cmd.Parameters.AddWithValue("@seq", seq);
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() =>
+        {
+            var current = Volatile.Read(ref cachedAppliedSeq);
+            if (seq > current)
+                Volatile.Write(ref cachedAppliedSeq, seq);
+        });
     }
 
     public void SetOwner(string ownerId)
     {
         using var cmd = WriteCmd();
         cmd.CommandText = """
-            INSERT INTO meta(key, value) VALUES('owner', @ownerId)
+            INSERT INTO meta(key, value) VALUES(@key, @ownerId)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value
             """;
+        cmd.Parameters.AddWithValue("@key", BucketIndexSchema.MetaKeyOwner);
         cmd.Parameters.AddWithValue("@ownerId", ownerId);
         cmd.ExecuteNonQuery();
+        ApplyCacheAction(() => Volatile.Write(ref cachedOwner, ownerId));
     }
 
     public void SetPeerCursor(string nodeId, long originSeq)

@@ -146,7 +146,7 @@ internal sealed class NativeAdminAdapter(
         }
 
         var iamGen = identity?.Generation ?? 0L;
-        var pendingBlobs = mirrorQueue?.EnumeratePendingShas().Count() ?? 0;
+        var pendingBlobs = mirrorQueue?.PendingCount ?? 0;
         var bucketWatermarks = BuildBucketWatermarks(buckets);
 
         var status = new ClusterStatusDto(

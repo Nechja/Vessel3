@@ -37,10 +37,8 @@ internal sealed partial class ClusterReplicationService : BackgroundService, ICl
         this.transport = transport;
         this.log = log;
 
-        if (bucketRegistry is BucketRegistry concreteBuckets)
-            concreteBuckets.ClusterSync = this;
-        if (identityRegistry is IdentityRegistry concreteIam)
-            concreteIam.ClusterSync = this;
+        bucketRegistry.RegisterClusterSyncer(this);
+        identityRegistry.RegisterClusterSyncer(this);
     }
 
     public bool TrySyncBucketCatalog(string bucket)
@@ -51,23 +49,31 @@ internal sealed partial class ClusterReplicationService : BackgroundService, ICl
         var reconciledAny = false;
         foreach (var peer in peers)
         {
-            if (peer.Status is PeerStatus.Dead or PeerStatus.Left || string.IsNullOrWhiteSpace(peer.Endpoint))
+            if (!IsReachablePeer(peer))
                 continue;
 
-            var catalogRes = transport.FetchCatalog(peer.Endpoint).GetAwaiter().GetResult();
-            if (!catalogRes.TryGetValue(out var catalog, out _))
-                continue;
-
-            foreach (var entry in catalog.Buckets)
-            {
-                if (!string.Equals(entry.Name, bucket, StringComparison.Ordinal))
-                    continue;
-
-                if (bucketRegistry.ReconcileCatalogEntry(entry))
-                    reconciledAny = true;
-            }
+            if (TryReconcileBucketFromPeer(peer, bucket))
+                reconciledAny = true;
         }
         return reconciledAny;
+    }
+
+    private bool TryReconcileBucketFromPeer(PeerNodeState peer, string bucket)
+    {
+        var catalogRes = transport.FetchCatalog(peer.Endpoint).GetAwaiter().GetResult();
+        if (!catalogRes.TryGetValue(out var catalog, out _))
+            return false;
+
+        var reconciled = false;
+        foreach (var entry in catalog.Buckets)
+        {
+            if (!string.Equals(entry.Name, bucket, StringComparison.Ordinal))
+                continue;
+
+            if (bucketRegistry.ReconcileCatalogEntry(entry))
+                reconciled = true;
+        }
+        return reconciled;
     }
 
     public bool TrySyncBucketEvents(string bucket)
@@ -81,44 +87,49 @@ internal sealed partial class ClusterReplicationService : BackgroundService, ICl
         var syncedAny = false;
         foreach (var peer in peers)
         {
-            if (peer.Status is PeerStatus.Dead or PeerStatus.Left || string.IsNullOrWhiteSpace(peer.Endpoint))
+            if (!IsReachablePeer(peer))
                 continue;
 
-            var cursorKey = (peer.NodeId, bucket);
-            var afterSeq = peerBucketLogCursors.GetValueOrDefault(cursorKey, 0L);
-            var batchRes = transport.FetchBucketEvents(peer.Endpoint, bucket, afterSeq).GetAwaiter().GetResult();
-            if (!batchRes.TryGetValue(out var batch, out _))
-                continue;
-
-            if (batch.RequiresSnapshot)
-            {
-                var snapRes = transport.OpenBucketSnapshot(peer.Endpoint, bucket).GetAwaiter().GetResult();
-                if (!snapRes.TryGetValue(out var snapStream, out _))
-                    continue;
-                using (snapStream)
-                {
-                    localBucket.InstallSnapshot(snapStream).GetAwaiter().GetResult();
-                }
-                EnqueueAllBucketBlobs(localBucket, CancellationToken.None).GetAwaiter().GetResult();
-                peerBucketLogCursors[cursorKey] = Math.Max(0L, batch.FirstAvailableSeq - 1);
+            if (TrySyncBucketEventsFromPeer(peer, bucket, localBucket))
                 syncedAny = true;
-                continue;
-            }
-
-            if (batch.Events.Count > 0)
-            {
-                var newlyApplied = localBucket.ApplyReplicatedEvents(batch.Events);
-                foreach (var ev in newlyApplied)
-                {
-                    if (ev is PutEvent put)
-                        EnqueuePutBlobs(put, CancellationToken.None).GetAwaiter().GetResult();
-                }
-                peerBucketLogCursors[cursorKey] = batch.Events[^1].Seq;
-                if (newlyApplied.Count > 0)
-                    syncedAny = true;
-            }
         }
         return syncedAny;
+    }
+
+    private bool TrySyncBucketEventsFromPeer(PeerNodeState peer, string bucket, Bucket localBucket)
+    {
+        var cursorKey = (peer.NodeId, bucket);
+        var afterSeq = peerBucketLogCursors.GetValueOrDefault(cursorKey, 0L);
+        var batchRes = transport.FetchBucketEvents(peer.Endpoint, bucket, afterSeq).GetAwaiter().GetResult();
+        if (!batchRes.TryGetValue(out var batch, out _))
+            return false;
+
+        if (batch.RequiresSnapshot)
+        {
+            var snapRes = transport.OpenBucketSnapshot(peer.Endpoint, bucket).GetAwaiter().GetResult();
+            if (!snapRes.TryGetValue(out var snapStream, out _))
+                return false;
+
+            using (snapStream)
+            {
+                localBucket.InstallSnapshot(snapStream).GetAwaiter().GetResult();
+            }
+            EnqueueAllBucketBlobs(localBucket, CancellationToken.None).GetAwaiter().GetResult();
+            peerBucketLogCursors[cursorKey] = Math.Max(0L, batch.FirstAvailableSeq - 1);
+            return true;
+        }
+
+        if (batch.Events.Count == 0)
+            return false;
+
+        var newlyApplied = localBucket.ApplyReplicatedEvents(batch.Events);
+        foreach (var ev in newlyApplied)
+        {
+            if (ev is PutEvent put)
+                EnqueuePutBlobs(put, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        peerBucketLogCursors[cursorKey] = batch.Events[^1].Seq;
+        return newlyApplied.Count > 0;
     }
 
     public bool TrySyncIam()
@@ -129,7 +140,7 @@ internal sealed partial class ClusterReplicationService : BackgroundService, ICl
         var mergedAny = false;
         foreach (var peer in peers)
         {
-            if (peer.Status is PeerStatus.Dead or PeerStatus.Left || string.IsNullOrWhiteSpace(peer.Endpoint))
+            if (!IsReachablePeer(peer))
                 continue;
 
             var iamRes = transport.FetchIamSnapshot(peer.Endpoint).GetAwaiter().GetResult();
@@ -146,41 +157,52 @@ internal sealed partial class ClusterReplicationService : BackgroundService, ICl
 
         foreach (var peer in peers)
         {
-            if (peer.Status is PeerStatus.Dead or PeerStatus.Left || string.IsNullOrWhiteSpace(peer.Endpoint))
+            if (!IsReachablePeer(peer))
                 continue;
 
-            var catalogResult = await transport.FetchCatalog(peer.Endpoint, ct);
-            if (!catalogResult.TryGetValue(out var catalog, out _))
-                continue;
-
-            var lastPeerIam = peerIamGenerations.GetValueOrDefault(peer.NodeId, 0L);
-            if (catalog.IamGeneration > lastPeerIam || catalog.IamGeneration > identityRegistry.Generation)
-            {
-                var iamResult = await transport.FetchIamSnapshot(peer.Endpoint, ct);
-                if (iamResult.TryGetValue(out var iamSnap, out _))
-                {
-                    if (identityRegistry.MergeSnapshot(iamSnap))
-                        appliedCount++;
-                    peerIamGenerations[peer.NodeId] = catalog.IamGeneration;
-                }
-            }
-
-            foreach (var entry in catalog.Buckets)
-            {
-                if (!bucketRegistry.ReconcileCatalogEntry(entry))
-                    continue;
-
-                var localBucket = bucketRegistry.GetOpenBucket(entry.Name);
-                if (localBucket is null)
-                    continue;
-
-                appliedCount += await SyncBucketFromPeer(peer, entry, localBucket, ct);
-            }
+            appliedCount += await SyncFromPeer(peer, ct);
         }
 
         appliedCount += await mirrorService.DrainPending(ct);
         return appliedCount;
     }
+
+    private async Task<int> SyncFromPeer(PeerNodeState peer, CancellationToken ct)
+    {
+        var catalogResult = await transport.FetchCatalog(peer.Endpoint, ct);
+        if (!catalogResult.TryGetValue(out var catalog, out _))
+            return 0;
+
+        var appliedCount = 0;
+        var lastPeerIam = peerIamGenerations.GetValueOrDefault(peer.NodeId, 0L);
+        if (catalog.IamGeneration > lastPeerIam || catalog.IamGeneration > identityRegistry.Generation)
+        {
+            var iamResult = await transport.FetchIamSnapshot(peer.Endpoint, ct);
+            if (iamResult.TryGetValue(out var iamSnap, out _))
+            {
+                if (identityRegistry.MergeSnapshot(iamSnap))
+                    appliedCount++;
+                peerIamGenerations[peer.NodeId] = catalog.IamGeneration;
+            }
+        }
+
+        foreach (var entry in catalog.Buckets)
+        {
+            if (!bucketRegistry.ReconcileCatalogEntry(entry))
+                continue;
+
+            var localBucket = bucketRegistry.GetOpenBucket(entry.Name);
+            if (localBucket is null)
+                continue;
+
+            appliedCount += await SyncBucketFromPeer(peer, entry, localBucket, ct);
+        }
+
+        return appliedCount;
+    }
+
+    private static bool IsReachablePeer(PeerNodeState peer) =>
+        peer.Status is not (PeerStatus.Dead or PeerStatus.Left) && !string.IsNullOrWhiteSpace(peer.Endpoint);
 
     private async Task<int> SyncBucketFromPeer(
         PeerNodeState peer,

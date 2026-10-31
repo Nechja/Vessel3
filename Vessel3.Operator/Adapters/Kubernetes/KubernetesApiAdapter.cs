@@ -52,11 +52,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
         catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            return new Error("NotFound", $"Secret {secretName} not found in namespace {@namespace}");
+            return new Error(KubernetesConstants.ErrorCodeNotFound, $"Secret {secretName} not found in namespace {@namespace}");
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -108,7 +108,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -120,7 +120,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             return existing;
         }
 
-        var newAccessKey = GenerateRandomKey("V3AK", 16);
+        var newAccessKey = GenerateRandomKey(KubernetesConstants.AccessKeyPrefix, 16);
         var newSecretKey = GenerateRandomSecret(40);
 
         var secret = new V1Secret
@@ -141,7 +141,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -152,11 +152,11 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
             var creds = await TryReadServerCredentials(id.Namespace, secretName, ct);
             return creds is not null
                 ? creds
-                : new Error("NotFound", $"Secret {secretName} is missing credentials keys");
+                : new Error(KubernetesConstants.ErrorCodeNotFound, $"Secret {secretName} is missing credentials keys");
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -179,7 +179,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -199,7 +199,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         }
         catch (Exception ex)
         {
-            return new Error("Unexpected", ex.Message);
+            return new Error(KubernetesConstants.ErrorCodeUnexpected, ex.Message);
         }
     }
 
@@ -265,7 +265,7 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
 
     private static IReadOnlyList<T> ParseElementItems<T>(JsonElement element, JsonTypeInfo<T> typeInfo)
     {
-        if (!element.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        if (!element.TryGetProperty(KubernetesConstants.JsonPropertyItems, out var items) || items.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -283,25 +283,9 @@ public sealed class KubernetesApiAdapter(IKubernetes client) : IKubernetesPort
         return results;
     }
 
-    private static string GenerateRandomKey(string prefix, int randomLength)
-    {
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var buffer = new char[randomLength];
-        for (var i = 0; i < randomLength; i++)
-        {
-            buffer[i] = chars[RandomNumberGenerator.GetInt32(chars.Length)];
-        }
-        return prefix + new string(buffer);
-    }
+    private static string GenerateRandomKey(string prefix, int randomLength) =>
+        string.Concat(prefix, RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", randomLength));
 
-    private static string GenerateRandomSecret(int length)
-    {
-        const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var buffer = new char[length];
-        for (var i = 0; i < length; i++)
-        {
-            buffer[i] = chars[RandomNumberGenerator.GetInt32(chars.Length)];
-        }
-        return new string(buffer);
-    }
+    private static string GenerateRandomSecret(int length) =>
+        RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", length);
 }

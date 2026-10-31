@@ -7,7 +7,7 @@ namespace Vessel3.Storage;
 
 internal sealed class HttpClusterReplicationTransport(
     HttpClient httpClient,
-    IClusterMembership membership,
+    IClusterMembership? membership = null,
     string? clusterSecret = null) : IClusterReplicationTransport, IClusterUploadResolver
 {
     public Task<Result<ClusterCatalogSnapshot>> FetchCatalog(string peerEndpoint, CancellationToken ct = default) =>
@@ -18,27 +18,30 @@ internal sealed class HttpClusterReplicationTransport(
 
     public Task<Result<BucketEventsBatch>> FetchBucketEvents(string peerEndpoint, string bucket, long afterSeq, CancellationToken ct = default) =>
         GetJson(
-            $"{peerEndpoint.TrimEnd('/')}{VesselRoutes.ClusterBucketsPrefix}{Uri.EscapeDataString(bucket)}/events?{VesselQueryParams.AfterSeq}={afterSeq.ToString(CultureInfo.InvariantCulture)}",
+            $"{peerEndpoint.TrimEnd('/')}{VesselRoutes.ClusterBucketsPrefix}{Uri.EscapeDataString(bucket)}{VesselRoutes.ClusterBucketEventsSuffix}?{VesselQueryParams.AfterSeq}={afterSeq.ToString(CultureInfo.InvariantCulture)}",
             GossipJsonContext.Default.BucketEventsBatch,
             ct);
 
     public async Task<Result<Stream>> OpenBucketSnapshot(string peerEndpoint, string bucket, CancellationToken ct = default)
     {
-        var url = $"{peerEndpoint.TrimEnd('/')}{VesselRoutes.ClusterBucketsPrefix}{Uri.EscapeDataString(bucket)}/snapshot";
+        var url = $"{peerEndpoint.TrimEnd('/')}{VesselRoutes.ClusterBucketsPrefix}{Uri.EscapeDataString(bucket)}{VesselRoutes.ClusterBucketSnapshotSuffix}";
         using var request = CreateRequest(HttpMethod.Get, url);
+        HttpResponseMessage? response = null;
         try
         {
-            var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
             {
+                var statusCode = (int)response.StatusCode;
                 response.Dispose();
-                return new InvalidRequestError($"Snapshot request failed with status {(int)response.StatusCode}.");
+                return new InvalidRequestError($"Snapshot request failed with status {statusCode}.");
             }
             var stream = await response.Content.ReadAsStreamAsync(ct);
             return new ResponseBoundStream(stream, response);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
+            response?.Dispose();
             return new InvalidRequestError(ex.Message);
         }
     }
@@ -78,8 +81,8 @@ internal sealed class HttpClusterReplicationTransport(
 
     public IReadOnlyList<UploadSessionSnapshot> FetchPeerSessions(string sessionId)
     {
-        var peers = membership.Peers;
-        if (peers.Count == 0) return [];
+        var peers = membership?.Peers;
+        if (peers is null || peers.Count == 0) return [];
 
         var results = new List<UploadSessionSnapshot>();
         foreach (var peer in peers)
@@ -96,8 +99,8 @@ internal sealed class HttpClusterReplicationTransport(
 
     public bool DeletePeerSessions(string sessionId)
     {
-        var peers = membership.Peers;
-        if (peers.Count == 0) return false;
+        var peers = membership?.Peers;
+        if (peers is null || peers.Count == 0) return false;
 
         var anyDeleted = false;
         foreach (var peer in peers)

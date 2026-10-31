@@ -75,6 +75,8 @@ var scenarioRunners = new Dictionary<string, Func<Task<LatencySummary>>>(StringC
     ["cluster-gossip"] = () => Scenarios.ClusterGossip(endpoint, secretKey, opts),
     ["cluster-blob-get"] = () => Scenarios.ClusterBlobGet(vessel, endpoint, secretKey, opts),
     ["cluster-blob-head"] = () => Scenarios.ClusterBlobHead(vessel, endpoint, secretKey, opts),
+    ["cluster-catalog"] = () => Scenarios.ClusterCatalog(vessel, endpoint, secretKey, opts),
+    ["cluster-bucket-events"] = () => Scenarios.ClusterBucketEvents(vessel, endpoint, secretKey, opts),
 }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
 if (!scenarioRunners.TryGetValue(scenario, out var runScenario))
@@ -239,6 +241,8 @@ static void PrintUsage()
     Console.WriteLine("  cluster-gossip   POST /_cluster/gossip heartbeat exchange");
     Console.WriteLine("  cluster-blob-get GET /_cluster/blobs/{sha} cross-node blob read");
     Console.WriteLine("  cluster-blob-head HEAD /_cluster/blobs/{sha} cross-node blob existence probe");
+    Console.WriteLine("  cluster-catalog  GET /_cluster/catalog metadata & watermark poll");
+    Console.WriteLine("  cluster-bucket-events GET /_cluster/buckets/{bucket}/events log tail");
     Console.WriteLine();
     Console.WriteLine("Flags:");
     Console.WriteLine("  --bucket NAME           default vessel3-bench");

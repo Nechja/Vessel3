@@ -195,37 +195,19 @@ internal static class ClusterEndpoints
 
         var afterSeq = 0L;
         if (ctx.Request.Query.TryGetValue(VesselQueryParams.AfterSeq, out var rawAfter)
-            && long.TryParse(rawAfter.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            && rawAfter.Count > 0
+            && long.TryParse(rawAfter[0].AsSpan(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
         {
             afterSeq = Math.Max(0L, parsed);
         }
 
-        var firstAvail = targetBucket.FirstAvailableLogSeq;
+        var (firstAvail, events, requiresSnapshot) = targetBucket.ReadEventsBatchAfter(afterSeq, 1000);
         var appliedSeq = targetBucket.AppliedSeq;
-        if (afterSeq < firstAvail - 1)
-        {
-            var requiresSnapBatch = new BucketEventsBatch(
-                bucket,
-                firstAvail,
-                appliedSeq,
-                RequiresSnapshot: true,
-                Events: []);
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            ctx.Response.ContentType = VesselMediaTypes.Json;
-            await JsonSerializer.SerializeAsync(
-                ctx.Response.Body,
-                requiresSnapBatch,
-                GossipJsonContext.Default.BucketEventsBatch,
-                ctx.RequestAborted);
-            return;
-        }
-
-        var events = targetBucket.ReadEventsAfter(afterSeq, 1000);
         var batch = new BucketEventsBatch(
             bucket,
             firstAvail,
             appliedSeq,
-            RequiresSnapshot: false,
+            RequiresSnapshot: requiresSnapshot,
             Events: events);
 
         ctx.Response.StatusCode = StatusCodes.Status200OK;
@@ -345,7 +327,7 @@ internal static class ClusterEndpoints
     private static async Task HandleGetGcReferences(
         HttpContext ctx,
         ClusterMembershipOptions options,
-        IBucketRegistry bucketRegistry,
+        IEnumerable<IBlobReferenceSource> referenceSources,
         IChunkStager chunkStager,
         IBlobMirrorQueue mirrorQueue)
     {
@@ -359,10 +341,22 @@ internal static class ClusterEndpoints
         }
 
         var shas = new HashSet<string>(StringComparer.Ordinal);
-        await foreach (var sha in bucketRegistry.AllReferencedBlobs(ctx.RequestAborted))
+        foreach (var source in referenceSources)
         {
-            if (!string.IsNullOrEmpty(sha))
-                shas.Add(sha);
+            if (source is ClusterBlobReferenceSource)
+                continue;
+
+            await foreach (var sha in source.AllReferencedBlobs(ctx.RequestAborted))
+            {
+                if (!string.IsNullOrEmpty(sha))
+                    shas.Add(sha);
+            }
+
+            foreach (var sha in source.EnumerateInFlightShas())
+            {
+                if (!string.IsNullOrEmpty(sha))
+                    shas.Add(sha);
+            }
         }
         foreach (var sha in chunkStager.EnumerateInFlightChunkShas())
         {

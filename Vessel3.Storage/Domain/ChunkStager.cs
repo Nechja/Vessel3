@@ -19,6 +19,12 @@ internal sealed class ChunkStager(
     IClusterUploadResolver? clusterUploads = null,
     IBlobMirrorQueue? mirrorQueue = null) : IChunkStager
 {
+    private const string ChunksDirName = "chunks";
+    private const string MetaFileName = "meta.json";
+    private const string JsonWildcard = "*.json";
+    private const string JsonExtension = ".json";
+    private const string HexPrefix = "_hex_";
+
     private readonly IChecksumValidator checksumValidator = checksumValidator ?? ChecksumValidator.Instance;
     public Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
     {
@@ -94,17 +100,25 @@ internal sealed class ChunkStager(
                 _ = PersistSessionMeta(sessionId, snap.Session);
                 localExists = true;
             }
-            foreach (var c in snap.Chunks)
-            {
-                if (!merged.TryGetValue(c.Token, out var existing) || c.StagedAt >= existing.StagedAt)
-                {
-                    merged[c.Token] = c;
-                    _ = WriteChunkFile(dir, c);
-                }
-            }
+            MergePeerSnapshotChunks(dir, snap.Chunks, merged);
         }
 
         return merged.Values.OrderBy(c => c.Token, StringComparer.Ordinal).ToList();
+    }
+
+    private void MergePeerSnapshotChunks(
+        string dir,
+        IReadOnlyList<StagedChunk> peerChunks,
+        Dictionary<string, StagedChunk> merged)
+    {
+        foreach (var c in peerChunks)
+        {
+            if (merged.TryGetValue(c.Token, out var existing) && c.StagedAt < existing.StagedAt)
+                continue;
+
+            merged[c.Token] = c;
+            _ = WriteChunkFile(dir, c);
+        }
     }
 
     public Result<StagedSession> GetSession(string sessionId)
@@ -231,9 +245,9 @@ internal sealed class ChunkStager(
     {
         foreach (var dir in EnumerateSessionDirs())
         {
-            var chunksDir = Path.Combine(dir, "chunks");
+            var chunksDir = Path.Combine(dir, ChunksDirName);
             if (!Directory.Exists(chunksDir)) continue;
-            foreach (var path in Directory.EnumerateFiles(chunksDir, "*.json"))
+            foreach (var path in Directory.EnumerateFiles(chunksDir, JsonWildcard))
             {
                 var chunk = DeserializeChunkFile(path);
                 if (chunk is not null) yield return chunk.BlobSha;
@@ -257,13 +271,13 @@ internal sealed class ChunkStager(
     {
         var sessionId = Ulid.NewUlid().ToString();
         var dir = SessionDir(sessionId);
-        Directory.CreateDirectory(Path.Combine(dir, "chunks"));
+        Directory.CreateDirectory(Path.Combine(dir, ChunksDirName));
 
         var session = new StagedSession(
             sessionId,
             bucket,
             key,
-            string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType,
+            string.IsNullOrEmpty(contentType) ? VesselMediaTypes.OctetStream : contentType,
             metadata,
             DateTimeOffset.UtcNow);
 
@@ -274,7 +288,7 @@ internal sealed class ChunkStager(
             session.Metadata,
             session.CreatedAt);
 
-        var metaPath = Path.Combine(dir, "meta.json");
+        var metaPath = Path.Combine(dir, MetaFileName);
         return durableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, StagingJsonContext.Default.UploadMeta)) is Result.Failure mf
             ? mf.Error
             : session;
@@ -302,24 +316,24 @@ internal sealed class ChunkStager(
     private Result PersistSessionMeta(string sessionId, StagedSession session)
     {
         var dir = SessionDir(sessionId);
-        Directory.CreateDirectory(Path.Combine(dir, "chunks"));
+        Directory.CreateDirectory(Path.Combine(dir, ChunksDirName));
         var meta = new UploadMeta(
             session.Bucket,
             session.Key,
             session.ContentType,
             session.Metadata,
             session.CreatedAt);
-        var metaPath = Path.Combine(dir, "meta.json");
+        var metaPath = Path.Combine(dir, MetaFileName);
         return durableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, StagingJsonContext.Default.UploadMeta));
     }
 
     private static List<StagedChunk> ReadLocalChunks(string dir)
     {
-        var chunksDir = Path.Combine(dir, "chunks");
+        var chunksDir = Path.Combine(dir, ChunksDirName);
         List<StagedChunk> result = [];
         if (!Directory.Exists(chunksDir)) return result;
 
-        foreach (var path in Directory.EnumerateFiles(chunksDir, "*.json").OrderBy(p => p, StringComparer.Ordinal))
+        foreach (var path in Directory.EnumerateFiles(chunksDir, JsonWildcard).OrderBy(p => p, StringComparer.Ordinal))
         {
             var chunk = DeserializeChunkFile(path);
             if (chunk is not null) result.Add(chunk);
@@ -329,7 +343,7 @@ internal sealed class ChunkStager(
 
     private Result WriteChunkFile(string sessionDir, StagedChunk chunk)
     {
-        var chunksDir = Path.Combine(sessionDir, "chunks");
+        var chunksDir = Path.Combine(sessionDir, ChunksDirName);
         Directory.CreateDirectory(chunksDir);
         var path = Path.Combine(chunksDir, ChunkFileName(chunk.Token));
         return durableWrite.AtomicReplace(path, JsonSerializer.Serialize(chunk, StagingJsonContext.Default.StagedChunk));
@@ -337,8 +351,8 @@ internal sealed class ChunkStager(
 
     private static string ChunkFileName(string token) =>
         token.All(char.IsAsciiLetterOrDigit)
-            ? $"{token}.json"
-            : $"_hex_{Convert.ToHexStringLower(Encoding.UTF8.GetBytes(token))}.json";
+            ? $"{token}{JsonExtension}"
+            : $"{HexPrefix}{Convert.ToHexStringLower(Encoding.UTF8.GetBytes(token))}{JsonExtension}";
 
     private IEnumerable<string> EnumerateSessionDirs() =>
         Directory.Exists(options.Root) ? Directory.EnumerateDirectories(options.Root) : [];
@@ -348,7 +362,7 @@ internal sealed class ChunkStager(
 
     private static UploadMeta? ReadMeta(string dir)
     {
-        var path = Path.Combine(dir, "meta.json");
+        var path = Path.Combine(dir, MetaFileName);
         return !File.Exists(path)
             ? null
             : JsonSerializer.Deserialize(File.ReadAllText(path), StagingJsonContext.Default.UploadMeta);

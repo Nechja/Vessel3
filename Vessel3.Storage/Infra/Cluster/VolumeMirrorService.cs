@@ -11,8 +11,18 @@ internal sealed partial class VolumeMirrorService(
         var mirroredCount = 0;
         while (mirrorQueue.TryDequeue(out var sha))
         {
-            if (sha is not null && await TryMirrorBlob(sha, ct))
-                mirroredCount++;
+            if (sha is null)
+                continue;
+
+            try
+            {
+                if (await TryMirrorBlob(sha, ct))
+                    mirroredCount++;
+            }
+            finally
+            {
+                mirrorQueue.Complete(sha);
+            }
         }
         return mirroredCount;
     }
@@ -21,54 +31,17 @@ internal sealed partial class VolumeMirrorService(
     {
         try
         {
-            var targets = volumeRegistry.MirrorTargetStorages;
-            if (targets.Count == 0)
+            var missingTargets = await FindMissingTargets(sha, ct);
+            if (missingTargets.Count == 0)
                 return false;
 
-            List<IVolumeStorage>? missingTargets = null;
-            foreach (var target in targets)
-            {
-                if (!await target.BlobExists(sha, ct))
-                {
-                    missingTargets ??= [];
-                    missingTargets.Add(target);
-                }
-            }
-
-            if (missingTargets is null || missingTargets.Count == 0)
-                return false;
-
-            Stream? sourceStream = null;
-            foreach (var candidate in volumeRegistry.ReadPriorityReaders)
-            {
-                if (!(await candidate.OpenBlob(sha, ct)).TryGetValue(out var s, out _))
-                    continue;
-
-                sourceStream = s;
-                break;
-            }
-
+            var sourceStream = await OpenFirstAvailableSource(sha, ct);
             if (sourceStream is null)
                 return false;
 
-            var primaryTarget = missingTargets[0];
             await using (sourceStream)
             {
-                var writeRes = await primaryTarget.WriteStagedBlob(sourceStream, null, ChecksumIntent.None, ct);
-                if (!writeRes.TryGetValue(out var stored, out _))
-                    return false;
-
-                for (var i = 1; i < missingTargets.Count; i++)
-                {
-                    if ((await primaryTarget.OpenBlob(stored.Sha, ct)).TryGetValue(out var copyStream, out _))
-                    {
-                        await using (copyStream)
-                        {
-                            _ = await missingTargets[i].WriteStagedBlob(copyStream, stored.Size, ChecksumIntent.None, ct);
-                        }
-                    }
-                }
-                return true;
+                return await ReplicateToTargets(sourceStream, missingTargets, ct);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -77,6 +50,55 @@ internal sealed partial class VolumeMirrorService(
                 LogMirrorFailed(log, sha, ex);
             return false;
         }
+    }
+
+    private async Task<List<IVolumeStorage>> FindMissingTargets(string sha, CancellationToken ct)
+    {
+        var targets = volumeRegistry.MirrorTargetStorages;
+        if (targets.Count == 0)
+            return [];
+
+        var missingTargets = new List<IVolumeStorage>(targets.Count);
+        foreach (var target in targets)
+        {
+            if (!await target.BlobExists(sha, ct))
+                missingTargets.Add(target);
+        }
+        return missingTargets;
+    }
+
+    private async Task<Stream?> OpenFirstAvailableSource(string sha, CancellationToken ct)
+    {
+        foreach (var candidate in volumeRegistry.ReadPriorityReaders)
+        {
+            if ((await candidate.OpenBlob(sha, ct)).TryGetValue(out var s, out _))
+                return s;
+        }
+        return null;
+    }
+
+    private static async Task<bool> ReplicateToTargets(
+        Stream sourceStream,
+        List<IVolumeStorage> missingTargets,
+        CancellationToken ct)
+    {
+        var primaryTarget = missingTargets[0];
+        var writeRes = await primaryTarget.WriteStagedBlob(sourceStream, null, ChecksumIntent.None, ct);
+        if (!writeRes.TryGetValue(out var stored, out _))
+            return false;
+
+        for (var i = 1; i < missingTargets.Count; i++)
+        {
+            var openCopy = await primaryTarget.OpenBlob(stored.Sha, ct);
+            if (!openCopy.TryGetValue(out var copyStream, out _))
+                continue;
+
+            await using (copyStream)
+            {
+                _ = await missingTargets[i].WriteStagedBlob(copyStream, stored.Size, ChecksumIntent.None, ct);
+            }
+        }
+        return true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

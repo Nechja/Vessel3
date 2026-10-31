@@ -67,4 +67,8 @@ public static class KubernetesConstants
 
     public const string SecretTypeOpaque = "Opaque";
     public const int DefaultSecurityContextUser = 10001;
+    public const string ErrorCodeNotFound = "NotFound";
+    public const string ErrorCodeUnexpected = "Unexpected";
+    public const string AccessKeyPrefix = "V3AK";
+    public const string JsonPropertyItems = "items";
 }

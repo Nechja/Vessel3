@@ -1,8 +1,19 @@
+using System.Globalization;
+
 namespace Vessel3.Storage;
 
 internal sealed class Bucket(string name, string path, IFileSync fileSync, IDurableWrite durableWrite, IBucketIndex? index, BucketWriteQueue queue, string? localNodeId = null) : IDisposable
 {
-    private readonly VersionLog log = new(Path.Combine(path, "log"), fileSync, localNodeId);
+    private const string LogFileName = "log";
+    private const string IndexFileName = "index.db";
+    private const string IndexWalFileName = "index.db-wal";
+    private const string IndexShmFileName = "index.db-shm";
+    private const string SnapshotFileName = "snapshot.db";
+    private const string SnapshotExportTempSuffix = ".export.tmp";
+    private const string SnapshotTempSuffix = ".tmp";
+    private const string CreatedAtFileName = "created-at.txt";
+
+    private readonly VersionLog log = new(Path.Combine(path, LogFileName), fileSync, localNodeId);
     private readonly BucketConfigStore configs = new(path, durableWrite);
     private readonly Lock writeGate = queue.WriteGate;
 
@@ -12,7 +23,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     }
 
     public string Name => name;
-    public IBucketIndex Index { get; } = index ?? new BucketIndex(Path.Combine(path, "index.db"));
+    public IBucketIndex Index { get; } = index ?? new BucketIndex(Path.Combine(path, IndexFileName));
     public DateTimeOffset CreatedAt { get; private set; }
     public VersioningStatus Versioning => configs.Versioning;
     public ObjectLockConfig? ObjectLock => configs.ObjectLock;
@@ -34,12 +45,14 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
 
     public void Open()
     {
-        var indexPath = Path.Combine(path, "index.db");
-        var snapshotPath = Path.Combine(path, "snapshot.db");
+        var indexPath = Path.Combine(path, IndexFileName);
+        var snapshotPath = Path.Combine(path, SnapshotFileName);
         if (!File.Exists(indexPath) && File.Exists(snapshotPath))
         {
-            if (File.Exists(indexPath + "-wal")) File.Delete(indexPath + "-wal");
-            if (File.Exists(indexPath + "-shm")) File.Delete(indexPath + "-shm");
+            var walPath = Path.Combine(path, IndexWalFileName);
+            var shmPath = Path.Combine(path, IndexShmFileName);
+            if (File.Exists(walPath)) File.Delete(walPath);
+            if (File.Exists(shmPath)) File.Delete(shmPath);
             File.Copy(snapshotPath, indexPath);
         }
 
@@ -59,15 +72,50 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         log.Open(Math.Max(maxSeq, Index.AppliedSeq()) + 1);
     }
 
-    public Result SetVersioning(VersioningStatus status) => configs.SetVersioning(status);
-    public Result SetObjectLock(ObjectLockConfig cfg) => configs.SetObjectLock(cfg);
-    public Result SetLifecycle(LifecycleConfig cfg) => configs.SetLifecycle(cfg);
-    public Result RemoveLifecycle() => configs.RemoveLifecycle();
-    public Result SetWebsite(WebsiteConfig cfg) => configs.SetWebsite(cfg);
-    public Result RemoveWebsite() => configs.RemoveWebsite();
-    public Result SetAccess(BucketAccess access) => configs.SetAccess(access);
-    public Result SetCors(CorsConfig cfg) => configs.SetCors(cfg);
-    public Result RemoveCors() => configs.RemoveCors();
+    public Result SetVersioning(VersioningStatus status)
+    {
+        lock (writeGate) return configs.SetVersioning(status);
+    }
+
+    public Result SetObjectLock(ObjectLockConfig cfg)
+    {
+        lock (writeGate) return configs.SetObjectLock(cfg);
+    }
+
+    public Result SetLifecycle(LifecycleConfig cfg)
+    {
+        lock (writeGate) return configs.SetLifecycle(cfg);
+    }
+
+    public Result RemoveLifecycle()
+    {
+        lock (writeGate) return configs.RemoveLifecycle();
+    }
+
+    public Result SetWebsite(WebsiteConfig cfg)
+    {
+        lock (writeGate) return configs.SetWebsite(cfg);
+    }
+
+    public Result RemoveWebsite()
+    {
+        lock (writeGate) return configs.RemoveWebsite();
+    }
+
+    public Result SetAccess(BucketAccess access)
+    {
+        lock (writeGate) return configs.SetAccess(access);
+    }
+
+    public Result SetCors(CorsConfig cfg)
+    {
+        lock (writeGate) return configs.SetCors(cfg);
+    }
+
+    public Result RemoveCors()
+    {
+        lock (writeGate) return configs.RemoveCors();
+    }
 
     public string? GetOwner() => Index.GetOwner();
 
@@ -80,8 +128,11 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
-    public BucketConfigSnapshot GetConfigSnapshot() =>
-        configs.ToSnapshot(Index.GetOwner());
+    public BucketConfigSnapshot GetConfigSnapshot()
+    {
+        lock (writeGate)
+            return configs.ToSnapshot(Index.GetOwner());
+    }
 
     public void ApplyConfigSnapshot(BucketConfigSnapshot snapshot, bool force = false)
     {
@@ -92,6 +143,9 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
                 Index.SetOwner(snapshot.OwnerId);
         }
     }
+
+    public (long FirstAvailableSeq, IReadOnlyList<VersionEvent> Events, bool RequiresSnapshot) ReadEventsBatchAfter(long afterSeq, int maxCount = 1000) =>
+        log.ReadEventsBatchAfter(afterSeq, maxCount);
 
     public IReadOnlyList<VersionEvent> ReadEventsAfter(long afterSeq, int maxCount = 1000) =>
         log.ReadEventsAfter(afterSeq, maxCount);
@@ -104,28 +158,7 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         {
             if (IsSealedForDelete) return [];
 
-            var unseen = new List<VersionEvent>(events.Count);
-            var cursors = new Dictionary<string, long>(StringComparer.Ordinal);
-            foreach (var ev in events)
-            {
-                if (!string.IsNullOrEmpty(localNodeId) && string.Equals(ev.OriginNodeId, localNodeId, StringComparison.Ordinal))
-                    continue;
-
-                if (!string.IsNullOrEmpty(ev.OriginNodeId) && ev.OriginSeq > 0)
-                {
-                    if (!cursors.TryGetValue(ev.OriginNodeId, out var cursor))
-                    {
-                        cursor = Index.GetPeerCursor(ev.OriginNodeId);
-                        cursors[ev.OriginNodeId] = cursor;
-                    }
-                    if (ev.OriginSeq <= cursor)
-                        continue;
-                    cursors[ev.OriginNodeId] = ev.OriginSeq;
-                }
-
-                unseen.Add(ev);
-            }
-
+            var unseen = CollectUnseenEventsLocked(events);
             if (unseen.Count == 0) return [];
 
             var assigned = log.Append(unseen);
@@ -145,12 +178,48 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
         }
     }
 
+    private List<VersionEvent> CollectUnseenEventsLocked(IReadOnlyList<VersionEvent> events)
+    {
+        var unseen = new List<VersionEvent>(events.Count);
+        var cursors = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var ev in events)
+        {
+            if (!string.IsNullOrEmpty(localNodeId) && string.Equals(ev.OriginNodeId, localNodeId, StringComparison.Ordinal))
+                continue;
+
+            if (IsAlreadyAppliedFromPeerLocked(ev, cursors))
+                continue;
+
+            unseen.Add(ev);
+        }
+
+        return unseen;
+    }
+
+    private bool IsAlreadyAppliedFromPeerLocked(VersionEvent ev, Dictionary<string, long> cursors)
+    {
+        if (string.IsNullOrEmpty(ev.OriginNodeId) || ev.OriginSeq <= 0)
+            return false;
+
+        if (!cursors.TryGetValue(ev.OriginNodeId, out var cursor))
+        {
+            cursor = Index.GetPeerCursor(ev.OriginNodeId);
+            cursors[ev.OriginNodeId] = cursor;
+        }
+
+        if (ev.OriginSeq <= cursor)
+            return true;
+
+        cursors[ev.OriginNodeId] = ev.OriginSeq;
+        return false;
+    }
+
     public Stream OpenSnapshotStream()
     {
         lock (writeGate)
         {
-            var snapshotPath = Path.Combine(path, "snapshot.db");
-            var tmp = snapshotPath + ".export.tmp";
+            var snapshotPath = Path.Combine(path, SnapshotFileName);
+            var tmp = snapshotPath + SnapshotExportTempSuffix;
             if (File.Exists(tmp)) File.Delete(tmp);
             Index.SnapshotTo(tmp);
             File.Move(tmp, snapshotPath, overwrite: true);
@@ -161,23 +230,35 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public async Task InstallSnapshot(Stream snapshotStream, BucketConfigSnapshot? config = null, CancellationToken ct = default)
     {
         var incomingPath = Path.Combine(path, $"snapshot.{Guid.NewGuid():N}.incoming");
-        await using (var fs = new FileStream(incomingPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        try
         {
-            await snapshotStream.CopyToAsync(fs, ct);
-            await fs.FlushAsync(ct);
-        }
-
-        lock (writeGate)
-        {
-            var snapshotPath = Path.Combine(path, "snapshot.db");
-            File.Move(incomingPath, snapshotPath, overwrite: true);
-            Index.ReplaceFromSnapshot(snapshotPath);
-            log.ResetAfterSnapshot(Index.AppliedSeq() + 1);
-            if (config is not null)
+            await using (var fs = new FileStream(incomingPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                _ = configs.ApplySnapshot(config, force: true);
-                if (config.OwnerId is not null)
-                    Index.SetOwner(config.OwnerId);
+                await snapshotStream.CopyToAsync(fs, ct);
+                await fs.FlushAsync(ct);
+            }
+
+            lock (writeGate)
+            {
+                if (IsSealedForDelete) return;
+
+                var snapshotPath = Path.Combine(path, SnapshotFileName);
+                File.Move(incomingPath, snapshotPath, overwrite: true);
+                Index.ReplaceFromSnapshot(snapshotPath);
+                log.ResetAfterSnapshot(Index.AppliedSeq() + 1);
+                if (config is not null)
+                {
+                    _ = configs.ApplySnapshot(config, force: true);
+                    if (config.OwnerId is not null)
+                        Index.SetOwner(config.OwnerId);
+                }
+            }
+        }
+        finally
+        {
+            if (File.Exists(incomingPath))
+            {
+                try { File.Delete(incomingPath); } catch (IOException) { }
             }
         }
     }
@@ -188,13 +269,13 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     public bool ReapExpiredDeleteMarker(string key, string markerVersionId) =>
         Execute(new ReapExpiredDeleteMarkerWorkItem(key, markerVersionId));
 
-    public long LogBytes() => FileBytes(Path.Combine(path, "log"));
+    public long LogBytes() => FileBytes(Path.Combine(path, LogFileName));
 
     public BucketStats Stats() => new(
         Name,
         Index.VersionCount(),
-        FileBytes(Path.Combine(path, "index.db")),
-        FileBytes(Path.Combine(path, "index.db-wal")),
+        FileBytes(Path.Combine(path, IndexFileName)),
+        FileBytes(Path.Combine(path, IndexWalFileName)),
         LogBytes());
 
     private static long FileBytes(string file) => File.Exists(file) ? new FileInfo(file).Length : 0;
@@ -203,22 +284,22 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
     {
         if (createdAtUnixMs <= 0) return;
         CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(createdAtUnixMs);
-        var createdAtPath = Path.Combine(path, "created-at.txt");
-        _ = durableWrite.AtomicReplace(createdAtPath, createdAtUnixMs.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var createdAtPath = Path.Combine(path, CreatedAtFileName);
+        _ = durableWrite.AtomicReplace(createdAtPath, createdAtUnixMs.ToString(CultureInfo.InvariantCulture));
     }
 
     private DateTimeOffset ReadOrPersistCreatedAt()
     {
-        var createdAtPath = Path.Combine(path, "created-at.txt");
+        var createdAtPath = Path.Combine(path, CreatedAtFileName);
         if (File.Exists(createdAtPath)
-            && long.TryParse(File.ReadAllText(createdAtPath).Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var ms)
+            && long.TryParse(File.ReadAllText(createdAtPath).AsSpan().Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
             && ms > 0)
         {
             return DateTimeOffset.FromUnixTimeMilliseconds(ms);
         }
 
         var now = DateTimeOffset.UtcNow;
-        _ = durableWrite.AtomicReplace(createdAtPath, now.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _ = durableWrite.AtomicReplace(createdAtPath, now.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
         return now;
     }
 
@@ -229,8 +310,8 @@ internal sealed class Bucket(string name, string path, IFileSync fileSync, IDura
             if (IsSealedForDelete) return new NoSuchBucketError(Name);
 
             var before = LogBytes();
-            var snapshotPath = Path.Combine(path, "snapshot.db");
-            var tmp = snapshotPath + ".tmp";
+            var snapshotPath = Path.Combine(path, SnapshotFileName);
+            var tmp = snapshotPath + SnapshotTempSuffix;
             if (File.Exists(tmp)) File.Delete(tmp);
             Index.SnapshotTo(tmp);
             using (var fs = new FileStream(tmp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))

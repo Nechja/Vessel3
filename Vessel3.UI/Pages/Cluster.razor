@@ -429,11 +429,11 @@
                 <span class="muted" style="font-size: var(--text-xs);">
                     @if (joinPreset == PresetOffsite)
                     {
-                        <span>Configures <code class="mono">ReadOnly,Mirrored,OnDemand</code> so the node rejects client writes, continuously mirrors metadata and blobs in the background, and serves fallback reads only when LAN copies are unreachable.</span>
+                        <span>Configures <code class="mono">ReadOnly+Mirrored+OnDemand</code> so the node rejects client writes, continuously mirrors metadata and blobs in the background, and serves fallback reads only when LAN copies are unreachable.</span>
                     }
                     else
                     {
-                        <span>Configures <code class="mono">Ingest,Mirrored</code> so every node accepts S3/OCI/Azure writes and replicates deterministically across plain <code class="mono">ext4</code> or <code class="mono">local-path</code> drives.</span>
+                        <span>Configures <code class="mono">Ingest+Mirrored</code> so every node accepts S3/OCI/Azure writes and replicates deterministically across plain <code class="mono">ext4</code> or <code class="mono">local-path</code> drives.</span>
                     }
                 </span>
             </div>
@@ -516,6 +516,7 @@
 
     private ClusterStatusDto? status;
     private bool loading = true;
+    private bool refreshing;
     private bool autoRefresh;
     private string scopeFilter = string.Empty;
     private string poolFilter = string.Empty;
@@ -590,19 +591,18 @@
             var nodeId = string.IsNullOrWhiteSpace(joinNodeId) ? "pi-node-02" : joinNodeId.Trim();
             var adv = string.IsNullOrWhiteSpace(joinAdvertiseEndpoint) ? "http://100.94.18.42:9000" : joinAdvertiseEndpoint.Trim();
             var volSpec = joinPreset == PresetOffsite
-                ? "vault:/data:offsite-backup:ReadOnly,Mirrored,OnDemand"
-                : "local:/data:default:Ingest,Mirrored";
+                ? "vault:/data:offsite-backup:ReadOnly+Mirrored+OnDemand"
+                : "local:/data:default:Ingest+Mirrored";
 
             return $"""
                 docker run -d --name vessel3-{nodeId} \
                   -p 9000:9000 \
                   -v /mnt/usb-nas:/data \
-                  -e VESSEL3_CLUSTER_ENABLED=true \
-                  -e VESSEL3_NODE_ID={nodeId} \
-                  -e VESSEL3_ADVERTISE_ENDPOINT={adv} \
-                  -e VESSEL3_PEERS={SeedEndpoint} \
-                  -e VESSEL3_CLUSTER_SECRET=<your-cluster-secret> \
-                  -e VESSEL3_VOLUMES="{volSpec}" \
+                  -e {VesselEnvVars.NodeId}={nodeId} \
+                  -e {VesselEnvVars.AdvertiseUrl}={adv} \
+                  -e {VesselEnvVars.Peers}={SeedEndpoint} \
+                  -e {VesselEnvVars.ClusterSecret}=<your-cluster-secret> \
+                  -e {VesselEnvVars.Volumes}="{volSpec}" \
                   ghcr.io/nechja/vessel3:latest
                 """;
         }
@@ -616,15 +616,15 @@
                 enabled: true
                 peers:
                   - "{SeedEndpoint}"
-                volumes: "vault:/data:offsite-backup:ReadOnly,Mirrored,OnDemand"
+              config:
+                volumes: "vault:/data:offsite-backup:ReadOnly+Mirrored+OnDemand"
               """
             : """
               replicaCount: 3
               cluster:
                 enabled: true
-              persistence:
-                enabled: true
-                storageClass: "local-path"
+              storage:
+                storageClassName: "local-path"
                 size: 500Gi
               """;
 
@@ -694,7 +694,16 @@
 
     private async Task RefreshStatus()
     {
-        loading = true;
+        if (refreshing)
+        {
+            return;
+        }
+
+        refreshing = true;
+        if (status is null)
+        {
+            loading = true;
+        }
         try
         {
             var res = await Client.GetClusterStatus();
@@ -714,6 +723,7 @@
         finally
         {
             loading = false;
+            refreshing = false;
         }
     }
 
@@ -760,6 +770,8 @@
         else
         {
             refreshCts?.Cancel();
+            refreshCts?.Dispose();
+            refreshCts = null;
         }
     }
 
@@ -773,13 +785,19 @@
         _ = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
-            while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
+            try
             {
-                await InvokeAsync(async () =>
+                while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
                 {
-                    await RefreshStatus();
-                    StateHasChanged();
-                });
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshStatus();
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
             }
         }, token);
     }

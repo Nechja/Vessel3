@@ -9,10 +9,14 @@ internal readonly record struct ObjectLockStatus(Retention? Retention, bool Lega
 
 internal sealed partial class BucketIndex(string dbPath) : IBucketIndex
 {
+    private const string EmptyJsonObject = "{}";
+
     private SqliteReaderPool readers = new($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
     private SqliteConnection? writeConn;
     private SqliteTransaction? currentTx;
     private BucketIndexTxScope? currentTxScope;
+    private long cachedAppliedSeq;
+    private string? cachedOwner;
 
     internal HotIndexCache HotCache { get; } = new();
 
@@ -22,22 +26,23 @@ internal sealed partial class BucketIndex(string dbPath) : IBucketIndex
         writeConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False");
         writeConn.Open();
         BucketIndexSchema.Initialize(writeConn);
+        RefreshCachedMeta();
     }
 
     public void ReplaceFromSnapshot(string snapshotFilePath)
     {
         HotCache.Clear();
+        using (var snapConn = new SqliteConnection($"Data Source={snapshotFilePath};Mode=ReadOnly;Pooling=False"))
+        {
+            snapConn.Open();
+            snapConn.BackupDatabase(writeConn!);
+        }
+
+        BucketIndexSchema.Initialize(writeConn!);
         var oldReaders = Interlocked.Exchange(ref readers, new SqliteReaderPool($"Data Source={dbPath};Mode=ReadOnly;Pooling=False"));
         oldReaders.Dispose();
-        writeConn?.Dispose();
-        writeConn = null;
-
-        if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
-        if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
-        File.Copy(snapshotFilePath, dbPath, overwrite: true);
-
-        Open();
         HotCache.Clear();
+        RefreshCachedMeta();
     }
 
     public void Dispose()
@@ -88,19 +93,20 @@ internal sealed partial class BucketIndex(string dbPath) : IBucketIndex
     internal ReadHandle ReadCmd()
     {
         var start = Stopwatch.GetTimestamp();
-        var conn = readers.Rent();
+        var pool = Volatile.Read(ref readers);
+        var conn = pool.Rent();
         RequestTrace.Since(Stage.ReadLock, start);
-        return new ReadHandle(readers, conn.CreateCommand(), conn);
+        return new ReadHandle(pool, conn.CreateCommand(), conn);
     }
 
     private static string SerializeMetadata(IReadOnlyDictionary<string, string> metadata) =>
-        metadata.Count is 0 ? "{}"
+        metadata.Count is 0 ? EmptyJsonObject
             : JsonSerializer.Serialize(
                 new Dictionary<string, string>(metadata),
                 VersionEventContext.Default.DictionaryStringString);
 
     private static IReadOnlyDictionary<string, string> DeserializeMetadata(string json) =>
-        string.IsNullOrEmpty(json) || json is "{}"
+        string.IsNullOrEmpty(json) || json is EmptyJsonObject
             ? []
             : JsonSerializer.Deserialize(json, VersionEventContext.Default.DictionaryStringString)
                 ?? [];

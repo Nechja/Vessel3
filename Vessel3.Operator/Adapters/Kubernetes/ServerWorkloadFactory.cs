@@ -235,19 +235,19 @@ public static class ServerWorkloadFactory
             }
         ];
 
-        if (server.Volumes is { Count: > 0 } volumes)
+        if (server.Volumes is not { Count: > 0 } volumes)
+            return mounts;
+
+        foreach (var vol in volumes)
         {
-            foreach (var vol in volumes)
+            if (string.IsNullOrWhiteSpace(vol.Size))
+                continue;
+
+            mounts.Add(new V1VolumeMount
             {
-                if (!string.IsNullOrWhiteSpace(vol.Size))
-                {
-                    mounts.Add(new V1VolumeMount
-                    {
-                        Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}",
-                        MountPath = vol.Path
-                    });
-                }
-            }
+                Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}",
+                MountPath = vol.Path
+            });
         }
 
         return mounts;
@@ -292,30 +292,30 @@ public static class ServerWorkloadFactory
             }
         ];
 
-        if (server.Volumes is { Count: > 0 } volumes)
+        if (server.Volumes is not { Count: > 0 } volumes)
+            return claims;
+
+        foreach (var vol in volumes)
         {
-            foreach (var vol in volumes)
+            if (string.IsNullOrWhiteSpace(vol.Size))
+                continue;
+
+            claims.Add(new V1PersistentVolumeClaim
             {
-                if (!string.IsNullOrWhiteSpace(vol.Size))
+                Metadata = new V1ObjectMeta { Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}" },
+                Spec = new V1PersistentVolumeClaimSpec
                 {
-                    claims.Add(new V1PersistentVolumeClaim
+                    AccessModes = [KubernetesConstants.StorageAccessModeReadWriteOnce],
+                    StorageClassName = vol.StorageClassName ?? server.StorageClassName,
+                    Resources = new V1VolumeResourceRequirements
                     {
-                        Metadata = new V1ObjectMeta { Name = $"{KubernetesConstants.VolumeClaimPrefix}{vol.Id}" },
-                        Spec = new V1PersistentVolumeClaimSpec
+                        Requests = new Dictionary<string, ResourceQuantity>
                         {
-                            AccessModes = [KubernetesConstants.StorageAccessModeReadWriteOnce],
-                            StorageClassName = vol.StorageClassName ?? server.StorageClassName,
-                            Resources = new V1VolumeResourceRequirements
-                            {
-                                Requests = new Dictionary<string, ResourceQuantity>
-                                {
-                                    [KubernetesConstants.StorageResourceName] = new(vol.Size)
-                                }
-                            }
+                            [KubernetesConstants.StorageResourceName] = new(vol.Size)
                         }
-                    });
+                    }
                 }
-            }
+            });
         }
 
         return claims;

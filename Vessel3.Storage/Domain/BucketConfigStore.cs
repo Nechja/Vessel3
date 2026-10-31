@@ -15,13 +15,21 @@ internal sealed record BucketConfigSnapshot(
 
 internal sealed class BucketConfigStore(string path, IDurableWrite durableWrite)
 {
-    private readonly string versioningPath = Path.Combine(path, "versioning.txt");
-    private readonly string objectLockPath = Path.Combine(path, "object-lock.json");
-    private readonly string lifecyclePath = Path.Combine(path, "lifecycle.json");
-    private readonly string websitePath = Path.Combine(path, "website.json");
-    private readonly string accessPath = Path.Combine(path, "access.json");
-    private readonly string corsPath = Path.Combine(path, "cors.json");
-    private readonly string updatedAtPath = Path.Combine(path, "config-updated-at.txt");
+    private const string VersioningFileName = "versioning.txt";
+    private const string ObjectLockFileName = "object-lock.json";
+    private const string LifecycleFileName = "lifecycle.json";
+    private const string WebsiteFileName = "website.json";
+    private const string AccessFileName = "access.json";
+    private const string CorsFileName = "cors.json";
+    private const string UpdatedAtFileName = "config-updated-at.txt";
+
+    private readonly string versioningPath = Path.Combine(path, VersioningFileName);
+    private readonly string objectLockPath = Path.Combine(path, ObjectLockFileName);
+    private readonly string lifecyclePath = Path.Combine(path, LifecycleFileName);
+    private readonly string websitePath = Path.Combine(path, WebsiteFileName);
+    private readonly string accessPath = Path.Combine(path, AccessFileName);
+    private readonly string corsPath = Path.Combine(path, CorsFileName);
+    private readonly string updatedAtPath = Path.Combine(path, UpdatedAtFileName);
 
     public VersioningStatus Versioning { get; private set; }
     public ObjectLockConfig? ObjectLock { get; private set; }
@@ -124,15 +132,19 @@ internal sealed class BucketConfigStore(string path, IDurableWrite durableWrite)
             && status is VersioningStatus.Suspended or VersioningStatus.Unversioned)
             return new InvalidBucketStateError("cannot suspend versioning on a bucket with Object Lock enabled");
 
-        Versioning = status;
         if (status is VersioningStatus.Unversioned)
         {
             if (File.Exists(versioningPath)) File.Delete(versioningPath);
+            Versioning = status;
             TouchUpdatedAt();
             return Result.Ok;
         }
         var res = durableWrite.AtomicReplace(versioningPath, status.ToString());
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            Versioning = status;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
@@ -143,76 +155,91 @@ internal sealed class BucketConfigStore(string path, IDurableWrite durableWrite)
         if (ObjectLock is { Enabled: true } && !cfg.Enabled)
             return new InvalidBucketStateError("Object Lock cannot be disabled once enabled");
 
-        ObjectLock = cfg;
         var res = durableWrite.AtomicReplace(objectLockPath, JsonSerializer.Serialize(cfg, ObjectLockJsonContext.Default.ObjectLockConfig));
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            ObjectLock = cfg;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
     public Result SetLifecycle(LifecycleConfig cfg)
     {
-        Lifecycle = cfg;
         var res = durableWrite.AtomicReplace(lifecyclePath, JsonSerializer.Serialize(cfg, LifecycleJsonContext.Default.LifecycleConfig));
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            Lifecycle = cfg;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
     public Result RemoveLifecycle()
     {
-        Lifecycle = null;
         if (File.Exists(lifecyclePath)) File.Delete(lifecyclePath);
+        Lifecycle = null;
         TouchUpdatedAt();
         return Result.Ok;
     }
 
     public Result SetWebsite(WebsiteConfig cfg)
     {
-        Website = cfg;
         var res = durableWrite.AtomicReplace(websitePath, JsonSerializer.Serialize(cfg, WebsiteJsonContext.Default.WebsiteConfig));
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            Website = cfg;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
     public Result RemoveWebsite()
     {
-        Website = null;
         if (File.Exists(websitePath)) File.Delete(websitePath);
+        Website = null;
         TouchUpdatedAt();
         return Result.Ok;
     }
 
     public Result SetAccess(BucketAccess access)
     {
-        Access = access;
         var res = durableWrite.AtomicReplace(accessPath, JsonSerializer.Serialize(access, BucketAccessJsonContext.Default.BucketAccess));
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            Access = access;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
     public Result SetCors(CorsConfig cfg)
     {
-        Cors = cfg;
         var res = durableWrite.AtomicReplace(corsPath, JsonSerializer.Serialize(cfg, CorsJsonContext.Default.CorsConfig));
-        if (res is not Result.Failure) TouchUpdatedAt();
+        if (res is not Result.Failure)
+        {
+            Cors = cfg;
+            TouchUpdatedAt();
+        }
         return res;
     }
 
     public Result RemoveCors()
     {
-        Cors = null;
         if (File.Exists(corsPath)) File.Delete(corsPath);
+        Cors = null;
         TouchUpdatedAt();
         return Result.Ok;
     }
 
     private long ReadUpdatedAt() =>
         File.Exists(updatedAtPath)
-            && long.TryParse(File.ReadAllText(updatedAtPath).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ts)
+            && long.TryParse(File.ReadAllText(updatedAtPath).AsSpan().Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ts)
                 ? ts : 0;
 
     private VersioningStatus ReadVersioning() =>
         File.Exists(versioningPath)
-            && Enum.TryParse<VersioningStatus>(File.ReadAllText(versioningPath).Trim(), out var s)
+            && Enum.TryParse<VersioningStatus>(File.ReadAllText(versioningPath).AsSpan().Trim(), out var s)
                 ? s : VersioningStatus.Unversioned;
 
     private ObjectLockConfig? ReadObjectLock() =>
