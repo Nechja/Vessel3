@@ -15,8 +15,16 @@ internal sealed class ChunkStager(
     IBlobPool blobs,
     IDurableWrite durableWrite,
     IGcGate gate,
-    IChecksumValidator? checksumValidator = null) : IChunkStager
+    IChecksumValidator? checksumValidator = null,
+    IClusterUploadResolver? clusterUploads = null,
+    IBlobMirrorQueue? mirrorQueue = null) : IChunkStager
 {
+    private const string ChunksDirName = "chunks";
+    private const string MetaFileName = "meta.json";
+    private const string JsonWildcard = "*.json";
+    private const string JsonExtension = ".json";
+    private const string HexPrefix = "_hex_";
+
     private readonly IChecksumValidator checksumValidator = checksumValidator ?? ChecksumValidator.Instance;
     public Result<StagedSession> CreateSession(string bucket, string key, string? contentType, IReadOnlyDictionary<string, string> metadata)
     {
@@ -46,7 +54,8 @@ internal sealed class ChunkStager(
         using var lease = await gate.Writing();
 
         var dir = SessionDir(sessionId);
-        if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
+        if (!Directory.Exists(dir) && !TryHydrateSessionFromPeers(sessionId))
+            return new NoSuchUploadError(sessionId);
 
         var written = await blobs.Write(body, declaredSize, declaredChecksums.ToIntent(), ct);
         if (!written.TryGetValue(out var blob, out var blobErr)) return blobErr;
@@ -72,24 +81,51 @@ internal sealed class ChunkStager(
     public Result<IReadOnlyList<StagedChunk>> ListChunks(string sessionId)
     {
         var dir = SessionDir(sessionId);
-        if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
+        var localExists = Directory.Exists(dir);
+        var peerSnapshots = clusterUploads?.FetchPeerSessions(sessionId) ?? [];
+        if (!localExists && peerSnapshots.Count == 0)
+            return new NoSuchUploadError(sessionId);
 
-        var chunksDir = Path.Combine(dir, "chunks");
-        List<StagedChunk> result = [];
-        if (!Directory.Exists(chunksDir)) return result;
-
-        foreach (var path in Directory.EnumerateFiles(chunksDir, "*.json").OrderBy(p => p, StringComparer.Ordinal))
+        var merged = new Dictionary<string, StagedChunk>(StringComparer.Ordinal);
+        if (localExists)
         {
-            var chunk = DeserializeChunkFile(path);
-            if (chunk is not null) result.Add(chunk);
+            foreach (var c in ReadLocalChunks(dir))
+                merged[c.Token] = c;
         }
-        return result;
+
+        foreach (var snap in peerSnapshots)
+        {
+            if (!localExists)
+            {
+                _ = PersistSessionMeta(sessionId, snap.Session);
+                localExists = true;
+            }
+            MergePeerSnapshotChunks(dir, snap.Chunks, merged);
+        }
+
+        return merged.Values.OrderBy(c => c.Token, StringComparer.Ordinal).ToList();
+    }
+
+    private void MergePeerSnapshotChunks(
+        string dir,
+        IReadOnlyList<StagedChunk> peerChunks,
+        Dictionary<string, StagedChunk> merged)
+    {
+        foreach (var c in peerChunks)
+        {
+            if (merged.TryGetValue(c.Token, out var existing) && c.StagedAt < existing.StagedAt)
+                continue;
+
+            merged[c.Token] = c;
+            _ = WriteChunkFile(dir, c);
+        }
     }
 
     public Result<StagedSession> GetSession(string sessionId)
     {
         var dir = SessionDir(sessionId);
-        if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
+        if (!Directory.Exists(dir) && !TryHydrateSessionFromPeers(sessionId))
+            return new NoSuchUploadError(sessionId);
 
         var meta = ReadMeta(dir);
         return meta is null
@@ -122,10 +158,11 @@ internal sealed class ChunkStager(
 
     public Result AbortSession(string sessionId)
     {
-        var dir = SessionDir(sessionId);
-        if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
-        Directory.Delete(dir, recursive: true);
-        return Result.Ok;
+        var localDeleted = DeleteLocalSession(sessionId);
+        var remoteDeleted = clusterUploads?.DeletePeerSessions(sessionId) ?? false;
+        return localDeleted || remoteDeleted
+            ? Result.Ok
+            : new NoSuchUploadError(sessionId);
     }
 
     public async Task<Result<CommitChunksOutcome>> Commit(
@@ -143,13 +180,20 @@ internal sealed class ChunkStager(
         using var lease = await gate.Writing();
 
         var dir = SessionDir(sessionId);
-        if (!Directory.Exists(dir)) return new NoSuchUploadError(sessionId);
+        if (!Directory.Exists(dir) && !TryHydrateSessionFromPeers(sessionId))
+            return new NoSuchUploadError(sessionId);
 
         var meta = ReadMeta(dir);
         if (meta is null) return new NoSuchUploadError(sessionId);
 
+        _ = registry.Create(meta.Bucket);
+
         var totalSize = 0L;
-        foreach (var p in orderedParts) totalSize += p.Size;
+        foreach (var p in orderedParts)
+        {
+            totalSize += p.Size;
+            mirrorQueue?.Enqueue(p.BlobSha);
+        }
 
         var effectiveContentType = !string.IsNullOrEmpty(contentTypeOverride) ? contentTypeOverride : meta.ContentType;
         var effectiveMetadata = metadataOverride ?? meta.Metadata;
@@ -168,17 +212,42 @@ internal sealed class ChunkStager(
         if (!put.TryGetValue(out var entry, out var err))
             return err;
 
-        Directory.Delete(dir, recursive: true);
+        _ = DeleteLocalSession(sessionId);
+        _ = clusterUploads?.DeletePeerSessions(sessionId);
         return new CommitChunksOutcome(entry.VersionId, totalSize);
+    }
+
+    public UploadSessionSnapshot? GetLocalSessionSnapshot(string sessionId)
+    {
+        var dir = SessionDir(sessionId);
+        if (!Directory.Exists(dir)) return null;
+        var meta = ReadMeta(dir);
+        if (meta is null) return null;
+        var session = new StagedSession(
+            sessionId,
+            meta.Bucket,
+            meta.Key,
+            meta.ContentType,
+            meta.Metadata,
+            meta.CreatedAt);
+        return new UploadSessionSnapshot(session, ReadLocalChunks(dir));
+    }
+
+    public bool DeleteLocalSession(string sessionId)
+    {
+        var dir = SessionDir(sessionId);
+        if (!Directory.Exists(dir)) return false;
+        Directory.Delete(dir, recursive: true);
+        return true;
     }
 
     public IEnumerable<string> EnumerateInFlightChunkShas()
     {
         foreach (var dir in EnumerateSessionDirs())
         {
-            var chunksDir = Path.Combine(dir, "chunks");
+            var chunksDir = Path.Combine(dir, ChunksDirName);
             if (!Directory.Exists(chunksDir)) continue;
-            foreach (var path in Directory.EnumerateFiles(chunksDir, "*.json"))
+            foreach (var path in Directory.EnumerateFiles(chunksDir, JsonWildcard))
             {
                 var chunk = DeserializeChunkFile(path);
                 if (chunk is not null) yield return chunk.BlobSha;
@@ -202,13 +271,13 @@ internal sealed class ChunkStager(
     {
         var sessionId = Ulid.NewUlid().ToString();
         var dir = SessionDir(sessionId);
-        Directory.CreateDirectory(Path.Combine(dir, "chunks"));
+        Directory.CreateDirectory(Path.Combine(dir, ChunksDirName));
 
         var session = new StagedSession(
             sessionId,
             bucket,
             key,
-            string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType,
+            string.IsNullOrEmpty(contentType) ? VesselMediaTypes.OctetStream : contentType,
             metadata,
             DateTimeOffset.UtcNow);
 
@@ -219,15 +288,62 @@ internal sealed class ChunkStager(
             session.Metadata,
             session.CreatedAt);
 
-        var metaPath = Path.Combine(dir, "meta.json");
+        var metaPath = Path.Combine(dir, MetaFileName);
         return durableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, StagingJsonContext.Default.UploadMeta)) is Result.Failure mf
             ? mf.Error
             : session;
     }
 
+    private bool TryHydrateSessionFromPeers(string sessionId)
+    {
+        var peerSnapshots = clusterUploads?.FetchPeerSessions(sessionId);
+        if (peerSnapshots is null || peerSnapshots.Count == 0)
+            return false;
+
+        var session = peerSnapshots[0].Session;
+        if (PersistSessionMeta(sessionId, session) is Result.Failure)
+            return false;
+
+        var dir = SessionDir(sessionId);
+        foreach (var snap in peerSnapshots)
+        {
+            foreach (var chunk in snap.Chunks)
+                _ = WriteChunkFile(dir, chunk);
+        }
+        return true;
+    }
+
+    private Result PersistSessionMeta(string sessionId, StagedSession session)
+    {
+        var dir = SessionDir(sessionId);
+        Directory.CreateDirectory(Path.Combine(dir, ChunksDirName));
+        var meta = new UploadMeta(
+            session.Bucket,
+            session.Key,
+            session.ContentType,
+            session.Metadata,
+            session.CreatedAt);
+        var metaPath = Path.Combine(dir, MetaFileName);
+        return durableWrite.AtomicReplace(metaPath, JsonSerializer.Serialize(meta, StagingJsonContext.Default.UploadMeta));
+    }
+
+    private static List<StagedChunk> ReadLocalChunks(string dir)
+    {
+        var chunksDir = Path.Combine(dir, ChunksDirName);
+        List<StagedChunk> result = [];
+        if (!Directory.Exists(chunksDir)) return result;
+
+        foreach (var path in Directory.EnumerateFiles(chunksDir, JsonWildcard).OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var chunk = DeserializeChunkFile(path);
+            if (chunk is not null) result.Add(chunk);
+        }
+        return result;
+    }
+
     private Result WriteChunkFile(string sessionDir, StagedChunk chunk)
     {
-        var chunksDir = Path.Combine(sessionDir, "chunks");
+        var chunksDir = Path.Combine(sessionDir, ChunksDirName);
         Directory.CreateDirectory(chunksDir);
         var path = Path.Combine(chunksDir, ChunkFileName(chunk.Token));
         return durableWrite.AtomicReplace(path, JsonSerializer.Serialize(chunk, StagingJsonContext.Default.StagedChunk));
@@ -235,8 +351,8 @@ internal sealed class ChunkStager(
 
     private static string ChunkFileName(string token) =>
         token.All(char.IsAsciiLetterOrDigit)
-            ? $"{token}.json"
-            : $"_hex_{Convert.ToHexStringLower(Encoding.UTF8.GetBytes(token))}.json";
+            ? $"{token}{JsonExtension}"
+            : $"{HexPrefix}{Convert.ToHexStringLower(Encoding.UTF8.GetBytes(token))}{JsonExtension}";
 
     private IEnumerable<string> EnumerateSessionDirs() =>
         Directory.Exists(options.Root) ? Directory.EnumerateDirectories(options.Root) : [];
@@ -246,7 +362,7 @@ internal sealed class ChunkStager(
 
     private static UploadMeta? ReadMeta(string dir)
     {
-        var path = Path.Combine(dir, "meta.json");
+        var path = Path.Combine(dir, MetaFileName);
         return !File.Exists(path)
             ? null
             : JsonSerializer.Deserialize(File.ReadAllText(path), StagingJsonContext.Default.UploadMeta);

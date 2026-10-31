@@ -716,6 +716,48 @@ internal static class Scenarios
         });
     }
 
+    public static async Task<LatencySummary> ClusterCatalog(
+        IVesselClient vessel,
+        string endpoint,
+        string? clusterSecret,
+        BenchOptions opts)
+    {
+        await vessel.CreateBucket(opts.Bucket);
+        using var handler = new SocketsHttpHandler { UseProxy = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        var transport = new HttpClusterReplicationTransport(http, clusterSecret: clusterSecret);
+
+        return await RunWorkload(opts, async (_, ct) =>
+        {
+            var res = await transport.FetchCatalog(endpoint, ct);
+            if (!res.TryGetValue(out var snap, out var err))
+                throw new InvalidOperationException($"Cluster catalog fetch failed: {err.Message}");
+            return snap.Buckets.Count * 128L;
+        });
+    }
+
+    public static async Task<LatencySummary> ClusterBucketEvents(
+        IVesselClient vessel,
+        string endpoint,
+        string? clusterSecret,
+        BenchOptions opts)
+    {
+        var size = opts.ObjectSize > 0 ? opts.ObjectSize : 512;
+        _ = await SeedClusterBlobs(vessel, opts, size);
+
+        using var handler = new SocketsHttpHandler { UseProxy = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        var transport = new HttpClusterReplicationTransport(http, clusterSecret: clusterSecret);
+
+        return await RunWorkload(opts, async (_, ct) =>
+        {
+            var res = await transport.FetchBucketEvents(endpoint, opts.Bucket, 0, ct);
+            if (!res.TryGetValue(out var batch, out var err))
+                throw new InvalidOperationException($"Cluster bucket events fetch failed: {err.Message}");
+            return batch.Events.Count * 96L;
+        });
+    }
+
     private static async Task<string[]> SeedClusterBlobs(IVesselClient vessel, BenchOptions opts, int size)
     {
         await vessel.CreateBucket(opts.Bucket);

@@ -34,6 +34,11 @@ public sealed class ServerWorkloadFactoryTests
         Assert.Equal(KubernetesConstants.ServicePortName, port.Name);
         Assert.Equal(9000, port.Port);
         Assert.Equal("9000", port.TargetPort.Value);
+
+        var peersService = ServerWorkloadFactory.CreatePeersService(TestServer);
+        Assert.Equal("prod-vessel-peers", peersService.Metadata.Name);
+        Assert.Equal(KubernetesConstants.ClusterIpNone, peersService.Spec.ClusterIP);
+        Assert.True(peersService.Spec.PublishNotReadyAddresses);
     }
 
     [Fact]
@@ -44,7 +49,7 @@ public sealed class ServerWorkloadFactoryTests
         Assert.Equal("prod-vessel", statefulSet.Metadata.Name);
         Assert.Equal("storage", statefulSet.Metadata.NamespaceProperty);
         Assert.Equal(3, statefulSet.Spec.Replicas);
-        Assert.Equal("prod-vessel", statefulSet.Spec.ServiceName);
+        Assert.Equal("prod-vessel-peers", statefulSet.Spec.ServiceName);
 
         var podSpec = statefulSet.Spec.Template.Spec;
         Assert.Equal(KubernetesConstants.DefaultSecurityContextUser, podSpec.SecurityContext.FsGroup);
@@ -63,9 +68,9 @@ public sealed class ServerWorkloadFactoryTests
         Assert.Equal("TESTAK", env[KubernetesConstants.EnvVesselAccessKey]);
         Assert.Equal("TESTSK", env[KubernetesConstants.EnvVesselSecretKey]);
         Assert.Equal(KubernetesConstants.DefaultRegion, env[KubernetesConstants.EnvVesselRegion]);
-        Assert.Equal("http://$(VESSEL3_NODE_ID).prod-vessel.storage.svc.cluster.local:9000", env[KubernetesConstants.EnvVesselAdvertiseUrl]);
+        Assert.Equal("http://$(VESSEL3_NODE_ID).prod-vessel-peers.storage.svc.cluster.local:9000", env[KubernetesConstants.EnvVesselAdvertiseUrl]);
         Assert.Equal(
-            "http://prod-vessel-0.prod-vessel.storage.svc.cluster.local:9000,http://prod-vessel-1.prod-vessel.storage.svc.cluster.local:9000,http://prod-vessel-2.prod-vessel.storage.svc.cluster.local:9000",
+            "http://prod-vessel-0.prod-vessel-peers.storage.svc.cluster.local:9000,http://prod-vessel-1.prod-vessel-peers.storage.svc.cluster.local:9000,http://prod-vessel-2.prod-vessel-peers.storage.svc.cluster.local:9000",
             env[KubernetesConstants.EnvVesselPeers]);
 
         var nodeIdEnv = Assert.Single(container.Env, e => e.Name == KubernetesConstants.EnvVesselNodeId);

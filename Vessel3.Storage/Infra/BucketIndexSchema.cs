@@ -4,6 +4,24 @@ namespace Vessel3.Storage;
 
 internal static class BucketIndexSchema
 {
+    public const string TableVersions = "versions";
+    public const string MetaKeyAppliedSeq = "applied_seq";
+    public const string MetaKeyOwner = "owner";
+    private const string ColTagsJson = "tags_json";
+    private const string ColCrc32 = "crc32";
+    private const string ColCrc32C = "crc32c";
+    private const string ColSha1 = "sha1";
+    private const string ColRetentionMode = "retention_mode";
+    private const string ColRetainUntil = "retain_until";
+    private const string ColLegalHold = "legal_hold";
+    private const string ColSystemHeaders = "system_headers";
+    private const string ColOriginNode = "origin_node";
+    private const string ColOriginSeq = "origin_seq";
+    private const string TypeText = "TEXT";
+    private const string TypeInteger = "INTEGER";
+    private const string TypeTextDefaultEmpty = "TEXT NOT NULL DEFAULT ''";
+    private const string TypeIntDefaultZero = "INTEGER NOT NULL DEFAULT 0";
+
     public static void Initialize(SqliteConnection conn)
     {
         using var pragma = conn.CreateCommand();
@@ -37,7 +55,9 @@ internal static class BucketIndexSchema
                 retention_mode TEXT,
                 retain_until  INTEGER,
                 legal_hold    INTEGER,
-                system_headers TEXT NOT NULL DEFAULT '{}'
+                system_headers TEXT NOT NULL DEFAULT '{}',
+                origin_node   TEXT NOT NULL DEFAULT '',
+                origin_seq    INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_key_seq ON versions(key, seq DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_key_versionid ON versions(key, version_id);
@@ -45,35 +65,42 @@ internal static class BucketIndexSchema
                 key   TEXT PRIMARY KEY,
                 value INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS peer_cursors (
+                node_id         TEXT PRIMARY KEY,
+                last_origin_seq INTEGER NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
 
-        if (!HasColumn(conn, "versions", "tags_json"))
+        if (!HasColumn(conn, TableVersions, ColTagsJson))
         {
             using var alter = conn.CreateCommand();
             alter.CommandText = "ALTER TABLE versions ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'";
             alter.ExecuteNonQuery();
         }
 
-        ReadOnlySpan<string> cols = ["crc32", "crc32c", "sha1"];
+        ReadOnlySpan<string> cols = [ColCrc32, ColCrc32C, ColSha1];
         foreach (var col in cols)
         {
-            if (HasColumn(conn, "versions", col)) continue;
+            if (HasColumn(conn, TableVersions, col)) continue;
             using var add = conn.CreateCommand();
-            add.CommandText = $"ALTER TABLE versions ADD COLUMN {col} TEXT NOT NULL DEFAULT ''";
+            add.CommandText = $"ALTER TABLE versions ADD COLUMN {col} {TypeTextDefaultEmpty}";
             add.ExecuteNonQuery();
         }
 
-        AddColumnIfMissing(conn, "retention_mode", "TEXT");
-        AddColumnIfMissing(conn, "retain_until", "INTEGER");
-        AddColumnIfMissing(conn, "legal_hold", "INTEGER");
+        AddColumnIfMissing(conn, ColRetentionMode, TypeText);
+        AddColumnIfMissing(conn, ColRetainUntil, TypeInteger);
+        AddColumnIfMissing(conn, ColLegalHold, TypeInteger);
 
-        if (!HasColumn(conn, "versions", "system_headers"))
+        if (!HasColumn(conn, TableVersions, ColSystemHeaders))
         {
             using var alter = conn.CreateCommand();
             alter.CommandText = "ALTER TABLE versions ADD COLUMN system_headers TEXT NOT NULL DEFAULT '{}'";
             alter.ExecuteNonQuery();
         }
+
+        AddColumnIfMissing(conn, ColOriginNode, TypeTextDefaultEmpty);
+        AddColumnIfMissing(conn, ColOriginSeq, TypeIntDefaultZero);
     }
 
     private static bool HasColumn(SqliteConnection conn, string table, string column)
@@ -90,7 +117,7 @@ internal static class BucketIndexSchema
 
     private static void AddColumnIfMissing(SqliteConnection conn, string name, string type)
     {
-        if (HasColumn(conn, "versions", name)) return;
+        if (HasColumn(conn, TableVersions, name)) return;
         using var alter = conn.CreateCommand();
         alter.CommandText = $"ALTER TABLE versions ADD COLUMN {name} {type}";
         alter.ExecuteNonQuery();

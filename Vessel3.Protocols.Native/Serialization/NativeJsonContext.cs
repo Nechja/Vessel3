@@ -126,13 +126,24 @@ public readonly record struct VolumeDto(
     long? AvailableBytes = null,
     string? NodeId = null);
 
+public readonly record struct BucketReplicationDto(
+    string Name,
+    long AppliedSeq,
+    long FirstAvailableLogSeq,
+    string VersioningStatus = "Suspended",
+    bool PublicRead = false,
+    bool ReadOnly = false);
+
 public readonly record struct ClusterStatusDto(
     string NodeId,
     string Region,
     bool ClusterEnabled,
     ClusterPeerDto LocalNode,
     IReadOnlyList<ClusterPeerDto> Peers,
-    IReadOnlyList<VolumeDto> Volumes);
+    IReadOnlyList<VolumeDto> Volumes,
+    long IamGeneration = 0,
+    int PendingMirrorBlobs = 0,
+    IReadOnlyList<BucketReplicationDto>? BucketWatermarks = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(BucketDto))]
@@ -183,5 +194,8 @@ public readonly record struct ClusterStatusDto(
 [JsonSerializable(typeof(VolumeDto))]
 [JsonSerializable(typeof(IReadOnlyList<VolumeDto>))]
 [JsonSerializable(typeof(List<VolumeDto>))]
+[JsonSerializable(typeof(BucketReplicationDto))]
+[JsonSerializable(typeof(IReadOnlyList<BucketReplicationDto>))]
+[JsonSerializable(typeof(List<BucketReplicationDto>))]
 [JsonSerializable(typeof(ClusterStatusDto))]
 internal partial class NativeJsonContext : JsonSerializerContext;

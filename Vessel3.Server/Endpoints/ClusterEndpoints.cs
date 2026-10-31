@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Vessel3.IO;
 
@@ -8,6 +9,13 @@ internal static class ClusterEndpoints
     private const string ActionClusterGossip = "ClusterGossip";
     private const string ActionClusterHeadBlob = "ClusterHeadBlob";
     private const string ActionClusterGetBlob = "ClusterGetBlob";
+    private const string ActionClusterGetCatalog = "ClusterGetCatalog";
+    private const string ActionClusterGetBucketEvents = "ClusterGetBucketEvents";
+    private const string ActionClusterGetBucketSnapshot = "ClusterGetBucketSnapshot";
+    private const string ActionClusterGetIamDelta = "ClusterGetIamDelta";
+    private const string ActionClusterGetUploadSession = "ClusterGetUploadSession";
+    private const string ActionClusterDeleteUploadSession = "ClusterDeleteUploadSession";
+    private const string ActionClusterGetGcReferences = "ClusterGetGcReferences";
 
     public static void MapClusterEndpoints(this WebApplication app)
     {
@@ -15,6 +23,13 @@ internal static class ClusterEndpoints
         cluster.MapPost(VesselRoutes.ClusterGossipSubpath, HandleGossip);
         cluster.MapMethods(VesselRoutes.ClusterBlobRoutePattern, [HttpMethods.Head], HandleHeadBlob);
         cluster.MapGet(VesselRoutes.ClusterBlobRoutePattern, HandleGetBlob);
+        cluster.MapGet(VesselRoutes.ClusterCatalogSubpath, HandleGetCatalog);
+        cluster.MapGet(VesselRoutes.ClusterBucketEventsRoutePattern, HandleGetBucketEvents);
+        cluster.MapGet(VesselRoutes.ClusterBucketSnapshotRoutePattern, HandleGetBucketSnapshot);
+        cluster.MapGet(VesselRoutes.ClusterIamDeltaSubpath, HandleGetIamDelta);
+        cluster.MapGet(VesselRoutes.ClusterUploadsRoutePattern, HandleGetUploadSession);
+        cluster.MapDelete(VesselRoutes.ClusterUploadsRoutePattern, HandleDeleteUploadSession);
+        cluster.MapGet(VesselRoutes.ClusterGcReferencesSubpath, HandleGetGcReferences);
     }
 
     private static async Task HandleGossip(
@@ -125,6 +140,243 @@ internal static class ClusterEndpoints
 
             await stream.CopyToAsync(ctx.Response.Body, SohBuffer.BlockSize, ctx.RequestAborted);
         }
+    }
+
+    private static async Task HandleGetCatalog(
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IBucketRegistry bucketRegistry,
+        IIdentityRegistry identityRegistry)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetAction(ActionClusterGetCatalog);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var snapshot = new ClusterCatalogSnapshot(
+            options.NodeId,
+            identityRegistry.Generation,
+            bucketRegistry.GetCatalogEntries());
+
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.Json;
+        await JsonSerializer.SerializeAsync(
+            ctx.Response.Body,
+            snapshot,
+            GossipJsonContext.Default.ClusterCatalogSnapshot,
+            ctx.RequestAborted);
+    }
+
+    private static async Task HandleGetBucketEvents(
+        string bucket,
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IBucketRegistry bucketRegistry)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterGetBucketEvents, bucket: bucket);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var targetBucket = bucketRegistry.GetOpenBucket(bucket);
+        if (targetBucket is null)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var afterSeq = 0L;
+        if (ctx.Request.Query.TryGetValue(VesselQueryParams.AfterSeq, out var rawAfter)
+            && rawAfter.Count > 0
+            && long.TryParse(rawAfter[0].AsSpan(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            afterSeq = Math.Max(0L, parsed);
+        }
+
+        var (firstAvail, events, requiresSnapshot) = targetBucket.ReadEventsBatchAfter(afterSeq, 1000);
+        var appliedSeq = targetBucket.AppliedSeq;
+        var batch = new BucketEventsBatch(
+            bucket,
+            firstAvail,
+            appliedSeq,
+            RequiresSnapshot: requiresSnapshot,
+            Events: events);
+
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.Json;
+        await JsonSerializer.SerializeAsync(
+            ctx.Response.Body,
+            batch,
+            GossipJsonContext.Default.BucketEventsBatch,
+            ctx.RequestAborted);
+    }
+
+    private static async Task HandleGetBucketSnapshot(
+        string bucket,
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IBucketRegistry bucketRegistry)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterGetBucketSnapshot, bucket: bucket);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var targetBucket = bucketRegistry.GetOpenBucket(bucket);
+        if (targetBucket is null)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        await using var stream = targetBucket.OpenSnapshotStream();
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.OctetStream;
+        if (stream.CanSeek)
+            ctx.Response.ContentLength = stream.Length;
+        await stream.CopyToAsync(ctx.Response.Body, SohBuffer.BlockSize, ctx.RequestAborted);
+    }
+
+    private static async Task HandleGetIamDelta(
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IIdentityRegistry identityRegistry)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetAction(ActionClusterGetIamDelta);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var snapshot = identityRegistry.ExportSnapshot();
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.Json;
+        await JsonSerializer.SerializeAsync(
+            ctx.Response.Body,
+            snapshot,
+            GossipJsonContext.Default.IdentityReplicationSnapshot,
+            ctx.RequestAborted);
+    }
+
+    private static async Task HandleGetUploadSession(
+        string sessionId,
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IChunkStager chunkStager)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterGetUploadSession, key: sessionId);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var snapshot = chunkStager.GetLocalSessionSnapshot(sessionId);
+        if (snapshot is null)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.Json;
+        await JsonSerializer.SerializeAsync(
+            ctx.Response.Body,
+            snapshot,
+            GossipJsonContext.Default.UploadSessionSnapshot,
+            ctx.RequestAborted);
+    }
+
+    private static Task HandleDeleteUploadSession(
+        string sessionId,
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IChunkStager chunkStager)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetTarget(ActionClusterDeleteUploadSession, key: sessionId);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        }
+
+        var deleted = chunkStager.DeleteLocalSession(sessionId);
+        ctx.Response.StatusCode = deleted ? StatusCodes.Status204NoContent : StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    }
+
+    private static async Task HandleGetGcReferences(
+        HttpContext ctx,
+        ClusterMembershipOptions options,
+        IEnumerable<IBlobReferenceSource> referenceSources,
+        IChunkStager chunkStager,
+        IBlobMirrorQueue mirrorQueue)
+    {
+        RequestTrace.SetContext(protocol: VesselProtocols.Cluster);
+        RequestTrace.SetAction(ActionClusterGetGcReferences);
+
+        if (!IsAuthorized(ctx, options))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var shas = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var source in referenceSources)
+        {
+            if (source is ClusterBlobReferenceSource)
+                continue;
+
+            await foreach (var sha in source.AllReferencedBlobs(ctx.RequestAborted))
+            {
+                if (!string.IsNullOrEmpty(sha))
+                    shas.Add(sha);
+            }
+
+            foreach (var sha in source.EnumerateInFlightShas())
+            {
+                if (!string.IsNullOrEmpty(sha))
+                    shas.Add(sha);
+            }
+        }
+        foreach (var sha in chunkStager.EnumerateInFlightChunkShas())
+        {
+            if (!string.IsNullOrEmpty(sha))
+                shas.Add(sha);
+        }
+        foreach (var sha in mirrorQueue.EnumeratePendingShas())
+        {
+            if (!string.IsNullOrEmpty(sha))
+                shas.Add(sha);
+        }
+
+        var response = new ClusterGcReferencesResponse([.. shas]);
+        ctx.Response.StatusCode = StatusCodes.Status200OK;
+        ctx.Response.ContentType = VesselMediaTypes.Json;
+        await JsonSerializer.SerializeAsync(
+            ctx.Response.Body,
+            response,
+            GossipJsonContext.Default.ClusterGcReferencesResponse,
+            ctx.RequestAborted);
     }
 
     private static bool IsAuthorized(HttpContext ctx, ClusterMembershipOptions options)

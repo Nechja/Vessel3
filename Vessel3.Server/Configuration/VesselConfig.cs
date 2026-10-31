@@ -100,7 +100,7 @@ internal sealed record VesselConfig(
         var otelServiceName = ReadString(VesselEnvVars.OtelServiceName, VesselDefaults.ServiceName)!;
         var otel = new OtelConfig(otelEnabled, otelEndpoint, otelServiceName);
 
-        if (!TryReadVolumes(VesselEnvVars.Volumes, dataRoot, out var volumes, out error, nodeId))
+        if (!TryReadVolumes(VesselEnvVars.Volumes, dataRoot, out var volumes, out error, nodeId, cluster.IsClusterEnabled))
         {
             config = null;
             return false;
@@ -250,11 +250,12 @@ internal sealed record VesselConfig(
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
         [NotNullWhen(false)] out string? error,
-        string? nodeId = null)
+        string? nodeId = null,
+        bool clusterEnabled = false)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId, clusterEnabled)];
             error = null;
             return true;
         }
@@ -317,12 +318,12 @@ internal sealed record VesselConfig(
 
         if (list.Count == 0)
         {
-            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId)];
+            volumes = [StorageVolume.CreateDefault(dataRoot, nodeId, clusterEnabled)];
             error = null;
             return true;
         }
 
-        if (!list.Any(v => v.IsWritable))
+        if (!list.Any(v => v.IsLocalReplicaWritable))
         {
             volumes = null;
             error = "No writable volume configured. At least one volume must not be ReadOnly or Remote.";
@@ -374,6 +375,7 @@ internal sealed record VesselConfig(
         string dataRoot,
         [NotNullWhen(true)] out IReadOnlyList<StorageVolume>? volumes,
         [NotNullWhen(false)] out string? error,
-        string? nodeId = null) =>
-        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error, nodeId);
+        string? nodeId = null,
+        bool clusterEnabled = false) =>
+        TryParseVolumes(Environment.GetEnvironmentVariable(name), dataRoot, out volumes, out error, nodeId, clusterEnabled);
 }

@@ -14,7 +14,10 @@ internal sealed class NativeAdminAdapter(
     IVolumeRegistry volumes,
     IClusterMembership membership,
     ClusterMembershipOptions clusterOptions,
-    ServerRegion region)
+    ServerRegion region,
+    IBucketRegistry? buckets = null,
+    IIdentityRegistry? identity = null,
+    IBlobMirrorQueue? mirrorQueue = null)
 {
     public async Task<IResult> RunGc(HttpContext ctx)
     {
@@ -142,15 +145,53 @@ internal sealed class NativeAdminAdapter(
             peerDtos.Add(MapPeer(peers[i], null));
         }
 
+        var iamGen = identity?.Generation ?? 0L;
+        var pendingBlobs = mirrorQueue?.PendingCount ?? 0;
+        var bucketWatermarks = BuildBucketWatermarks(buckets);
+
         var status = new ClusterStatusDto(
             clusterOptions.NodeId,
             region.Value,
             clusterOptions.IsClusterEnabled,
             localNode,
             peerDtos,
-            volumeDtos);
+            volumeDtos,
+            iamGen,
+            pendingBlobs,
+            bucketWatermarks);
 
         return Results.Json(status, NativeJsonContext.Default.ClusterStatusDto);
+    }
+
+    private static List<BucketReplicationDto> BuildBucketWatermarks(IBucketRegistry? buckets)
+    {
+        if (buckets is null)
+        {
+            return [];
+        }
+
+        var entries = buckets.GetCatalogEntries();
+        var list = new List<BucketReplicationDto>(entries.Count);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var entry = entries[i];
+            if (entry.DeletedAtUnixMs > 0)
+            {
+                continue;
+            }
+
+            var cfg = entry.Config;
+            var access = cfg?.Access ?? BucketAccess.Private;
+            list.Add(new BucketReplicationDto(
+                entry.Name,
+                entry.AppliedSeq,
+                entry.FirstAvailableLogSeq,
+                (cfg?.Versioning ?? VersioningStatus.Suspended).ToString(),
+                access.PublicRead,
+                access.ReadOnly));
+        }
+
+        return list;
     }
 
     private static ClusterPeerDto MapPeer(

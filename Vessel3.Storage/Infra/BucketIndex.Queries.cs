@@ -14,19 +14,40 @@ internal sealed partial class BucketIndex
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    public long AppliedSeq()
+    public long AppliedSeq() => Volatile.Read(ref cachedAppliedSeq);
+
+    public string? GetOwner() => Volatile.Read(ref cachedOwner);
+
+    private void RefreshCachedMeta()
+    {
+        Volatile.Write(ref cachedAppliedSeq, QueryAppliedSeq());
+        Volatile.Write(ref cachedOwner, QueryOwner());
+    }
+
+    private long QueryAppliedSeq()
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
-        cmd.CommandText = "SELECT COALESCE((SELECT value FROM meta WHERE key = 'applied_seq'), 0)";
+        cmd.CommandText = "SELECT COALESCE((SELECT value FROM meta WHERE key = @key), 0)";
+        cmd.Parameters.AddWithValue("@key", BucketIndexSchema.MetaKeyAppliedSeq);
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    public string? GetOwner()
+    public long GetPeerCursor(string nodeId)
     {
         using var rh = ReadCmd();
         var cmd = rh.Cmd;
-        cmd.CommandText = "SELECT value FROM meta WHERE key = 'owner'";
+        cmd.CommandText = "SELECT COALESCE((SELECT last_origin_seq FROM peer_cursors WHERE node_id = @nodeId), 0)";
+        cmd.Parameters.AddWithValue("@nodeId", nodeId);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private string? QueryOwner()
+    {
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT value FROM meta WHERE key = @key";
+        cmd.Parameters.AddWithValue("@key", BucketIndexSchema.MetaKeyOwner);
         var result = cmd.ExecuteScalar();
         return result is null or DBNull ? null : Convert.ToString(result, CultureInfo.InvariantCulture);
     }
@@ -202,34 +223,54 @@ internal sealed partial class BucketIndex
     {
         const int pageSize = 2000;
         long after = 0;
+        List<string> page = new(pageSize);
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            List<string> page = [];
-            var rows = 0;
-            using (var rh = ReadCmd())
-            {
-                var cmd = rh.Cmd;
-                cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
-                cmd.Parameters.AddWithValue("@after", after);
-                cmd.Parameters.AddWithValue("@limit", pageSize);
-                using var r = await cmd.ExecuteReaderAsync(ct);
-                while (await r.ReadAsync(ct))
-                {
-                    rows++;
-                    after = r.GetInt64(0);
-                    if (r.GetString(1) is { Length: > 0 } blobSha) page.Add(blobSha);
-                    if (DeserializeParts(r.GetString(2)) is { } parts)
-                        foreach (var p in parts)
-                            if (p.BlobSha.Length > 0) page.Add(p.BlobSha);
-                }
-            }
+            page.Clear();
+            var (rows, nextAfter) = await ReadReferencedBlobsPage(after, pageSize, page, ct);
+            after = nextAfter;
+
             foreach (var sha in page)
             {
                 ct.ThrowIfCancellationRequested();
                 yield return sha;
             }
             if (rows < pageSize) yield break;
+        }
+    }
+
+    private async Task<(int Rows, long LastSeq)> ReadReferencedBlobsPage(long after, int pageSize, List<string> page, CancellationToken ct)
+    {
+        var rows = 0;
+        var lastSeq = after;
+        using var rh = ReadCmd();
+        var cmd = rh.Cmd;
+        cmd.CommandText = "SELECT seq, blob_sha, parts_json FROM versions WHERE seq > @after ORDER BY seq LIMIT @limit";
+        cmd.Parameters.AddWithValue("@after", after);
+        cmd.Parameters.AddWithValue("@limit", pageSize);
+        using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            rows++;
+            lastSeq = r.GetInt64(0);
+            AppendRowBlobs(r, page);
+        }
+        return (rows, lastSeq);
+    }
+
+    private static void AppendRowBlobs(SqliteDataReader r, List<string> page)
+    {
+        if (r.GetString(1) is { Length: > 0 } blobSha)
+            page.Add(blobSha);
+
+        if (DeserializeParts(r.GetString(2)) is not { } parts)
+            return;
+
+        for (var i = 0; i < parts.Count; i++)
+        {
+            if (parts[i].BlobSha.Length > 0)
+                page.Add(parts[i].BlobSha);
         }
     }
 

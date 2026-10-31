@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "vessel3.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "vessel3.fullname" . }}
+  serviceName: {{ if include "vessel3.clusterEnabled" . }}{{ include "vessel3.peersServiceName" . }}{{ else }}{{ include "vessel3.fullname" . }}{{ end }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
@@ -89,7 +89,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: VESSEL3_ADVERTISE_URL
-              value: {{ printf "http://$(VESSEL3_NODE_ID).%s.%s.svc.cluster.local:%d" (include "vessel3.fullname" .) .Release.Namespace (int .Values.service.port) | quote }}
+              value: {{ printf "http://$(VESSEL3_NODE_ID).%s.%s.svc.cluster.local:%d" (include "vessel3.peersServiceName" .) .Release.Namespace (int .Values.service.port) | quote }}
             - name: VESSEL3_PEERS
               value: {{ include "vessel3.peers" . | quote }}
             - name: VESSEL3_GOSSIP_INTERVAL_MS

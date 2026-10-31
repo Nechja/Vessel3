@@ -28,6 +28,7 @@ internal sealed class VolumeRegistry : IVolumeRegistry
     public IReadOnlyList<AdvertisedVolume> LocalAdvertisedVolumes => current.LocalAdvertisedVolumes;
     public IReadOnlyList<IVolumeStorage> LocalStorages => current.LocalStorages;
     public IReadOnlyList<IVolumeStorage> WritableStorages => current.WritableStorages;
+    public IReadOnlyList<IVolumeStorage> MirrorTargetStorages => current.MirrorTargetStorages;
     public IReadOnlyList<IVolumeStorage> ReadPriorityStorages => current.ReadPriorityStorages;
     public IReadOnlyList<IBlobReader> ReadPriorityReaders => current.ReadPriorityReaders;
     public StorageVolume DefaultIngestVolume => current.DefaultIngestVolume;
@@ -262,7 +263,7 @@ internal sealed class VolumeRegistry : IVolumeRegistry
             readers[vol.Id] = storage;
         }
 
-        if (!initialVolumes.Any(v => v.IsWritable))
+        if (!initialVolumes.Any(v => v.IsLocalReplicaWritable))
             throw new InvalidOperationException("No writable storage volume configured.");
 
         return CreateSnapshot(
@@ -286,6 +287,7 @@ internal sealed class VolumeRegistry : IVolumeRegistry
                 StringComparer.OrdinalIgnoreCase);
 
         IReadOnlyList<StorageVolume> writable = [.. volumes.Where(v => v.IsWritable)];
+        IReadOnlyList<StorageVolume> mirrorTargets = [.. volumes.Where(v => v.IsLocalMirrorTarget)];
         IReadOnlyList<StorageVolume> readPriority =
         [
             .. volumes
@@ -300,7 +302,10 @@ internal sealed class VolumeRegistry : IVolumeRegistry
         var defaultIngest = writable.FirstOrDefault(v => v.IsIngest && !v.IsOnDemand)
             ?? (writable is [var firstWritable, ..]
                 ? firstWritable
-                : throw new InvalidOperationException("No writable storage volume configured."));
+                : mirrorTargets is [var firstMirror, ..]
+                    ? firstMirror
+                    : volumes.FirstOrDefault(v => !v.IsRemote)
+                        ?? throw new InvalidOperationException("No writable storage volume configured."));
 
         List<IVolumeStorage> localStorages = new(readPriority.Count);
         List<IVolumeStorage> readPriorityStorages = new(readPriority.Count);
@@ -332,6 +337,13 @@ internal sealed class VolumeRegistry : IVolumeRegistry
                 writableStorages.Add(st);
         }
 
+        List<IVolumeStorage> mirrorTargetStorages = new(mirrorTargets.Count);
+        foreach (var v in mirrorTargets)
+        {
+            if (storages.TryGetValue(v.Id, out var st))
+                mirrorTargetStorages.Add(st);
+        }
+
         var defaultIngestStorage = storages[defaultIngest.Id];
 
         return new(
@@ -341,6 +353,7 @@ internal sealed class VolumeRegistry : IVolumeRegistry
             localAdvertised,
             localStorages,
             writableStorages,
+            mirrorTargetStorages,
             readPriorityStorages,
             readPriorityReaders,
             defaultIngest,
@@ -414,6 +427,7 @@ internal sealed class VolumeRegistry : IVolumeRegistry
         IReadOnlyList<AdvertisedVolume> LocalAdvertisedVolumes,
         IReadOnlyList<IVolumeStorage> LocalStorages,
         IReadOnlyList<IVolumeStorage> WritableStorages,
+        IReadOnlyList<IVolumeStorage> MirrorTargetStorages,
         IReadOnlyList<IVolumeStorage> ReadPriorityStorages,
         IReadOnlyList<IBlobReader> ReadPriorityReaders,
         StorageVolume DefaultIngestVolume,

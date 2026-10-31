@@ -71,13 +71,18 @@ true
 {{- end -}}
 {{- end }}
 
+{{- define "vessel3.peersServiceName" -}}
+{{- printf "%s-peers" (include "vessel3.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "vessel3.peers" -}}
 {{- $fullname := include "vessel3.fullname" . -}}
+{{- $peersSvc := include "vessel3.peersServiceName" . -}}
 {{- $ns := .Release.Namespace -}}
 {{- $port := int .Values.service.port -}}
 {{- $peers := list -}}
 {{- range $i := until (int .Values.replicaCount) -}}
-{{- $peers = append $peers (printf "http://%s-%d.%s.%s.svc.cluster.local:%d" $fullname $i $fullname $ns $port) -}}
+{{- $peers = append $peers (printf "http://%s-%d.%s.%s.svc.cluster.local:%d" $fullname $i $peersSvc $ns $port) -}}
 {{- end -}}
 {{- range .Values.cluster.peers -}}
 {{- $peers = append $peers . -}}

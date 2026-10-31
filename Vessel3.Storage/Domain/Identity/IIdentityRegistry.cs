@@ -1,5 +1,10 @@
 namespace Vessel3.Storage;
 
+internal interface IClusterIamSyncer
+{
+    bool TrySyncIam();
+}
+
 internal interface IIdentityRegistry : IDisposable
 {
     Result<User> CreateUser(string username, UserRole role = UserRole.Member);
@@ -18,4 +23,9 @@ internal interface IIdentityRegistry : IDisposable
     Result<CallerIdentity> AuthenticateAccessKey(string accessKeyId);
     Result EnsureBootstrapAdmin(string? accessKey, string? secretKey);
     Result EnsureAdminUsers(IReadOnlyList<string> adminPatterns);
+
+    long Generation => 0;
+    IdentityReplicationSnapshot ExportSnapshot() => new(0, [], [], []);
+    bool MergeSnapshot(IdentityReplicationSnapshot snapshot) => false;
+    void RegisterClusterSyncer(IClusterIamSyncer syncer) { }
 }

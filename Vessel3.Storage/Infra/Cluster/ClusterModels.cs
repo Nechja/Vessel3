@@ -82,6 +82,21 @@ public sealed record GossipMessage(
     long SenderIncarnation,
     IReadOnlyList<PeerNodeState> Members);
 
+internal sealed record ClusterCatalogSnapshot(
+    string NodeId,
+    long IamGeneration,
+    IReadOnlyList<BucketCatalogEntry> Buckets);
+
+internal sealed record BucketEventsBatch(
+    string Bucket,
+    long FirstAvailableSeq,
+    long LatestSeq,
+    bool RequiresSnapshot,
+    IReadOnlyList<VersionEvent> Events);
+
+internal sealed record ClusterGcReferencesResponse(
+    IReadOnlyList<string> ReferencedShas);
+
 public sealed record ClusterMembershipOptions(
     string NodeId,
     string LocalEndpoint,

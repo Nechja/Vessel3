@@ -5,10 +5,11 @@ using System.Text.Json;
 
 namespace Vessel3.Storage;
 
-internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
+internal sealed class VersionLog(string path, IFileSync fileSync, string? localNodeId = null) : IDisposable
 {
     private const int HeaderLength = 21;
     private const long ResyncScanLimit = 8L * 1024 * 1024;
+    private const string TempExtension = ".tmp";
 
     private readonly Lock writeLock = new();
     private FileStream? writer;
@@ -17,6 +18,9 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
     private bool faulted;
     private bool chainKnown;
     private long scannedNextSeq;
+    private long firstAvailableSeq = 1;
+
+    public long FirstAvailableSeq => Volatile.Read(ref firstAvailableSeq);
 
     public void Open(long startingSeq)
     {
@@ -34,7 +38,64 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         if (isNewFile && fileSync.SyncDirectory(dir) is Result.Failure sf) throw new IOException(sf.Error.Message);
         if (!chainKnown) RestoreChainState();
         nextSeq = scannedNextSeq > 0 ? scannedNextSeq : startingSeq;
+        if (scannedNextSeq == 0)
+            Volatile.Write(ref firstAvailableSeq, nextSeq);
     }
+
+    public void ResetAfterSnapshot(long startingSeq)
+    {
+        lock (writeLock)
+        {
+            writer?.Dispose();
+            writer = null;
+            if (File.Exists(path))
+                File.Delete(path);
+
+            previousCrc = 0;
+            faulted = false;
+            chainKnown = true;
+            scannedNextSeq = startingSeq;
+            Volatile.Write(ref firstAvailableSeq, startingSeq);
+            nextSeq = startingSeq;
+
+            writer = new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.Append,
+                Access = FileAccess.Write,
+                Share = FileShare.Read,
+                BufferSize = 4096,
+                Options = FileOptions.Asynchronous,
+            });
+        }
+    }
+
+    public (long FirstAvailableSeq, IReadOnlyList<VersionEvent> Events, bool RequiresSnapshot) ReadEventsBatchAfter(long afterSeq, int maxCount = 1000)
+    {
+        lock (writeLock)
+        {
+            var firstAvail = Volatile.Read(ref firstAvailableSeq);
+            if (afterSeq < firstAvail - 1)
+                return (firstAvail, [], true);
+
+            if (!File.Exists(path))
+                return (firstAvail, [], false);
+
+            List<VersionEvent> events = [];
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            foreach (var (ev, _) in ReadRecordsWithoutMutatingState(fs))
+            {
+                if (ev.Seq <= afterSeq)
+                    continue;
+                events.Add(ev);
+                if (events.Count >= maxCount)
+                    break;
+            }
+            return (firstAvail, events, false);
+        }
+    }
+
+    public IReadOnlyList<VersionEvent> ReadEventsAfter(long afterSeq, int maxCount = 1000) =>
+        ReadEventsBatchAfter(afterSeq, maxCount).Events;
 
     public void Dispose()
     {
@@ -53,7 +114,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
             var seq = nextSeq;
             List<VersionEvent> assigned = new(ops.Count);
-            foreach (var op in ops) assigned.Add(op.WithSeq(seq++));
+            foreach (var op in ops) assigned.Add(op.WithSeq(seq++, localNodeId));
 
             var payload = JsonSerializer.SerializeToUtf8Bytes(
                 new LogRecord(nextSeq, DateTimeOffset.UtcNow, assigned), VersionEventContext.Default.LogRecord);
@@ -98,7 +159,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
                         if (ev.Seq > throughSeq) kept.Add(ev);
                 }
 
-                var tmp = path + ".tmp";
+                var tmp = path + TempExtension;
                 uint chain = 0;
                 using (var outStream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
@@ -108,6 +169,11 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
                             new LogRecord(kept[0].Seq, DateTimeOffset.UtcNow, kept), VersionEventContext.Default.LogRecord);
                         chain = ChainCrc(0, payload);
                         WriteFrame(outStream, payload, chain);
+                        Volatile.Write(ref firstAvailableSeq, kept[0].Seq);
+                    }
+                    else
+                    {
+                        Volatile.Write(ref firstAvailableSeq, nextSeq);
                     }
                     if (fileSync.SyncData(outStream) is Result.Failure sf) throw new IOException(sf.Error.Message);
                 }
@@ -202,13 +268,14 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         previousCrc = 0;
         scannedNextSeq = 0;
         var expectedSeq = -1L;
+        var firstSeen = false;
 
         while (true)
         {
             var start = fs.Position;
             if (start >= fs.Length) yield break;
 
-            if (!TryReadRecord(fs, out var ops, out var recordSeq, out var crc, out var framed))
+            if (!TryReadRecord(fs, previousCrc, out var ops, out var recordSeq, out var crc, out var framed))
             {
                 if (HasParsableRecordAfter(fs, start))
                     throw new InvalidDataException($"Version log corrupt at offset {start}");
@@ -222,6 +289,12 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
                 yield break;
             }
 
+            if (!firstSeen)
+            {
+                Volatile.Write(ref firstAvailableSeq, recordSeq);
+                firstSeen = true;
+            }
+
             if (framed) previousCrc = crc;
             expectedSeq = recordSeq + ops.Count;
             scannedNextSeq = expectedSeq;
@@ -230,7 +303,30 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         }
     }
 
-    private bool TryReadRecord(FileStream fs, out IReadOnlyList<VersionEvent> ops, out long recordSeq, out uint crc, out bool framed)
+    private IEnumerable<(VersionEvent Event, long End)> ReadRecordsWithoutMutatingState(FileStream fs)
+    {
+        uint runningCrc = 0;
+        var expectedSeq = -1L;
+
+        while (true)
+        {
+            var start = fs.Position;
+            if (start >= fs.Length) yield break;
+
+            if (!TryReadRecord(fs, runningCrc, out var ops, out var recordSeq, out var crc, out var framed))
+                yield break;
+
+            if (expectedSeq >= 0 && recordSeq != expectedSeq)
+                yield break;
+
+            if (framed) runningCrc = crc;
+            expectedSeq = recordSeq + ops.Count;
+            var end = fs.Position;
+            foreach (var op in ops) yield return (op, end);
+        }
+    }
+
+    private static bool TryReadRecord(FileStream fs, uint priorCrc, out IReadOnlyList<VersionEvent> ops, out long recordSeq, out uint crc, out bool framed)
     {
         ops = [];
         recordSeq = 0;
@@ -244,13 +340,13 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
 
         if (first == '{') return TryReadLegacyRecord(fs, out ops, out recordSeq);
 
-        var header = new byte[HeaderLength];
+        Span<byte> header = stackalloc byte[HeaderLength];
         if (!ReadFully(fs, header) || !ParseHeader(header, start, fs.Length, out var length, out var declaredCrc))
             return false;
 
         var payload = new byte[length];
         if (!ReadFully(fs, payload) || fs.ReadByte() != '\n') return false;
-        if (ChainCrc(previousCrc, payload) != declaredCrc) return false;
+        if (ChainCrc(priorCrc, payload) != declaredCrc) return false;
 
         LogRecord? record;
         try
@@ -349,7 +445,7 @@ internal sealed class VersionLog(string path, IFileSync fileSync) : IDisposable
         if (first < 0) return false;
         fs.Position = offset;
 
-        var header = new byte[HeaderLength];
+        Span<byte> header = stackalloc byte[HeaderLength];
         return first == '{'
             ? TryReadLegacyRecord(fs, out _, out _)
             : ReadFully(fs, header) && ParseHeader(header, offset, fs.Length, out _, out _);
