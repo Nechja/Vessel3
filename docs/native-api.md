@@ -44,7 +44,7 @@ Common error codes and status mappings:
 - `401 Unauthorized`: `Unauthorized`, `InvalidCredentials`, `ExpiredToken`
 - `403 Forbidden`: `AccessDenied`
 - `404 Not Found`: `NoSuchBucket`, `NoSuchKey`, `UserNotFound`, `KeyNotFound`
-- `409 Conflict`: `BucketNotEmpty`, `BucketAlreadyExists`
+- `409 Conflict`: `BucketNotEmpty`, `BucketAlreadyExists`, `BucketAlreadyOwnedByYou`
 
 ---
 

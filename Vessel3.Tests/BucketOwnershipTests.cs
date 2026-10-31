@@ -39,7 +39,7 @@ public class BucketOwnershipTests : IDisposable
     {
         var reg = Registry();
         var createResult = reg.Create("alice-bucket", "usr_alice123");
-        Assert.IsType<Result<bool>.Success>(createResult);
+        Assert.IsType<Result.OkResult>(createResult);
 
         var ownerResult = reg.GetOwner("alice-bucket");
         Assert.True(ownerResult.TryGetValue(out var owner, out _));
@@ -49,6 +49,38 @@ public class BucketOwnershipTests : IDisposable
         var ownerResult2 = reg2.GetOwner("alice-bucket");
         Assert.True(ownerResult2.TryGetValue(out var owner2, out _));
         Assert.Equal("usr_alice123", owner2);
+    }
+
+    [Fact]
+    public void Create_SameOwnerExists_IsAlreadyOwnedByYou()
+    {
+        var reg = Registry();
+        reg.Create("alice-bucket", "usr_alice");
+
+        Assert.True(reg.Create("alice-bucket", "usr_alice").TryGetError(out var err));
+        var owned = Assert.IsType<BucketAlreadyOwnedByYouError>(err);
+        Assert.Equal(409, owned.Status);
+    }
+
+    [Fact]
+    public void Create_OtherOwnerExists_IsAlreadyExists()
+    {
+        var reg = Registry();
+        reg.Create("alice-bucket", "usr_alice");
+
+        Assert.True(reg.Create("alice-bucket", "usr_bob").TryGetError(out var err));
+        var exists = Assert.IsType<BucketAlreadyExistsError>(err);
+        Assert.Equal(409, exists.Status);
+    }
+
+    [Fact]
+    public void Create_UnownedExists_IsAlreadyOwnedByYou()
+    {
+        var reg = Registry();
+        reg.Create("orphan-bucket");
+
+        Assert.True(reg.Create("orphan-bucket").TryGetError(out var err));
+        Assert.IsType<BucketAlreadyOwnedByYouError>(err);
     }
 
     [Fact]
@@ -122,17 +154,13 @@ public class BucketOwnershipTests : IDisposable
         var admin = new CallerIdentity("usr_admin", "admin", UserRole.Admin, "V3AKADMIN000000000000");
         var ro = new CallerIdentity("usr_ro", "ro_user", UserRole.ReadOnly, "V3AKRO00000000000000");
 
-        var createAlice = reg.Create("alice-b", alice);
-        Assert.True(createAlice.TryGetValue(out var createdAlice, out _));
-        Assert.True(createdAlice);
+        Assert.IsType<Result.OkResult>(reg.Create("alice-b", alice));
         Assert.Equal("usr_alice", ((Result<string?>.Success)reg.GetOwner("alice-b")).Value);
 
-        var createRo = reg.Create("ro-b", ro);
-        Assert.True(createRo.Match(_ => false, err => err is AccessDeniedError));
+        Assert.True(reg.Create("ro-b", ro).TryGetError(out var roErr));
+        Assert.IsType<AccessDeniedError>(roErr);
 
-        var createAdminExplicit = reg.Create("admin-assigned", admin, "usr_bob");
-        Assert.True(createAdminExplicit.TryGetValue(out var createdAdmin, out _));
-        Assert.True(createdAdmin);
+        Assert.IsType<Result.OkResult>(reg.Create("admin-assigned", admin, "usr_bob"));
         Assert.Equal("usr_bob", ((Result<string?>.Success)reg.GetOwner("admin-assigned")).Value);
     }
 

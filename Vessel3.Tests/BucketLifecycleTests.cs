@@ -70,9 +70,9 @@ public class BucketLifecycleTests : IDisposable
     public void Recreate_RepeatedSameName_LeavesNoZombie()
     {
         var reg = Registry();
-        Assert.IsType<Result<bool>.Success>(reg.Create("mybucket"));
+        Assert.IsType<Result.OkResult>(reg.Create("mybucket"));
         Assert.False(reg.Delete("mybucket").TryGetError(out _));
-        Assert.IsType<Result<bool>.Success>(reg.Create("mybucket"));
+        Assert.IsType<Result.OkResult>(reg.Create("mybucket"));
 
         Assert.IsType<Result<PutEntry>.Success>(reg.AppendPut("mybucket", "k", Req("hello")));
         var cur = ((Result<PutEntry>.Success)reg.GetCurrentPut("mybucket", "k")).Value;

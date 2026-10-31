@@ -31,8 +31,8 @@ internal interface IBucketRegistry : IDisposable, IBlobReferenceSource
 
     bool IsValidName(string bucket);
 
-    Result<bool> Create(string bucket, string? ownerId = null);
-    Result<bool> Create(string bucket, CallerIdentity caller, string? explicitOwnerId = null) =>
+    Result Create(string bucket, string? ownerId = null);
+    Result Create(string bucket, CallerIdentity caller, string? explicitOwnerId = null) =>
         !caller.CanWrite
             ? new AccessDeniedError("ReadOnly users cannot create buckets")
             : Create(bucket, caller.IsAdmin ? (explicitOwnerId ?? caller.UserId) : caller.UserId);
@@ -149,14 +149,17 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
         && !bucket.Contains("..", StringComparison.Ordinal)
         && !bucket.ContainsAnyExcept(ValidBucketChars);
 
-    public Result<bool> Create(string bucket, string? ownerId = null)
+    public Result Create(string bucket, string? ownerId = null)
     {
         if (!IsValidName(bucket)) return new InvalidBucketNameError(bucket);
 
         var path = Path.Combine(bucketsRoot, bucket);
         lock (createDeleteGate)
         {
-            if (Directory.Exists(path)) return false;
+            if (Directory.Exists(path))
+                return OpenLocked(bucket, path)?.GetOwner() == ownerId
+                    ? new BucketAlreadyOwnedByYouError(bucket)
+                    : new BucketAlreadyExistsError(bucket);
             if (fileSync.CreateDirectoryDurable(path) is Result.Failure failure) return failure.Error;
             var targetBucket = OpenLocked(bucket, path);
             if (ownerId is not null && targetBucket is not null)
@@ -165,10 +168,10 @@ internal sealed class BucketRegistry(BucketRegistryOptions options, IFileSync fi
                 PersistTombstonesLocked();
         }
         publisher?.Publish(VesselEvents.BucketCreated(bucket, ownerId));
-        return true;
+        return Result.Ok;
     }
 
-    public Result<bool> Create(string bucket, CallerIdentity caller, string? explicitOwnerId = null)
+    public Result Create(string bucket, CallerIdentity caller, string? explicitOwnerId = null)
     {
         if (!caller.CanWrite)
             return new AccessDeniedError("ReadOnly users cannot create buckets");

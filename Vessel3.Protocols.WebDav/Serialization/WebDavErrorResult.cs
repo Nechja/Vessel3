@@ -40,7 +40,7 @@ internal sealed class WebDavErrorResult(Error error) : IResult
         BucketNotEmptyError or InvalidBucketStateError => StatusCodes.Status409Conflict,
         PreconditionFailedError => StatusCodes.Status412PreconditionFailed,
         AccessDeniedError or InvalidAccessKeyIdError or SignatureDoesNotMatchError or BucketIsReadOnlyError => StatusCodes.Status403Forbidden,
-        MethodNotAllowedError => StatusCodes.Status405MethodNotAllowed,
+        MethodNotAllowedError or BucketAlreadyExistsError or BucketAlreadyOwnedByYouError => StatusCodes.Status405MethodNotAllowed,
         InsufficientStorageError => StatusCodes.Status507InsufficientStorage,
         _ => error.Status > 0 ? error.Status : StatusCodes.Status400BadRequest
     };

@@ -5,10 +5,10 @@
 @inject UiNotifications Toast
 @inject IJSRuntime JS
 
-<div class="stack" style="gap: var(--space-5);">
+<div class="stack gap-5">
     <div class="toolbar">
         <div class="toolbar-left">
-            <span class="toolbar-title">Static Websites</span>
+            <span class="toolbar-title">Websites</span>
             <span class="counter">@activeWebsites.Count</span>
         </div>
         <div class="toolbar-actions">
@@ -28,10 +28,7 @@
         </div>
     }
 
-    <div class="stack" style="gap: var(--space-3);">
-        <h2 style="font-size: var(--text-base); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-            Active Sites (@activeWebsites.Count)
-        </h2>
+    <div class="stack gap-3">
 
         @if (loading)
         {
@@ -39,8 +36,12 @@
         }
         else if (activeWebsites.Count == 0)
         {
-            <div class="panel empty-state">
-                no static websites configured yet. Deploy your first Vite, Blazor WASM, or static site below.
+            <div class="table-card">
+                <EmptyState Icon="globe" Text="no websites">
+                    <a href="#deploy-section" class="btn btn-primary">
+                        <Icon Name="upload" /> deploy website
+                    </a>
+                </EmptyState>
             </div>
         }
         else
@@ -53,7 +54,7 @@
                             <th>index doc</th>
                             <th>error / spa doc</th>
                             <th>preview url</th>
-                            <th style="text-align: right;">actions</th>
+                            <th class="text-right">actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -61,7 +62,7 @@
                         {
                             <tr>
                                 <td>
-                                    <a href="buckets/@site.Bucket" class="row align-center" style="text-decoration:none; color:var(--color-text); font-weight:var(--weight-semibold); gap:var(--space-2);">
+                                    <a href="buckets/@site.Bucket" class="cell-link">
                                         <Icon Name="globe" Class="faint" />
                                         <span class="mono">@site.Bucket</span>
                                     </a>
@@ -73,7 +74,7 @@
                                         <span class="mono muted">@site.Config.ErrorDocument</span>
                                         @if (site.Config.ErrorDocument == site.Config.IndexDocument)
                                         {
-                                            <span class="badge badge-accent" style="margin-left: var(--space-2);">SPA</span>
+                                            <span class="badge badge-accent ml-2">SPA</span>
                                         }
                                     }
                                     else
@@ -82,13 +83,13 @@
                                     }
                                 </td>
                                 <td>
-                                    <a href="@GetDirectSiteUrl(site.Bucket)" target="_blank" rel="noopener noreferrer" class="row align-center mono" style="gap: var(--space-1); font-size: var(--text-xs); color: var(--color-mint);">
+                                    <a href="@GetDirectSiteUrl(site.Bucket)" target="_blank" rel="noopener noreferrer" class="cell-link mono text-mint text-xs gap-1">
                                         <span>@GetDirectSiteUrl(site.Bucket)</span>
                                         <Icon Name="arrow-right" Class="icon-xs" />
                                     </a>
                                 </td>
-                                <td style="text-align: right;">
-                                    <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                <td class="text-right">
+                                    <div class="cell-actions">
                                         <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => SelectBucketForRedeploy(site.Bucket))">
                                             redeploy
                                         </button>
@@ -108,19 +109,14 @@
         }
     </div>
 
-    <div id="deploy-section" class="panel stack" style="gap: var(--space-4); margin-top: var(--space-2);">
-        <div class="stack" style="gap: var(--space-1);">
-            <h2 style="font-size: var(--text-lg); font-weight: var(--weight-bold);">Deploy Static Website</h2>
-            <p class="muted" style="font-size: var(--text-sm);">
-                Upload a Vite build output (`dist/`), Blazor WebAssembly publish directory (`wwwroot/`), or static HTML/CSS/JS files.
-            </p>
-        </div>
+    <div id="deploy-section" class="panel stack mt-2">
+        <h2>Deploy</h2>
 
         @if (deployedSuccess)
         {
-            <div class="callout callout-success stack" style="gap: var(--space-3);">
-                <div style="font-weight: var(--weight-bold);">Website successfully deployed to @targetBucket!</div>
-                <div class="row" style="gap: var(--space-3); flex-wrap: wrap;">
+            <div class="callout callout-success stack gap-3">
+                <div class="bold">Website successfully deployed to @targetBucket!</div>
+                <div class="row wrap-items">
                     <a href="@GetDirectSiteUrl(targetBucket)" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
                         <Icon Name="globe" /> open website
                     </a>
@@ -131,16 +127,16 @@
                         deploy another
                     </button>
                 </div>
-                <div class="mono" style="font-size: var(--text-xs); color: var(--color-text-muted);">
+                <div class="meta">
                     Direct URL: @GetDirectSiteUrl(targetBucket)
                 </div>
             </div>
         }
 
-        <div class="grid grid-2" style="gap: var(--space-4);">
+        <div class="grid grid-2">
             <div class="field">
                 <label>Target Bucket</label>
-                <div class="row" style="gap: var(--space-2); margin-bottom: var(--space-2);">
+                <div class="row gap-2 mb-2">
                     <button type="button" class="btn btn-sm @(!isNewBucket ? "btn-primary" : "btn-ghost")" @onclick="@(() => isNewBucket = false)">
                         existing bucket
                     </button>
@@ -167,7 +163,7 @@
 
             <div class="field">
                 <label>Framework Preset</label>
-                <div class="row" style="gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2);">
+                <div class="row gap-2 wrap-items mb-2">
                     <button type="button" class="btn btn-sm @(preset == FrameworkPreset.ViteSpa ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(FrameworkPreset.ViteSpa))">
                         Vite / React / Vue (SPA)
                     </button>
@@ -182,13 +178,13 @@
                     </button>
                 </div>
 
-                <div class="grid grid-2" style="gap: var(--space-2);">
-                    <div>
-                        <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Index Document</label>
+                <div class="grid grid-2 gap-2">
+                    <div class="field">
+                        <label>Index Document</label>
                         <input class="input mono" @bind="indexDocument" disabled="@(preset != FrameworkPreset.Custom)" />
                     </div>
-                    <div>
-                        <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Error / SPA Fallback</label>
+                    <div class="field">
+                        <label>Error / SPA Fallback</label>
                         <input class="input mono" @bind="errorDocument" disabled="@(preset != FrameworkPreset.Custom)" />
                     </div>
                 </div>
@@ -197,7 +193,7 @@
 
         <div class="field">
             <label>Website Files Source</label>
-            <div class="row" style="gap: var(--space-2); margin-bottom: var(--space-2);">
+            <div class="row gap-2 mb-2">
                 <button type="button" class="btn btn-sm @(sourceMode == SourceMode.Folder ? "btn-primary" : "btn-ghost")" @onclick="@(() => sourceMode = SourceMode.Folder)">
                     Upload Folder (dist/ or wwwroot/)
                 </button>
@@ -211,36 +207,36 @@
 
             @if (sourceMode == SourceMode.Folder)
             {
-                <InputFile id="vesselFolderInput" webkitdirectory directory multiple OnChange="OnFolderSelected" style="display:none;" />
-                <label for="vesselFolderInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                <InputFile id="vesselFolderInput" webkitdirectory directory multiple OnChange="OnFolderSelected" hidden />
+                <label for="vesselFolderInput" class="dropzone">
                     <Icon Name="folder" Class="icon-lg" />
-                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                    <div class="dropzone-title">
                         Select or drop build folder (e.g. dist/, build/, wwwroot/)
                     </div>
-                    <div class="muted" style="font-size: var(--text-xs);">
+                    <div class="dropzone-hint">
                         All subdirectories (assets/, _framework/, etc.) will have their exact paths preserved
                     </div>
                 </label>
             }
             else if (sourceMode == SourceMode.Zip)
             {
-                <InputFile id="vesselZipInput" accept=".zip" OnChange="OnZipSelected" style="display:none;" />
-                <label for="vesselZipInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                <InputFile id="vesselZipInput" accept=".zip" OnChange="OnZipSelected" hidden />
+                <label for="vesselZipInput" class="dropzone">
                     <Icon Name="upload" Class="icon-lg" />
-                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                    <div class="dropzone-title">
                         Select or drop .zip archive (e.g. dist.zip)
                     </div>
-                    <div class="muted" style="font-size: var(--text-xs);">
+                    <div class="dropzone-hint">
                         Extracted directly in browser and uploaded with full folder structure
                     </div>
                 </label>
             }
             else
             {
-                <InputFile id="vesselFilesInput" multiple OnChange="OnFilesSelected" style="display:none;" />
-                <label for="vesselFilesInput" class="dropzone" style="cursor: pointer; padding: var(--space-6); text-align: center;">
+                <InputFile id="vesselFilesInput" multiple OnChange="OnFilesSelected" hidden />
+                <label for="vesselFilesInput" class="dropzone">
                     <Icon Name="upload" Class="icon-lg" />
-                    <div style="font-weight: var(--weight-semibold); margin-top: var(--space-2);">
+                    <div class="dropzone-title">
                         Select multiple files to upload
                     </div>
                 </label>
@@ -250,25 +246,25 @@
         @if (selectedFiles.Count > 0)
         {
             <div class="callout callout-info">
-                <div class="row align-center" style="justify-content: space-between;">
+                <div class="row align-center justify-between">
                     <div>
                         <strong>@selectedFiles.Count files ready to deploy</strong>
-                        <span class="muted mono" style="font-size: var(--text-xs); margin-left: var(--space-2);">(@Fmt.Bytes(totalSizeBytes))</span>
+                        <span class="meta ml-2">(@Fmt.Bytes(totalSizeBytes))</span>
                     </div>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="ClearSelectedFiles">
                         clear
                     </button>
                 </div>
-                <div style="margin-top: var(--space-2); max-height: 120px; overflow-y: auto;">
+                <div class="scroll-list mt-2">
                     @foreach (var f in selectedFiles.Take(8))
                     {
-                        <div class="mono muted" style="font-size: var(--text-xs);">
+                        <div class="meta">
                             @f.RelativePath (@Fmt.Bytes(f.Size))
                         </div>
                     }
                     @if (selectedFiles.Count > 8)
                     {
-                        <div class="mono muted" style="font-size: var(--text-xs);">
+                        <div class="meta">
                             ...and @(selectedFiles.Count - 8) more files
                         </div>
                     }
@@ -276,31 +272,25 @@
             </div>
         }
 
-        <div class="row align-center" style="gap: var(--space-4); margin-top: var(--space-1);">
-            <div class="row align-center" style="gap: var(--space-2);">
-                <input type="checkbox" id="chkCleanBucket" @bind="cleanBeforeDeploy" />
-                <label for="chkCleanBucket" style="text-transform:none; cursor:pointer;">Clean existing files in bucket before deploy</label>
-            </div>
-            <div class="row align-center" style="gap: var(--space-2);">
-                <input type="checkbox" id="chkPublicRead" @bind="enablePublicRead" />
-                <label for="chkPublicRead" style="text-transform:none; cursor:pointer;">Set Public Read access (required for public hosting)</label>
-            </div>
+        <div class="row align-center gap-4 mt-1">
+            <label class="check"><input type="checkbox" @bind="cleanBeforeDeploy" /> Clean existing files in bucket before deploy</label>
+            <label class="check"><input type="checkbox" @bind="enablePublicRead" /> Set Public Read access (required for public hosting)</label>
         </div>
 
         @if (isDeploying)
         {
-            <div class="stack" style="gap: var(--space-2);">
-                <div class="row align-center" style="justify-content: space-between; font-size: var(--text-sm);">
+            <div class="stack gap-2">
+                <div class="row align-center justify-between text-sm">
                     <span class="mono">@deployStatusText</span>
                     <span class="mono muted">@deployProgressPercent% (@deployCurrentIndex/@selectedFiles.Count)</span>
                 </div>
-                <div style="width: 100%; height: 8px; background: var(--color-surface-sunken); border-radius: var(--radius-pill); overflow: hidden;">
-                    <div style="width: @(deployProgressPercent)%; height: 100%; background: var(--color-mint); transition: width 0.2s ease;"></div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: @(deployProgressPercent)%"></div>
                 </div>
             </div>
         }
 
-        <div class="row" style="gap: var(--space-3); margin-top: var(--space-2);">
+        <div class="row mt-2">
             <button type="button" class="btn btn-primary" @onclick="DeployWebsite" disabled="@(isDeploying || selectedFiles.Count == 0 || (isNewBucket && string.IsNullOrWhiteSpace(newBucketName)) || (!isNewBucket && string.IsNullOrEmpty(selectedExistingBucket)))">
                 <Icon Name="globe" /> @(isDeploying ? "deploying..." : "deploy website")
             </button>

@@ -128,7 +128,7 @@
                     <span class="nav-meta-item">
                         <Icon Name="user" />
                         <span class="mono">@caller.Username</span>
-                        <span class="muted" style="font-size: 11px;">(@caller.Role.ToString().ToLowerInvariant())</span>
+                        <span class="meta">(@caller.Role.ToString().ToLowerInvariant())</span>
                     </span>
                 }
                 else if (Auth.IsAnonymous)
@@ -170,9 +170,9 @@
         <main class="page-content">
             @if (Auth.Error is { } error)
             {
-                <div class="callout callout-danger" style="margin-bottom: var(--space-5);">
+                <div class="callout callout-danger mb-5">
                     <div>@error</div>
-                    <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" style="margin-left: auto; color: inherit; text-decoration: underline;">retry</a>
+                    <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" class="callout-action">retry</a>
                 </div>
             }
 

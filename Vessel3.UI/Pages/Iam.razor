@@ -1,14 +1,13 @@
 @page "/iam"
 @inject IVesselClient Client
-@inject UiAuth Auth
 @inject IJSRuntime JS
 @inject UiNotifications Toast
 @inject NavigationManager Nav
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
-            <span class="toolbar-title">IAM Directory</span>
+            <span class="toolbar-title">IAM &amp; Keys</span>
             <span class="counter">@users.Count users</span>
         </div>
         <div class="toolbar-actions">
@@ -29,40 +28,39 @@
     }
 
     <div>
-        <h2>Users</h2>
         <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>username</th>
-                        <th>role</th>
-                        <th>status</th>
-                        <th>created</th>
-                        <th style="text-align: right;">actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (loading)
-                    {
+            @if (loading)
+            {
+                <div class="empty-state">loading users...</div>
+            }
+            else if (users.Count == 0)
+            {
+                <EmptyState Icon="user" Text="no users">
+                    <button type="button" class="btn btn-primary" @onclick="@(() => showNewUserModal = true)">
+                        <Icon Name="user" /> create user
+                    </button>
+                </EmptyState>
+            }
+            else
+            {
+                <table>
+                    <thead>
                         <tr>
-                            <td colspan="5" class="empty-state">loading users...</td>
+                            <th>username</th>
+                            <th>role</th>
+                            <th>status</th>
+                            <th>created</th>
+                            <th class="text-right">actions</th>
                         </tr>
-                    }
-                    else if (users.Count == 0)
-                    {
-                        <tr>
-                            <td colspan="5" class="empty-state">no users found.</td>
-                        </tr>
-                    }
-                    else
-                    {
+                    </thead>
+                    <tbody>
                         @foreach (var u in users)
                         {
-                            <tr style="@(selectedUser is { } sel && sel.Id == u.Id ? "background: var(--color-surface-hover);" : "")">
+                            <tr class="@(selectedUser is { } sel && sel.Id == u.Id ? "is-selected" : "")">
                                 <td>
-                                    <div class="row align-center" style="gap: var(--space-2);">
+                                    <div class="row align-center gap-2">
                                         <Icon Name="user" Class="faint" />
-                                        <span class="mono" style="font-weight: var(--weight-semibold);">@u.Username</span>
+                                        <span class="mono semibold">@u.Username</span>
                                     </div>
                                 </td>
                                 <td>
@@ -78,47 +76,32 @@
                                 <td>
                                     <span class="mono muted">@u.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
                                 </td>
-                                <td style="text-align: right;">
-                                    <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                                <td class="text-right">
+                                    <div class="cell-actions">
                                         <button type="button" class="btn btn-ghost btn-sm @(selectedUser is { } s && s.Id == u.Id ? "btn-primary" : "")" @onclick="@(() => SelectUser(u))">
                                             keys <Icon Name="arrow-right" />
                                         </button>
                                         <button type="button" class="btn btn-ghost btn-sm" title="Edit user" @onclick="@(() => OpenEditUserModal(u))">
                                             edit
                                         </button>
-                                        @if (armedDeleteUser == u.Id)
-                                        {
-                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteUser(u.Id))">
-                                                confirm?
-                                            </button>
-                                            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteUser = null)">
-                                                cancel
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete user" @onclick="@(() => armedDeleteUser = u.Id)">
-                                                <Icon Name="trash" />
-                                            </button>
-                                        }
+                                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete user" @onclick="@(() => pendingDeleteUser = u)">
+                                            <Icon Name="trash" />
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
                         }
-                    }
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            }
         </div>
     </div>
 
     @if (selectedUser is { } su)
     {
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="row justify-between align-center">
-                <div>
-                    <h2>Access Keys: <span class="mono">@su.Username</span></h2>
-                    <p class="lead">API keys for programmatic, S3/SigV4, and Azure Blob Storage access.</p>
-                </div>
+                <h2>Access Keys: <span class="mono">@su.Username</span></h2>
                 <button type="button" class="btn btn-primary" @onclick="@(() => showNewKeyModal = true)">
                     <Icon Name="key" /> generate key
                 </button>
@@ -126,16 +109,14 @@
 
             @if (newlyCreatedKey is { } createdKey)
             {
-                <div class="callout callout-info stack" style="gap: var(--space-3);">
-                    <div style="font-weight: var(--weight-bold); font-size: var(--text-md);">
-                        Secret Key Generated — Save It Now!
-                    </div>
-                    <div>This secret key will never be shown again. Copy and store it securely.</div>
+                <div class="callout callout-info stack gap-3">
+                    <h3>Access key created</h3>
+                    <div>the secret is shown once</div>
                     <div class="grid grid-2">
                         <div class="field">
                             <label>Access Key ID</label>
-                            <div class="row" style="gap: var(--space-2);">
-                                <input class="input mono" readonly value="@createdKey.Id" style="flex: 1;" />
+                            <div class="copy-field">
+                                <input class="input mono" readonly value="@createdKey.Id" />
                                 <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.Id, "Access Key ID"))">
                                     <Icon Name="copy" /> copy
                                 </button>
@@ -143,8 +124,8 @@
                         </div>
                         <div class="field">
                             <label>Secret Access Key</label>
-                            <div class="row" style="gap: var(--space-2);">
-                                <input class="input mono" readonly value="@createdKey.SecretKey" style="flex: 1;" />
+                            <div class="copy-field">
+                                <input class="input mono" readonly value="@createdKey.SecretKey" />
                                 <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.SecretKey, "Secret Key"))">
                                     <Icon Name="copy" /> copy
                                 </button>
@@ -153,8 +134,8 @@
                     </div>
                     <div class="field">
                         <label>Azure Blob Storage Connection String</label>
-                        <div class="row" style="gap: var(--space-2);">
-                            <input class="input mono" readonly value="@GetAzureConnectionString(createdKey)" style="flex: 1;" />
+                        <div class="copy-field">
+                            <input class="input mono" readonly value="@GetAzureConnectionString(createdKey)" />
                             <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetAzureConnectionString(createdKey), "Azure connection string"))">
                                 <Icon Name="copy" /> copy
                             </button>
@@ -162,52 +143,52 @@
                     </div>
                     <div class="field">
                         <label>S3 / AWS CLI Environment</label>
-                        <div class="row" style="gap: var(--space-2);">
-                            <input class="input mono" readonly value="@GetS3EnvVars(createdKey)" style="flex: 1;" />
+                        <div class="copy-field">
+                            <input class="input mono" readonly value="@GetS3EnvVars(createdKey)" />
                             <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetS3EnvVars(createdKey), "S3 environment"))">
                                 <Icon Name="copy" /> copy
                             </button>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-ghost btn-sm" style="align-self: flex-start;" @onclick="@(() => newlyCreatedKey = null)">
+                    <button type="button" class="btn btn-ghost btn-sm self-start" @onclick="@(() => newlyCreatedKey = null)">
                         dismiss
                     </button>
                 </div>
             }
 
             <div class="table-card">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>key id</th>
-                            <th>description</th>
-                            <th>status</th>
-                            <th>created</th>
-                            <th style="text-align: right;">actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (loadingKeys)
-                        {
+                @if (loadingKeys)
+                {
+                    <div class="empty-state">loading keys...</div>
+                }
+                else if (keys.Count == 0)
+                {
+                    <EmptyState Icon="key" Text="no access keys">
+                        <button type="button" class="btn btn-primary" @onclick="@(() => showNewKeyModal = true)">
+                            <Icon Name="key" /> generate key
+                        </button>
+                    </EmptyState>
+                }
+                else
+                {
+                    <table>
+                        <thead>
                             <tr>
-                                <td colspan="5" class="empty-state">loading keys...</td>
+                                <th>key id</th>
+                                <th>description</th>
+                                <th>status</th>
+                                <th>created</th>
+                                <th class="text-right">actions</th>
                             </tr>
-                        }
-                        else if (keys.Count == 0)
-                        {
-                            <tr>
-                                <td colspan="5" class="empty-state">no access keys found for this user.</td>
-                            </tr>
-                        }
-                        else
-                        {
+                        </thead>
+                        <tbody>
                             @foreach (var k in keys)
                             {
                                 <tr>
                                     <td>
-                                        <div class="row align-center" style="gap: var(--space-2);">
+                                        <div class="row align-center gap-2">
                                             <Icon Name="key" Class="faint" />
-                                            <span class="mono" style="font-weight: var(--weight-semibold);">@k.Id</span>
+                                            <span class="mono semibold">@k.Id</span>
                                         </div>
                                     </td>
                                     <td>
@@ -230,7 +211,7 @@
                                     <td>
                                         <span class="mono muted">@k.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
                                     </td>
-                                    <td style="text-align: right;">
+                                    <td class="text-right">
                                         @if (!k.IsRevoked)
                                         {
                                             <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => RevokeKey(k.Id))">
@@ -240,9 +221,9 @@
                                     </td>
                                 </tr>
                             }
-                        }
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                }
             </div>
         </div>
     }
@@ -250,7 +231,7 @@
 
 <Modal IsOpen="showNewUserModal" Title="Create User" OnClose="@(() => showNewUserModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="field">
                 <label>Username</label>
                 <input class="input mono" @bind="newUsername" placeholder="username" />
@@ -275,7 +256,7 @@
 
 <Modal IsOpen="showEditUserModal" Title="@($"Edit User: {(editingUser.HasValue ? editingUser.Value.Username : "")}")" OnClose="@(() => showEditUserModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="field">
                 <label>Role</label>
                 <select class="select" @bind="editUserRole">
@@ -303,7 +284,7 @@
 
 <Modal IsOpen="showNewKeyModal" Title="@($"Generate Access Key: {(selectedUser.HasValue ? selectedUser.Value.Username : "")}")" OnClose="@(() => showNewKeyModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="field">
                 <label>Description (Optional)</label>
                 <input class="input" @bind="newKeyDescription" placeholder="e.g. CLI or CI token" />
@@ -318,11 +299,13 @@
     </FooterContent>
 </Modal>
 
+<ConfirmDialog Title="Delete user" Target="@pendingDeleteUser?.Username" OnConfirm="DeleteUser" OnCancel="@(() => pendingDeleteUser = null)" />
+
 @code {
     private List<UserDto> users = [];
     private bool loading = true;
     private string? errorMessage;
-    private string? armedDeleteUser;
+    private UserDto? pendingDeleteUser;
 
     private UserDto? selectedUser;
     private List<AccessKeyDto> keys = [];
@@ -448,9 +431,11 @@
         }
     }
 
-    private async Task DeleteUser(string userId)
+    private async Task DeleteUser()
     {
-        armedDeleteUser = null;
+        if (pendingDeleteUser is not { } user) return;
+        pendingDeleteUser = null;
+        var userId = user.Id;
         try
         {
             var res = await Client.DeleteUser(userId);

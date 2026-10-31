@@ -24,7 +24,7 @@ internal sealed class CreateContainerAction(
             : CallerIdentity.System;
 
         var createResult = registry.Create(target.Container, caller);
-        if (!createResult.TryGetValue(out _, out var err))
+        if (createResult.TryGetError(out var err))
         {
             return Task.FromResult<IResult>(new AzureErrorResult(err, errorXml));
         }

@@ -22,7 +22,7 @@ public class BucketListerTests
         }
 
         public bool IsValidName(string bucket) => true;
-        public Result<bool> Create(string bucket, string? ownerId = null) => true;
+        public Result Create(string bucket, string? ownerId = null) => Result.Ok;
         public Result Delete(string bucket) => Result.Ok;
         public Result<bool> Exists(string bucket) => true;
         public Result EnsureExists(string bucket) => Result.Ok;

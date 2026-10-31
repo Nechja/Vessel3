@@ -1,0 +1,32 @@
+<Modal IsOpen="@(Target is not null)" Title="@Title" OnClose="OnCancel">
+    <ChildContent>
+        <span class="mono">@Target</span>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="OnCancel">cancel</button>
+        <button type="button" class="btn btn-danger" @onclick="Confirm" disabled="@busy">@Label</button>
+    </FooterContent>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "delete";
+    [Parameter] public string? Target { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool busy;
+
+    private async Task Confirm()
+    {
+        busy = true;
+        try
+        {
+            await OnConfirm.InvokeAsync();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

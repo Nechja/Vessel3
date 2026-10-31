@@ -1,0 +1,134 @@
+@inject IVesselClient Client
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject UiNotifications Toast
+
+<aside class="inspector">
+    <div class="inspector-head">
+        <span class="inspector-title">@Repo</span>
+        <button type="button" class="btn btn-ghost btn-icon" @onclick="OnClose">
+            <Icon Name="close" />
+        </button>
+    </div>
+
+    @if (loading)
+    {
+        <div class="empty-state">loading...</div>
+    }
+    else if (tags.Count == 0)
+    {
+        <EmptyState Icon="server" Text="no tags" />
+    }
+    else
+    {
+        <div class="inspector-body">
+            @foreach (var tag in tags)
+            {
+                var pull = PullCommand(tag);
+                <div class="list-item">
+                    <div class="stack gap-1">
+                        <span class="mono semibold">@tag</span>
+                        <span class="meta">@pull</span>
+                    </div>
+                    <div class="row gap-1">
+                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Copy pull command" @onclick="@(() => Copy(pull))">
+                            <Icon Name="copy" />
+                        </button>
+                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete tag" @onclick="@(() => pendingDelete = tag)">
+                            <Icon Name="trash" />
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</aside>
+
+<ConfirmDialog Title="Delete tag" Target="@PendingLabel" OnConfirm="Delete" OnCancel="@(() => pendingDelete = null)" />
+
+@code {
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private List<string> tags = [];
+    private bool loading = true;
+    private string? pendingDelete;
+    private string? loadedRepo;
+
+    private string? PendingLabel
+    {
+        get
+        {
+            if (pendingDelete is null) return null;
+            return $"{Repo}:{pendingDelete}";
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedRepo == Repo) return;
+        loadedRepo = Repo;
+        pendingDelete = null;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        try
+        {
+            var res = await Client.ListContainerTags(Repo);
+            if (!res.TryGetValue(out var list, out var err))
+            {
+                Toast.Error($"Failed to load tags for {Repo}: {err.Message}");
+                tags = [];
+                return;
+            }
+            tags = list.OrderBy(t => t, StringComparer.Ordinal).ToList();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error loading tags: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string PullCommand(string tag) => $"docker pull {new Uri(Nav.BaseUri).Authority}/{Repo}:{tag}";
+
+    private async Task Copy(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success("Copied");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+
+    private async Task Delete()
+    {
+        if (pendingDelete is not { } tag) return;
+        pendingDelete = null;
+        try
+        {
+            var res = await Client.DeleteContainerManifest(Repo, tag);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to delete tag {tag}: {err.Message}");
+                return;
+            }
+            Toast.Success($"Deleted {Repo}:{tag}");
+            tags.Remove(tag);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Delete error: {ex.Message}");
+        }
+    }
+}

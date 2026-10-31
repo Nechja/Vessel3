@@ -1,7 +1,7 @@
 @if (IsOpen)
 {
-    <div class="modal-backdrop" @onclick="HandleBackdropClick">
-        <div class="modal-card" @onclick:stopPropagation="true">
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-card" tabindex="-1" @ref="card" @onkeydown="HandleKeyDown" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <div class="modal-title">@Title</div>
                 <button type="button" class="btn btn-ghost btn-icon" @onclick="Close">
@@ -28,7 +28,19 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public RenderFragment? FooterContent { get; set; }
 
+    private ElementReference card;
+    private bool wasOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !wasOpen)
+        {
+            await card.FocusAsync();
+        }
+        wasOpen = IsOpen;
+    }
+
     private Task Close() => OnClose.InvokeAsync();
 
-    private Task HandleBackdropClick() => OnClose.InvokeAsync();
+    private Task HandleKeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
 }

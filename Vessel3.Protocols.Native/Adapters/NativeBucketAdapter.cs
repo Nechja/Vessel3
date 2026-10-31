@@ -21,7 +21,7 @@ internal sealed class NativeBucketAdapter(IBucketRegistry registry)
         RequestTrace.SetTarget("CreateBucket", bucket);
         var caller = context.GetCaller();
         var result = caller is not null ? registry.Create(bucket, caller) : registry.Create(bucket);
-        return result.TryGetValue(out _, out var err) ? Results.Ok() : err.ToHttpResult();
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
     public IResult DeleteBucket(string bucket, HttpContext context)

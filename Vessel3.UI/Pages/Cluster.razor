@@ -7,7 +7,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
             <span class="toolbar-title">Cluster &amp; Volumes</span>
@@ -33,9 +33,9 @@
     {
         <div class="grid grid-4">
             <div class="stat-card">
-                <div class="row justify-between align-center" style="margin-bottom: var(--space-1);">
-                    <div class="stat-kicker" style="margin-bottom: 0;">Local Node</div>
-                    <span class="badge @GetPeerRoleBadgeClass(st.LocalNode) mono" style="font-size: 10px;">
+                <div class="stat-head">
+                    <div class="stat-kicker">Local Node</div>
+                    <span class="badge @GetPeerRoleBadgeClass(st.LocalNode) badge-sm">
                         @GetPeerRoleLabel(st.LocalNode, st.ClusterEnabled)
                     </span>
                 </div>
@@ -68,9 +68,9 @@
             </div>
 
             <div class="stat-card">
-                <div class="row justify-between align-center" style="margin-bottom: var(--space-1);">
-                    <div class="stat-kicker" style="margin-bottom: 0;">Replication &amp; Self-Heal</div>
-                    <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") mono" style="font-size: 10px;">
+                <div class="stat-head">
+                    <div class="stat-kicker">Replication &amp; Self-Heal</div>
+                    <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") badge-sm">
                         @(st.PendingMirrorBlobs == 0 ? "watermarks synced" : "pulling blobs")
                     </span>
                 </div>
@@ -85,7 +85,7 @@
                 @if (TotalLocalCapacityBytes > 0)
                 {
                     <div class="stat-value">@Fmt.Bytes(TotalLocalAvailableBytes) free</div>
-                    <div style="margin-top: var(--space-2);">
+                    <div class="mt-2">
                         <div class="progress-track">
                             <div class="progress-fill" style="width: @(LocalUsedPercent.ToString("F1", CultureInfo.InvariantCulture))%;"></div>
                         </div>
@@ -102,32 +102,32 @@
             </div>
         </div>
 
-        <div class="stack" style="gap: var(--space-3);">
-            <div class="toolbar">
+        <div class="stack gap-3">
+            <div class="section-head">
                 <div class="toolbar-left">
-                    <h2 style="margin: 0;">Storage Volumes</h2>
+                    <h2>Volumes</h2>
                     <span class="counter">@FilteredVolumes.Count</span>
                 </div>
                 <div class="toolbar-actions">
-                    <div class="row align-center" style="gap: var(--space-2);">
-                        <span class="muted" style="font-size: var(--text-xs);">Role:</span>
-                        <select class="input mono" @bind="roleFilter" style="font-size: var(--text-xs); width: 150px;">
+                    <div class="filter">
+                        <span>Role:</span>
+                        <select class="select mono" @bind="roleFilter">
                             <option value="">All Roles</option>
                             <option value="@RoleActiveHa">Active-Active HA</option>
                             <option value="@RoleOffsiteVault">Offsite Vault</option>
                         </select>
                     </div>
-                    <div class="row align-center" style="gap: var(--space-2);">
-                        <span class="muted" style="font-size: var(--text-xs);">Scope:</span>
-                        <select class="input mono" @bind="scopeFilter" style="font-size: var(--text-xs); width: 120px;">
+                    <div class="filter">
+                        <span>Scope:</span>
+                        <select class="select mono" @bind="scopeFilter">
                             <option value="">All Scopes</option>
                             <option value="@ScopeLocal">Local Only</option>
                             <option value="@ScopeRemote">Remote Only</option>
                         </select>
                     </div>
-                    <div class="row align-center" style="gap: var(--space-2);">
-                        <span class="muted" style="font-size: var(--text-xs);">Pool:</span>
-                        <select class="input mono" @bind="poolFilter" style="font-size: var(--text-xs); width: 140px;">
+                    <div class="filter">
+                        <span>Pool:</span>
+                        <select class="select mono" @bind="poolFilter">
                             <option value="">All Pools</option>
                             @foreach (var pool in PoolNames)
                             {
@@ -139,108 +139,106 @@
             </div>
 
             <div class="table-card">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>volume id</th>
-                            <th style="width: 150px;">node / scope</th>
-                            <th style="width: 170px;">role / read tier</th>
-                            <th style="width: 100px;">pool</th>
-                            <th>capabilities</th>
-                            <th>location / endpoint</th>
-                            <th style="width: 200px;">capacity</th>
-                            <th style="width: 100px;">status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (FilteredVolumes.Count == 0)
-                        {
+                @if (FilteredVolumes.Count == 0)
+                {
+                    <EmptyState Icon="server" Text="no volumes match" />
+                }
+                else
+                {
+                    <table>
+                        <thead>
                             <tr>
-                                <td colspan="8" class="empty-state">no storage volumes matching filter criteria.</td>
+                                <th>volume id</th>
+                                <th>node / scope</th>
+                                <th>role / read tier</th>
+                                <th>pool</th>
+                                <th>capabilities</th>
+                                <th>location / endpoint</th>
+                                <th>capacity</th>
+                                <th>status</th>
                             </tr>
-                        }
-                        else
-                        {
+                        </thead>
+                        <tbody>
                             @foreach (var vol in FilteredVolumes)
                             {
                                 <tr>
                                     <td>
-                                        <div class="row align-center" style="gap: var(--space-2);">
-                                            <span class="mono" style="font-weight: var(--weight-semibold);">@vol.Id</span>
+                                        <div class="row align-center gap-2">
+                                            <span class="mono semibold">@vol.Id</span>
                                             @if (vol.IsDefaultIngest)
                                             {
-                                                <span class="badge badge-accent mono" style="font-size: 10px;">default ingest</span>
+                                                <span class="badge badge-accent badge-sm">default ingest</span>
                                             }
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="row align-center" style="gap: var(--space-1);">
-                                            <span class="badge @(vol.IsRemote ? "badge-accent" : "badge-mint") mono" style="font-size: 10px;">
+                                        <div class="row align-center gap-1">
+                                            <span class="badge @(vol.IsRemote ? "badge-accent" : "badge-mint") badge-sm">
                                                 @(vol.IsRemote ? "remote" : "local")
                                             </span>
                                             @if (!string.IsNullOrEmpty(vol.NodeId))
                                             {
-                                                <span class="mono muted" style="font-size: 11px;">@vol.NodeId</span>
+                                                <span class="meta">@vol.NodeId</span>
                                             }
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="badge @GetVolumeRoleBadgeClass(vol) mono" style="font-size: 10px;">
+                                        <span class="badge @GetVolumeRoleBadgeClass(vol) badge-sm">
                                             @GetVolumeRoleLabel(vol)
                                         </span>
                                     </td>
                                     <td>
-                                        <span class="badge badge-neutral mono">@vol.Pool</span>
+                                        <span class="badge badge-neutral">@vol.Pool</span>
                                     </td>
                                     <td>
-                                        <div class="row" style="gap: 4px;">
+                                        <div class="row gap-1">
                                             @foreach (var cap in vol.Capabilities)
                                             {
-                                                <span class="badge @GetCapabilityBadgeClass(cap) mono" style="font-size: 10px;">@cap</span>
+                                                <span class="badge @GetCapabilityBadgeClass(cap) badge-sm">@cap</span>
                                             }
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="mono muted" style="font-size: 11px; word-break: break-all;">@vol.Path</span>
+                                        <span class="meta break-all">@vol.Path</span>
                                     </td>
                                     <td>
                                         @if (vol.CapacityBytes is > 0 and var capBytes && vol.AvailableBytes is { } availBytes)
                                         {
                                             var usedBytes = Math.Max(0L, capBytes - availBytes);
                                             var pct = Math.Clamp(usedBytes * 100.0 / capBytes, 0.0, 100.0);
-                                            <div class="stack" style="gap: 4px;">
+                                            <div class="stack gap-1">
                                                 <div class="progress-track">
                                                     <div class="progress-fill" style="width: @(pct.ToString("F1", CultureInfo.InvariantCulture))%;"></div>
                                                 </div>
-                                                <span class="mono muted" style="font-size: 10px;">
+                                                <span class="meta">
                                                     @Fmt.Bytes(availBytes) free / @Fmt.Bytes(capBytes)
                                                 </span>
                                             </div>
                                         }
                                         else if (vol.AvailableBytes is { } availOnly)
                                         {
-                                            <span class="mono muted" style="font-size: 11px;">@Fmt.Bytes(availOnly) free</span>
+                                            <span class="meta">@Fmt.Bytes(availOnly) free</span>
                                         }
                                         else
                                         {
-                                            <span class="mono muted" style="font-size: 11px;">—</span>
+                                            <span class="meta">—</span>
                                         }
                                     </td>
                                     <td>
-                                        <span class="badge @GetVolumeStatusBadgeClass(vol.Status) mono">@vol.Status</span>
+                                        <span class="badge @GetVolumeStatusBadgeClass(vol.Status)">@vol.Status</span>
                                     </td>
                                 </tr>
                             }
-                        }
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                }
             </div>
         </div>
 
-        <div class="stack" style="gap: var(--space-3);">
-            <div class="toolbar">
+        <div class="stack gap-3">
+            <div class="section-head">
                 <div class="toolbar-left">
-                    <h2 style="margin: 0;">Cluster Membership (SWIM Gossip)</h2>
+                    <h2>Membership</h2>
                     <span class="counter">@(st.Peers.Count + 1)</span>
                 </div>
             </div>
@@ -249,12 +247,12 @@
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 190px;">node id</th>
-                            <th style="width: 165px;">topology role</th>
-                            <th style="width: 220px;">gossip endpoint</th>
-                            <th style="width: 100px;">status</th>
-                            <th style="width: 100px;">incarnation</th>
-                            <th style="width: 140px;">last seen</th>
+                            <th>node id</th>
+                            <th>topology role</th>
+                            <th>gossip endpoint</th>
+                            <th>status</th>
+                            <th>incarnation</th>
+                            <th>last seen</th>
                             <th>advertised volumes</th>
                         </tr>
                     </thead>
@@ -263,42 +261,42 @@
                         {
                             <tr>
                                 <td>
-                                    <div class="row align-center" style="gap: var(--space-2);">
-                                        <span class="mono" style="font-weight: var(--weight-semibold);">@peer.NodeId</span>
+                                    <div class="row align-center gap-2">
+                                        <span class="mono semibold">@peer.NodeId</span>
                                         @if (isSelf)
                                         {
-                                            <span class="badge badge-accent mono" style="font-size: 10px;">self</span>
+                                            <span class="badge badge-accent badge-sm">self</span>
                                         }
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="badge @GetPeerRoleBadgeClass(peer) mono" style="font-size: 10px;">
+                                    <span class="badge @GetPeerRoleBadgeClass(peer) badge-sm">
                                         @GetPeerRoleLabel(peer, st.ClusterEnabled)
                                     </span>
                                 </td>
                                 <td>
-                                    <span class="mono muted" style="font-size: 11px;">
+                                    <span class="meta">
                                         @(string.IsNullOrEmpty(peer.Endpoint) ? "local-only" : peer.Endpoint)
                                     </span>
                                 </td>
                                 <td>
-                                    <span class="badge @GetPeerStatusBadgeClass(peer.Status) mono">@peer.Status</span>
+                                    <span class="badge @GetPeerStatusBadgeClass(peer.Status)">@peer.Status</span>
                                 </td>
                                 <td class="mono muted">@peer.Incarnation</td>
-                                <td class="mono muted" style="font-size: 11px;" title="@peer.LastSeenUtc.ToString("u")">
+                                <td class="meta" title="@peer.LastSeenUtc.ToString("u")">
                                     @(isSelf ? "now" : FormatAge(peer.LastSeenUtc))
                                 </td>
                                 <td>
                                     @if (peer.Volumes.Count == 0)
                                     {
-                                        <span class="mono muted" style="font-size: 11px;">none</span>
+                                        <span class="meta">none</span>
                                     }
                                     else
                                     {
-                                        <div class="row" style="gap: 6px;">
+                                        <div class="row gap-1">
                                             @foreach (var adv in peer.Volumes)
                                             {
-                                                <span class="badge @GetVolumeStatusBadgeClass(adv.Status) mono" style="font-size: 10px;">
+                                                <span class="badge @GetVolumeStatusBadgeClass(adv.Status) badge-sm">
                                                     @adv.VolumeId (@adv.Pool)
                                                 </span>
                                             }
@@ -312,88 +310,86 @@
             </div>
         </div>
 
-        <div class="stack" style="gap: var(--space-3);">
-            <div class="toolbar">
+        <div class="stack gap-3">
+            <div class="section-head">
                 <div class="toolbar-left">
-                    <h2 style="margin: 0;">Bucket Replication Watermarks</h2>
+                    <h2>Replication</h2>
                     <span class="counter">@BucketWatermarks.Count</span>
                 </div>
             </div>
 
             <div class="table-card">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>bucket</th>
-                            <th style="width: 150px;">applied seq</th>
-                            <th style="width: 150px;">compaction floor</th>
-                            <th style="width: 130px;">versioning</th>
-                            <th style="width: 150px;">access policy</th>
-                            <th style="width: 210px;">replication state</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (BucketWatermarks.Count == 0)
-                        {
+                @if (BucketWatermarks.Count == 0)
+                {
+                    <EmptyState Icon="bucket" Text="no buckets" />
+                }
+                else
+                {
+                    <table>
+                        <thead>
                             <tr>
-                                <td colspan="6" class="empty-state">no buckets provisioned yet.</td>
+                                <th>bucket</th>
+                                <th>applied seq</th>
+                                <th>compaction floor</th>
+                                <th>versioning</th>
+                                <th>access policy</th>
+                                <th>replication state</th>
                             </tr>
-                        }
-                        else
-                        {
+                        </thead>
+                        <tbody>
                             @foreach (var b in BucketWatermarks)
                             {
                                 <tr>
                                     <td>
-                                        <a href="buckets/@b.Name" class="row align-center" style="text-decoration: none; color: var(--color-text); font-weight: var(--weight-semibold); gap: var(--space-2);">
+                                        <a href="buckets/@b.Name" class="cell-link">
                                             <Icon Name="bucket" Class="faint" />
                                             <span class="mono">@b.Name</span>
                                         </a>
                                     </td>
                                     <td>
-                                        <span class="mono" style="font-weight: var(--weight-semibold);">seq #@b.AppliedSeq</span>
+                                        <span class="mono semibold">seq #@b.AppliedSeq</span>
                                     </td>
                                     <td>
-                                        <span class="mono muted" style="font-size: 11px;">log #@b.FirstAvailableLogSeq</span>
+                                        <span class="meta">log #@b.FirstAvailableLogSeq</span>
                                     </td>
                                     <td>
-                                        <span class="badge @(string.Equals(b.VersioningStatus, "Enabled", StringComparison.OrdinalIgnoreCase) ? "badge-mint" : "badge-neutral") mono" style="font-size: 10px;">
+                                        <span class="badge @(string.Equals(b.VersioningStatus, "Enabled", StringComparison.OrdinalIgnoreCase) ? "badge-mint" : "badge-neutral") badge-sm">
                                             @b.VersioningStatus.ToLowerInvariant()
                                         </span>
                                     </td>
                                     <td>
-                                        <div class="row" style="gap: 4px;">
+                                        <div class="row gap-1">
                                             @if (b.ReadOnly)
                                             {
-                                                <span class="badge badge-warning mono" style="font-size: 10px;">read-only</span>
+                                                <span class="badge badge-warning badge-sm">read-only</span>
                                             }
                                             @if (b.PublicRead)
                                             {
-                                                <span class="badge badge-accent mono" style="font-size: 10px;">public-read</span>
+                                                <span class="badge badge-accent badge-sm">public-read</span>
                                             }
                                             @if (!b.ReadOnly && !b.PublicRead)
                                             {
-                                                <span class="badge badge-neutral mono" style="font-size: 10px;">private</span>
+                                                <span class="badge badge-neutral badge-sm">private</span>
                                             }
                                         </div>
                                     </td>
                                     <td>
                                         @if (MirroredVolumeCount > 1)
                                         {
-                                            <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") mono" style="font-size: 10px;">
+                                            <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") badge-sm">
                                                 @(st.PendingMirrorBlobs == 0 ? $"mirrored ({MirroredVolumeCount} vols)" : $"syncing ({MirroredVolumeCount} vols)")
                                             </span>
                                         }
                                         else
                                         {
-                                            <span class="badge badge-neutral mono" style="font-size: 10px;">local volume only</span>
+                                            <span class="badge badge-neutral badge-sm">local volume only</span>
                                         }
                                     </td>
                                 </tr>
                             }
-                        }
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                }
             </div>
         </div>
     }
@@ -409,24 +405,22 @@
 
 <Modal IsOpen="showJoinModal" Title="Join Cluster Peer or Offsite NAS" OnClose="@(() => showJoinModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
-            <div class="field" style="margin-bottom: 0;">
+        <div class="stack">
+            <div class="field">
                 <label>Node Topology Preset</label>
-                <div class="grid grid-2" style="gap: var(--space-2);">
+                <div class="grid grid-2 gap-2">
                     <button type="button"
-                            class="btn @(joinPreset == PresetOffsite ? "btn-primary" : "btn-ghost")"
-                            style="justify-content: flex-start; padding: var(--space-3);"
+                            class="btn btn-option @(joinPreset == PresetOffsite ? "btn-primary" : "btn-ghost")"
                             @onclick="@(() => SelectJoinPreset(PresetOffsite))">
                         <Icon Name="shield" /> offsite tailscale vault
                     </button>
                     <button type="button"
-                            class="btn @(joinPreset == PresetActiveHa ? "btn-primary" : "btn-ghost")"
-                            style="justify-content: flex-start; padding: var(--space-3);"
+                            class="btn btn-option @(joinPreset == PresetActiveHa ? "btn-primary" : "btn-ghost")"
                             @onclick="@(() => SelectJoinPreset(PresetActiveHa))">
                         <Icon Name="server" /> active-active lan peer
                     </button>
                 </div>
-                <span class="muted" style="font-size: var(--text-xs);">
+                <span class="muted text-xs">
                     @if (joinPreset == PresetOffsite)
                     {
                         <span>Configures <code class="mono">ReadOnly+Mirrored+OnDemand</code> so the node rejects client writes, continuously mirrors metadata and blobs in the background, and serves fallback reads only when LAN copies are unreachable.</span>
@@ -438,35 +432,35 @@
                 </span>
             </div>
 
-            <div class="grid grid-2" style="gap: var(--space-3);">
-                <div class="field" style="margin-bottom: 0;">
+            <div class="grid grid-2 gap-3">
+                <div class="field">
                     <label>New Peer Node ID</label>
                     <input class="input mono" @bind="joinNodeId" @bind:event="oninput" placeholder="pi-offsite-vault" />
                 </div>
-                <div class="field" style="margin-bottom: 0;">
+                <div class="field">
                     <label>New Peer Advertised Endpoint</label>
                     <input class="input mono" @bind="joinAdvertiseEndpoint" @bind:event="oninput" placeholder="http://100.94.18.42:9000" />
                 </div>
             </div>
 
-            <div class="field" style="margin-bottom: 0;">
+            <div class="field">
                 <div class="row justify-between align-center">
                     <label>Docker / Raspberry Pi Command</label>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopySnippet(DockerJoinSnippet, "Docker command"))">
                         <Icon Name="copy" /> copy docker
                     </button>
                 </div>
-                <pre class="mono" style="background: var(--color-surface-sunken); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); overflow-x: auto; margin: 0;">@DockerJoinSnippet</pre>
+                <pre class="code-block">@DockerJoinSnippet</pre>
             </div>
 
-            <div class="field" style="margin-bottom: 0;">
+            <div class="field">
                 <div class="row justify-between align-center">
                     <label>Kubernetes / Helm Values</label>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopySnippet(HelmJoinSnippet, "Helm values"))">
                         <Icon Name="copy" /> copy helm
                     </button>
                 </div>
-                <pre class="mono" style="background: var(--color-surface-sunken); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); overflow-x: auto; margin: 0;">@HelmJoinSnippet</pre>
+                <pre class="code-block">@HelmJoinSnippet</pre>
             </div>
         </div>
     </ChildContent>

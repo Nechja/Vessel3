@@ -20,7 +20,7 @@ public sealed class RequestTraceTests : IDisposable
         var sync = new PortableFileSync();
         registry = new BucketRegistry(new BucketRegistryOptions(root), sync, new DurableWrite(sync));
         blobs = new BlobPool(new BlobPoolOptions(Path.Combine(root, "blobs")), sync);
-        Assert.IsType<Result<bool>.Success>(registry.Create("bucket"));
+        Assert.IsType<Result.OkResult>(registry.Create("bucket"));
     }
 
     public void Dispose()

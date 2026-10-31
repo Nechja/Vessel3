@@ -1,0 +1,163 @@
+@inject IVesselClient Client
+@inject UiNotifications Toast
+
+<Modal IsOpen="IsOpen" Title="@Bucket" OnClose="OnClose">
+    <ChildContent>
+        <div class="stack">
+            <div class="field">
+                <label>Access</label>
+                <label class="check"><input type="checkbox" @bind="publicRead" /> public read</label>
+                <label class="check"><input type="checkbox" @bind="readOnly" /> read only</label>
+            </div>
+
+            <div class="field">
+                <label>Versioning</label>
+                <select class="select" @bind="versioningStatus">
+                    <option value="Suspended">Suspended</option>
+                    <option value="Enabled">Enabled</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label>Website</label>
+                <label class="check"><input type="checkbox" @bind="websiteEnabled" /> static website hosting</label>
+                @if (websiteEnabled)
+                {
+                    <div class="grid grid-2 gap-2">
+                        <div class="field">
+                            <label>Index Document</label>
+                            <input class="input mono" @bind="websiteIndexDoc" placeholder="index.html" />
+                        </div>
+                        <div class="field">
+                            <label>Error Document</label>
+                            <input class="input mono" @bind="websiteErrorDoc" placeholder="index.html or 404.html" />
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="OnClose">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="SaveSettings" disabled="@savingSettings">
+            @(savingSettings ? "saving..." : "save")
+        </button>
+    </FooterContent>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool publicRead;
+    private bool readOnly;
+    private string versioningStatus = "Suspended";
+    private bool websiteEnabled;
+    private string websiteIndexDoc = "index.html";
+    private string websiteErrorDoc = "";
+    private bool savingSettings;
+    private BucketAccessDto loadedAccess;
+    private string loadedVersioning = "";
+    private BucketWebsiteDto? loadedWebsite;
+    private bool wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            await Load();
+        }
+        wasOpen = IsOpen;
+    }
+
+    private async Task Load()
+    {
+        var accessResult = await Client.GetBucketAccess(Bucket);
+        loadedAccess = accessResult.TryGetValue(out var access, out _) ? access : default;
+        publicRead = loadedAccess.PublicRead;
+        readOnly = loadedAccess.ReadOnly;
+
+        var versioningResult = await Client.GetBucketVersioning(Bucket);
+        loadedVersioning = versioningResult.TryGetValue(out var versioning, out _) ? versioning.Status : "";
+        versioningStatus = loadedVersioning == "Enabled" ? "Enabled" : "Suspended";
+
+        var websiteResult = await Client.GetBucketWebsite(Bucket);
+        loadedWebsite = websiteResult.TryGetValue(out var website, out _) ? website : null;
+        websiteEnabled = loadedWebsite is not null;
+        websiteIndexDoc = loadedWebsite?.IndexDocument ?? "index.html";
+        websiteErrorDoc = loadedWebsite?.ErrorDocument ?? "";
+    }
+
+    private async Task SaveSettings()
+    {
+        savingSettings = true;
+        try
+        {
+            if (!await SaveAccess()) return;
+            if (!await SaveVersioning()) return;
+            if (!await SaveWebsite()) return;
+            Toast.Success($"Settings for '{Bucket}' saved");
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Settings error: {ex.Message}");
+        }
+        finally
+        {
+            savingSettings = false;
+        }
+    }
+
+    private async Task<bool> SaveAccess()
+    {
+        var access = new BucketAccessDto(publicRead, readOnly);
+        if (access == loadedAccess) return true;
+
+        var result = await Client.SetBucketAccess(Bucket, access);
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update access: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveVersioning()
+    {
+        var wasEnabled = loadedVersioning == "Enabled";
+        var isEnabled = versioningStatus == "Enabled";
+        if (wasEnabled == isEnabled) return true;
+
+        var result = await Client.SetBucketVersioning(Bucket, versioningStatus);
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update versioning: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveWebsite()
+    {
+        BucketWebsiteDto? website = null;
+        if (websiteEnabled)
+        {
+            var index = string.IsNullOrWhiteSpace(websiteIndexDoc) ? "index.html" : websiteIndexDoc.Trim();
+            var error = string.IsNullOrWhiteSpace(websiteErrorDoc) ? null : websiteErrorDoc.Trim();
+            website = new BucketWebsiteDto(index, error);
+        }
+        if (website == loadedWebsite) return true;
+
+        var result = website is { } configured
+            ? await Client.SetBucketWebsite(Bucket, configured)
+            : await Client.DeleteBucketWebsite(Bucket);
+        if (result.TryGetError(out var failure))
+        {
+            Toast.Error($"Failed to update website settings: {failure.Message}");
+            return false;
+        }
+        return true;
+    }
+}

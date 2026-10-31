@@ -2,15 +2,15 @@
 @inject IVesselClient Client
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
-            <span class="toolbar-title">Upload Objects</span>
+            <span class="toolbar-title">Uploads</span>
         </div>
     </div>
 
     <div class="panel">
-        <div class="grid grid-2" style="margin-bottom: var(--space-4);">
+        <div class="grid grid-2 mb-4">
             <div class="field">
                 <label>Destination Bucket</label>
                 <select class="select" @bind="selectedBucket" disabled="@loadingBuckets">
@@ -33,78 +33,73 @@
             </div>
         </div>
 
-        <InputFile id="fileUploadInput" OnChange="OnFilesSelected" multiple style="display:none;" />
+        <InputFile id="fileUploadInput" OnChange="OnFilesSelected" multiple hidden />
         <label for="fileUploadInput" class="dropzone">
-            <div class="stack align-center" style="gap: var(--space-2);">
-                <Icon Name="upload" Class="icon-lg" />
-                <div style="font-weight: var(--weight-semibold);">click to select files or drop them here</div>
-                <div class="faint mono" style="font-size: var(--text-xs);">
-                    @(string.IsNullOrEmpty(selectedBucket) ? "select a bucket first" : $"destination: {selectedBucket}/{targetPrefix}")
-                </div>
+            <Icon Name="upload" Class="icon-lg" />
+            <div class="dropzone-title">click to select files or drop them here</div>
+            <div class="dropzone-hint">
+                @(string.IsNullOrEmpty(selectedBucket) ? "select a bucket first" : $"destination: {selectedBucket}/{targetPrefix}")
             </div>
         </label>
     </div>
 
     @if (jobs.Count > 0)
     {
-        <div>
-            <h2>Upload Queue (@jobs.Count)</h2>
-            <div class="table-card">
-                <table>
-                    <thead>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>destination</th>
+                        <th>size</th>
+                        <th>status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var job in jobs)
+                    {
                         <tr>
-                            <th>destination</th>
-                            <th>size</th>
-                            <th>status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var job in jobs)
-                        {
-                            <tr>
-                                <td>
-                                    <span class="mono" style="font-weight: var(--weight-semibold);">
-                                        @job.Bucket / @job.Key
+                            <td>
+                                <span class="mono semibold">
+                                    @job.Bucket / @job.Key
+                                </span>
+                            </td>
+                            <td>
+                                <span class="mono muted">@Fmt.Bytes(job.Size)</span>
+                            </td>
+                            <td>
+                                @if (job.State == UploadState.Done)
+                                {
+                                    <span class="badge badge-mint">
+                                        <Icon Name="check" /> done
                                     </span>
-                                </td>
-                                <td>
-                                    <span class="mono muted">@Fmt.Bytes(job.Size)</span>
-                                </td>
-                                <td>
-                                    @if (job.State == UploadState.Done)
-                                    {
-                                        <span class="badge badge-mint">
-                                            <Icon Name="check" /> done
-                                        </span>
-                                    }
-                                    else if (job.State == UploadState.Uploading)
-                                    {
-                                        <div class="stack" style="gap: var(--space-1); min-width: 180px;">
-                                            <div class="row" style="justify-content: space-between; font-size: var(--text-xs);">
-                                                <span class="mono faint">@Fmt.Bytes(job.TransferredBytes) / @Fmt.Bytes(job.Size)</span>
-                                                <span class="mono" style="font-weight: var(--weight-semibold);">@job.Percent%</span>
-                                            </div>
-                                            <div class="progress-track">
-                                                <div class="progress-fill" style="width: @(job.Percent)%"></div>
-                                            </div>
+                                }
+                                else if (job.State == UploadState.Uploading)
+                                {
+                                    <div class="stack gap-1">
+                                        <div class="row justify-between text-xs">
+                                            <span class="mono faint">@Fmt.Bytes(job.TransferredBytes) / @Fmt.Bytes(job.Size)</span>
+                                            <span class="mono semibold">@job.Percent%</span>
                                         </div>
-                                    }
-                                    else if (job.State == UploadState.Failed)
-                                    {
-                                        <span class="badge badge-danger" title="@job.Error">
-                                            failed: @job.Error
-                                        </span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge badge-neutral">queued</span>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+                                        <div class="progress-track">
+                                            <div class="progress-fill" style="width: @(job.Percent)%"></div>
+                                        </div>
+                                    </div>
+                                }
+                                else if (job.State == UploadState.Failed)
+                                {
+                                    <span class="badge badge-danger" title="@job.Error">
+                                        failed: @job.Error
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-neutral">queued</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
         </div>
     }
 </div>

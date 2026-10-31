@@ -1,12 +1,10 @@
 @page "/webhooks"
 @using System.Globalization
 @inject IVesselClient Client
-@inject UiAuth Auth
 @inject UiNotifications Toast
 @inject IJSRuntime JS
-@inject NavigationManager Nav
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
             <span class="toolbar-title">Webhooks</span>
@@ -36,47 +34,50 @@
     }
 
     <div class="table-card">
-        <table>
-            <thead>
-                <tr>
-                    <th>name &amp; endpoint</th>
-                    <th>source</th>
-                    <th>event filters</th>
-                    <th>resource filters</th>
-                    <th>status</th>
-                    <th>last delivery</th>
-                    <th style="text-align: right;">actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (loading)
-                {
+        @if (loading)
+        {
+            <div class="empty-state">loading webhooks...</div>
+        }
+        else if (filteredWebhooks.Count == 0)
+        {
+            @if (string.IsNullOrWhiteSpace(searchFilter))
+            {
+                <EmptyState Icon="bolt" Text="no webhooks">
+                    <button type="button" class="btn btn-primary" @onclick="OpenNewWebhookModal">
+                        <Icon Name="bolt" /> new webhook
+                    </button>
+                </EmptyState>
+            }
+            else
+            {
+                <EmptyState Icon="search" Text="no matches" />
+            }
+        }
+        else
+        {
+            <table>
+                <thead>
                     <tr>
-                        <td colspan="7" class="empty-state">loading webhooks...</td>
+                        <th>name &amp; endpoint</th>
+                        <th>source</th>
+                        <th>event filters</th>
+                        <th>resource filters</th>
+                        <th>status</th>
+                        <th>last delivery</th>
+                        <th class="text-right">actions</th>
                     </tr>
-                }
-                else if (filteredWebhooks.Count == 0)
-                {
-                    <tr>
-                        <td colspan="7" class="empty-state">
-                            @(string.IsNullOrWhiteSpace(searchFilter)
-                                ? "no webhooks configured. create one above or declare them in webhooks.yaml."
-                                : "no webhooks matching search filter.")
-                        </td>
-                    </tr>
-                }
-                else
-                {
+                </thead>
+                <tbody>
                     @foreach (var hook in filteredWebhooks)
                     {
                         <tr>
                             <td>
-                                <div class="stack" style="gap: var(--space-1);">
-                                    <div class="row align-center" style="gap: var(--space-2);">
+                                <div class="stack gap-1">
+                                    <div class="row align-center gap-2">
                                         <Icon Name="bolt" Class="faint" />
-                                        <span style="font-weight: var(--weight-semibold); color: var(--color-text);">@hook.Name</span>
+                                        <span class="semibold text-body">@hook.Name</span>
                                     </div>
-                                    <span class="mono muted" style="font-size: var(--text-xs);" title="@hook.Url">@TruncateUrl(hook.Url)</span>
+                                    <span class="meta" title="@hook.Url">@TruncateUrl(hook.Url)</span>
                                 </div>
                             </td>
                             <td>
@@ -90,26 +91,26 @@
                                 }
                             </td>
                             <td>
-                                <div class="row" style="flex-wrap: wrap; gap: var(--space-1);">
+                                <div class="row wrap-items gap-1">
                                     @foreach (var ev in hook.EventFilters)
                                     {
-                                        <span class="badge badge-neutral mono" style="font-size: 11px;">@ev</span>
+                                        <span class="badge badge-neutral badge-sm">@ev</span>
                                     }
                                 </div>
                             </td>
                             <td>
                                 @if (hook.ResourceFilters is { Count: > 0 } res)
                                 {
-                                    <div class="row" style="flex-wrap: wrap; gap: var(--space-1);">
+                                    <div class="row wrap-items gap-1">
                                         @foreach (var r in res)
                                         {
-                                            <span class="badge badge-neutral mono" style="font-size: 11px;">@r</span>
+                                            <span class="badge badge-neutral badge-sm">@r</span>
                                         }
                                     </div>
                                 }
                                 else
                                 {
-                                    <span class="muted mono" style="font-size: var(--text-xs);">* (all)</span>
+                                    <span class="meta">* (all)</span>
                                 }
                             </td>
                             <td>
@@ -125,35 +126,35 @@
                             <td>
                                 @if (hook.LastTriggeredAt.HasValue)
                                 {
-                                    <div class="stack" style="gap: var(--space-1);">
-                                        <div class="row align-center" style="gap: var(--space-2);">
+                                    <div class="stack gap-1">
+                                        <div class="row align-center gap-2">
                                             @if (hook.LastStatusCode is >= 200 and < 300)
                                             {
-                                                <span class="badge badge-mint mono">@hook.LastStatusCode</span>
+                                                <span class="badge badge-mint">@hook.LastStatusCode</span>
                                             }
                                             else if (hook.LastStatusCode.HasValue)
                                             {
-                                                <span class="badge badge-danger mono">@hook.LastStatusCode</span>
+                                                <span class="badge badge-danger">@hook.LastStatusCode</span>
                                             }
                                             else
                                             {
-                                                <span class="badge badge-danger mono">err</span>
+                                                <span class="badge badge-danger">err</span>
                                             }
-                                            <span class="mono faint" style="font-size: 11px;">@hook.LastTriggeredAt.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</span>
+                                            <span class="meta">@hook.LastTriggeredAt.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</span>
                                         </div>
                                         @if (!string.IsNullOrEmpty(hook.LastError))
                                         {
-                                            <span class="muted" style="font-size: 10px; color: var(--color-danger);" title="@hook.LastError">@hook.LastError</span>
+                                            <span class="text-xs text-danger" title="@hook.LastError">@hook.LastError</span>
                                         }
                                     </div>
                                 }
                                 else
                                 {
-                                    <span class="mono muted" style="font-size: var(--text-xs);">never</span>
+                                    <span class="meta">never</span>
                                 }
                             </td>
-                            <td style="text-align: right;">
-                                <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
+                            <td class="text-right">
+                                <div class="cell-actions">
                                     <button type="button" class="btn btn-ghost btn-sm" title="Test webhook ping" @onclick="@(() => TestWebhook(hook.Id))" disabled="@isTesting">
                                         <Icon Name="refresh" /> ping
                                     </button>
@@ -162,69 +163,23 @@
                                         <button type="button" class="btn btn-ghost btn-sm" title="Edit webhook" @onclick="@(() => OpenEditModal(hook))">
                                             edit
                                         </button>
-                                        @if (armedDeleteId == hook.Id)
-                                        {
-                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteWebhook(hook.Id))">
-                                                confirm?
-                                            </button>
-                                            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteId = null)">
-                                                cancel
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete webhook" @onclick="@(() => armedDeleteId = hook.Id)">
-                                                <Icon Name="trash" />
-                                            </button>
-                                        }
+                                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete webhook" @onclick="@(() => pendingDeleteWebhook = hook)">
+                                            <Icon Name="trash" />
+                                        </button>
                                     }
                                 </div>
                             </td>
                         </tr>
                     }
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div class="panel stack" style="gap: var(--space-3);">
-        <div class="row align-center" style="gap: var(--space-2);">
-            <Icon Name="bolt" />
-            <span style="font-weight: var(--weight-bold); font-size: var(--text-md);">Hexagonal Event Architecture</span>
-        </div>
-        <p class="muted" style="font-size: var(--text-sm); line-height: 1.5;">
-            Vessel3 emits decoupled domain events for container registry operations and storage actions. Subscribed endpoints receive an HTTP POST request containing structured JSON and an HMAC-SHA256 signature in the <code class="mono">X-Vessel-Signature</code> header.
-        </p>
-        <div class="grid grid-2" style="gap: var(--space-3);">
-            <div class="field">
-                <label>Supported Event Topics</label>
-                <ul class="mono muted" style="font-size: var(--text-xs); line-height: 1.8; margin: 0; padding-left: var(--space-4);">
-                    <li><strong style="color: var(--color-text);">object.created</strong> &mdash; Object uploaded via S3, Azure, WebDAV, or Native API</li>
-                    <li><strong style="color: var(--color-text);">object.deleted</strong> &mdash; Object or version deleted</li>
-                    <li><strong style="color: var(--color-text);">bucket.created</strong> &mdash; Bucket provisioned</li>
-                    <li><strong style="color: var(--color-text);">bucket.deleted</strong> &mdash; Bucket removed</li>
-                    <li><strong style="color: var(--color-text);">container.image.pushed</strong> &mdash; Fired when a docker/podman push completes</li>
-                    <li><strong style="color: var(--color-text);">container.image.deleted</strong> &mdash; Fired when a manifest tag is removed</li>
-                    <li><strong style="color: var(--color-text);">user.created</strong> &mdash; IAM user created</li>
-                    <li><strong style="color: var(--color-text);">*</strong> &mdash; Match all domain event types</li>
-                </ul>
-            </div>
-            <div class="field">
-                <label>Resource Matching Patterns</label>
-                <ul class="mono muted" style="font-size: var(--text-xs); line-height: 1.8; margin: 0; padding-left: var(--space-4);">
-                    <li><code class="mono">drummer:*</code> &mdash; Any tag in the drummer repository</li>
-                    <li><code class="mono">rainier/*</code> &mdash; Any object in the rainier bucket</li>
-                    <li><code class="mono">avasarala:v1.0</code> &mdash; Exact match on repository and tag</li>
-                    <li><code class="mono">*</code> &mdash; Matches all resources</li>
-                </ul>
-            </div>
-        </div>
+                </tbody>
+            </table>
+        }
     </div>
 </div>
 
 <Modal IsOpen="showNewModal" Title="New Webhook Subscription" OnClose="@(() => showNewModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="field">
                 <label>Name</label>
                 <input class="input mono" @bind="newName" placeholder="e.g. drummer-ci-pipeline or rainier-events" />
@@ -240,7 +195,7 @@
             <div class="field">
                 <label>Event Filters (comma separated)</label>
                 <input class="input mono" @bind="newEventsText" placeholder="object.*, container.*" />
-                <div class="row" style="gap: var(--space-2); margin-top: var(--space-1); flex-wrap: wrap;">
+                <div class="row wrap-items gap-2 mt-1">
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.*")">+ all objects</button>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.created")">+ object created</button>
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "bucket.*")">+ buckets</button>
@@ -254,9 +209,9 @@
                 <input class="input mono" @bind="newResourcesText" placeholder="Leave empty for all resources (*)" />
             </div>
             <div class="field">
-                <label class="row align-center" style="gap: var(--space-2); cursor: pointer;">
+                <label class="check">
                     <input type="checkbox" @bind="newActive" />
-                    <span>Active (enabled immediately)</span>
+                    Active (enabled immediately)
                 </label>
             </div>
         </div>
@@ -273,7 +228,7 @@
     <ChildContent>
         @if (editingWebhook is not null)
         {
-            <div class="stack" style="gap: var(--space-4);">
+            <div class="stack">
                 <div class="field">
                     <label>Name</label>
                     <input class="input mono" @bind="editName" />
@@ -295,9 +250,9 @@
                     <input class="input mono" @bind="editResourcesText" placeholder="Leave empty for all resources (*)" />
                 </div>
                 <div class="field">
-                    <label class="row align-center" style="gap: var(--space-2); cursor: pointer;">
+                    <label class="check">
                         <input type="checkbox" @bind="editActive" />
-                        <span>Active</span>
+                        Active
                     </label>
                 </div>
             </div>
@@ -315,9 +270,9 @@
     <ChildContent>
         @if (testResult is not null)
         {
-            <div class="stack" style="gap: var(--space-3);">
+            <div class="stack gap-3">
                 <div class="row align-center justify-between">
-                    <div class="row align-center" style="gap: var(--space-2);">
+                    <div class="row align-center gap-2">
                         @if (testResult.Success)
                         {
                             <span class="badge badge-mint">SUCCESS</span>
@@ -330,7 +285,7 @@
                     </div>
                     @if (testResult.StatusCode.HasValue)
                     {
-                        <span class="badge @(testResult.StatusCode is >= 200 and < 300 ? "badge-mint" : "badge-danger") mono">
+                        <span class="badge @(testResult.StatusCode is >= 200 and < 300 ? "badge-mint" : "badge-danger")">
                             HTTP @testResult.StatusCode
                         </span>
                     }
@@ -339,7 +294,7 @@
                 @if (!string.IsNullOrEmpty(testResult.ErrorMessage))
                 {
                     <div class="callout callout-danger">
-                        <div class="mono" style="font-size: var(--text-xs);">@testResult.ErrorMessage</div>
+                        <div class="mono text-xs">@testResult.ErrorMessage</div>
                     </div>
                 }
 
@@ -347,7 +302,7 @@
                 {
                     <div class="field">
                         <label>Response Body Preview</label>
-                        <pre class="mono" style="background: var(--color-surface); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); max-height: 200px; overflow-y: auto;">@testResult.ResponseBody</pre>
+                        <pre class="code-block">@testResult.ResponseBody</pre>
                     </div>
                 }
             </div>
@@ -358,13 +313,10 @@
     </FooterContent>
 </Modal>
 
-<Modal IsOpen="showExportModal" Title="Declarative Webhook YAML" OnClose="@(() => showExportModal = false)">
+<Modal IsOpen="showExportModal" Title="webhooks.yaml" OnClose="@(() => showExportModal = false)">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-3);">
-            <p class="muted" style="font-size: var(--text-sm);">
-                You can save this configuration as <code class="mono">webhooks.yaml</code> and point Vessel3 to it using <code class="mono">VESSEL3_WEBHOOKS_FILE=webhooks.yaml</code> or mount it into your Kubernetes pod.
-            </p>
-            <pre class="mono" style="background: var(--color-surface); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); max-height: 350px; overflow-y: auto;">@exportedYaml</pre>
+        <div class="stack gap-3">
+            <pre class="code-block">@exportedYaml</pre>
         </div>
     </ChildContent>
     <FooterContent>
@@ -375,6 +327,8 @@
     </FooterContent>
 </Modal>
 
+<ConfirmDialog Title="Delete webhook" Target="@pendingDeleteWebhook?.Name" OnConfirm="DeleteWebhook" OnCancel="@(() => pendingDeleteWebhook = null)" />
+
 @code {
     private bool loading = true;
     private bool isSubmitting;
@@ -382,7 +336,7 @@
     private string errorMessage = "";
     private string searchFilter = "";
     private List<WebhookDto> webhooks = [];
-    private string? armedDeleteId;
+    private WebhookDto? pendingDeleteWebhook;
 
     private bool showNewModal;
     private string newName = "";
@@ -588,9 +542,11 @@
         }
     }
 
-    private async Task DeleteWebhook(string id)
+    private async Task DeleteWebhook()
     {
-        armedDeleteId = null;
+        if (pendingDeleteWebhook is not { } hook) return;
+        pendingDeleteWebhook = null;
+        var id = hook.Id;
         try
         {
             var res = await Client.DeleteWebhook(id);

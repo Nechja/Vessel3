@@ -134,7 +134,7 @@ public class BucketWebsiteTests : IDisposable
     public async Task Actions_GetPutDelete_ExecutesFlow()
     {
         var reg = Registry();
-        Assert.True(reg.Create("web-test").Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(reg.Create("web-test"));
 
         IS3XmlWriter xml = new S3XmlWriter();
         IS3XmlReader reader = new S3XmlReader();

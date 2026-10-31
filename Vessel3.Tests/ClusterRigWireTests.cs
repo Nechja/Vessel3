@@ -239,7 +239,7 @@ public sealed class ClusterRigWireTests
         Assert.True(nodeB.VolumeRegistry.DefaultIngestVolume.IsMirrored);
         Assert.True(nodeC.VolumeRegistry.DefaultIngestVolume.IsMirrored);
 
-        Assert.True(nodeA.BucketRegistry.Create("ha-loki").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("ha-loki").TryGetError(out _));
 
         var userRes = nodeA.IdentityRegistry.CreateUser("grafana", UserRole.Member);
         Assert.True(userRes.TryGetValue(out var grafanaUser, out _));
@@ -320,7 +320,7 @@ public sealed class ClusterRigWireTests
         Assert.False(directWriteAttempt.TryGetValue(out _, out var roErr));
         Assert.IsType<BucketIsReadOnlyError>(roErr);
 
-        Assert.True(homelab.BucketRegistry.Create("backups").TryGetValue(out _, out _));
+        Assert.False(homelab.BucketRegistry.Create("backups").TryGetError(out _));
         var initialPayload = "initial-homelab-snapshot-0"u8.ToArray();
         Assert.True((await homelab.ObjectStore.Put(new ObjectPutRequest("backups", "snap-0", new MemoryStream(initialPayload), initialPayload.Length))).TryGetValue(out _, out _));
 
@@ -373,7 +373,7 @@ public sealed class ClusterRigWireTests
 
         await rig.StepCluster(rounds: 2);
 
-        Assert.True(nodeA.BucketRegistry.Create("media").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("media").TryGetError(out _));
         await rig.StepCluster(rounds: 1);
 
         var createSession = nodeA.ChunkStager.CreateSession("media", "video.bin", "application/octet-stream", new Dictionary<string, string>());
@@ -443,7 +443,7 @@ public sealed class ClusterRigWireTests
 
         await rig.StepCluster(rounds: 2);
 
-        Assert.True(nodeA.BucketRegistry.Create("gc-safe").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("gc-safe").TryGetError(out _));
         var sessionRes = nodeA.ChunkStager.CreateSession("gc-safe", "inflight.bin", "application/octet-stream", new Dictionary<string, string>());
         Assert.True(sessionRes.TryGetValue(out var session, out _));
 
@@ -486,7 +486,7 @@ public sealed class ClusterRigWireTests
 
         await rig.StepCluster(rounds: 2);
 
-        Assert.True(nodeA.BucketRegistry.Create("ephemeral-bkt").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("ephemeral-bkt").TryGetError(out _));
         Assert.True(nodeA.BucketRegistry.SetVersioning("ephemeral-bkt", VersioningStatus.Enabled) is not Result.Failure);
         Assert.True(nodeA.BucketRegistry.SetAccess("ephemeral-bkt", new BucketAccess(PublicRead: true, ReadOnly: false)) is not Result.Failure);
 
@@ -509,7 +509,7 @@ public sealed class ClusterRigWireTests
         }
 
         await Task.Delay(15);
-        Assert.True(nodeC.BucketRegistry.Create("ephemeral-bkt").TryGetValue(out var recreated, out _) && recreated);
+        Assert.False(nodeC.BucketRegistry.Create("ephemeral-bkt").TryGetError(out _));
         await rig.StepCluster(rounds: 2);
 
         foreach (var node in new[] { nodeA, nodeB, nodeC })
@@ -576,7 +576,7 @@ public sealed class ClusterRigWireTests
 
         await rig.StepCluster(rounds: 2);
 
-        Assert.True(nodeA.BucketRegistry.Create("split-brain").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("split-brain").TryGetError(out _));
         var preBytes = "pre-partition-object"u8.ToArray();
         Assert.True((await nodeA.ObjectStore.Put(new ObjectPutRequest("split-brain", "to-be-deleted", new MemoryStream(preBytes), preBytes.Length))).TryGetValue(out _, out _));
         await rig.StepCluster(rounds: 2);
@@ -629,7 +629,7 @@ public sealed class ClusterRigWireTests
 
         await rig.StepCluster(rounds: 2);
 
-        Assert.True(nodeA.BucketRegistry.Create("versioned-ha").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("versioned-ha").TryGetError(out _));
         Assert.True(nodeA.BucketRegistry.SetVersioning("versioned-ha", VersioningStatus.Enabled) is not Result.Failure);
         await rig.StepCluster(rounds: 2);
 
@@ -683,7 +683,7 @@ public sealed class ClusterRigWireTests
         Assert.True(nodeB.IdentityRegistry.AuthenticateAccessKey(key!.Id).TryGetValue(out var authOnB, out _));
         Assert.Equal("instant-user", authOnB!.Username);
 
-        Assert.True(nodeA.BucketRegistry.Create("instant-rr").TryGetValue(out _, out _));
+        Assert.False(nodeA.BucketRegistry.Create("instant-rr").TryGetError(out _));
 
         var payload = "written-on-b-immediately-after-bucket-create-on-a"u8.ToArray();
         var putOnB = await nodeB.ObjectStore.Put(new ObjectPutRequest("instant-rr", "item-1", new MemoryStream(payload), payload.Length));
