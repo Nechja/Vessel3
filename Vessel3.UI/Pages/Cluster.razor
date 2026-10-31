@@ -4,6 +4,8 @@
 @implements IAsyncDisposable
 @inject IVesselClient Client
 @inject UiNotifications Toast
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <div class="stack" style="gap: var(--space-4);">
     <div class="toolbar">
@@ -21,6 +23,9 @@
             <button type="button" class="btn btn-ghost btn-sm" @onclick="RefreshStatus" disabled="@loading">
                 <Icon Name="refresh" /> refresh
             </button>
+            <button type="button" class="btn btn-primary btn-sm" @onclick="OpenJoinModal">
+                <Icon Name="server" /> join peer / offsite nas
+            </button>
         </div>
     </div>
 
@@ -28,7 +33,12 @@
     {
         <div class="grid grid-4">
             <div class="stat-card">
-                <div class="stat-kicker">Local Node</div>
+                <div class="row justify-between align-center" style="margin-bottom: var(--space-1);">
+                    <div class="stat-kicker" style="margin-bottom: 0;">Local Node</div>
+                    <span class="badge @GetPeerRoleBadgeClass(st.LocalNode) mono" style="font-size: 10px;">
+                        @GetPeerRoleLabel(st.LocalNode, st.ClusterEnabled)
+                    </span>
+                </div>
                 <div class="stat-value">@st.NodeId</div>
                 <div class="stat-sub mono">
                     @if (!string.IsNullOrEmpty(st.LocalNode.Endpoint))
@@ -52,16 +62,21 @@
                     }
                     else
                     {
-                        <span>@SuspectPeerCount suspect · @DeadPeerCount dead</span>
+                        <span>@ActiveHaNodeCount active-active · @OffsiteVaultNodeCount offsite · @DeadPeerCount dead</span>
                     }
                 </div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-kicker">Storage Volumes</div>
-                <div class="stat-value">@OnlineVolumeCount / @st.Volumes.Count</div>
-                <div class="stat-sub">
-                    @LocalVolumeCount local · @RemoteVolumeCount remote · @PoolNames.Count @(PoolNames.Count == 1 ? "pool" : "pools")
+                <div class="row justify-between align-center" style="margin-bottom: var(--space-1);">
+                    <div class="stat-kicker" style="margin-bottom: 0;">Replication &amp; Self-Heal</div>
+                    <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") mono" style="font-size: 10px;">
+                        @(st.PendingMirrorBlobs == 0 ? "watermarks synced" : "pulling blobs")
+                    </span>
+                </div>
+                <div class="stat-value">@(st.PendingMirrorBlobs == 0 ? "in sync" : $"{st.PendingMirrorBlobs} queued")</div>
+                <div class="stat-sub mono">
+                    iam gen #@st.IamGeneration · @BucketWatermarks.Count buckets · @MirroredVolumeCount mirrored
                 </div>
             </div>
 
@@ -95,6 +110,14 @@
                 </div>
                 <div class="toolbar-actions">
                     <div class="row align-center" style="gap: var(--space-2);">
+                        <span class="muted" style="font-size: var(--text-xs);">Role:</span>
+                        <select class="input mono" @bind="roleFilter" style="font-size: var(--text-xs); width: 150px;">
+                            <option value="">All Roles</option>
+                            <option value="@RoleActiveHa">Active-Active HA</option>
+                            <option value="@RoleOffsiteVault">Offsite Vault</option>
+                        </select>
+                    </div>
+                    <div class="row align-center" style="gap: var(--space-2);">
                         <span class="muted" style="font-size: var(--text-xs);">Scope:</span>
                         <select class="input mono" @bind="scopeFilter" style="font-size: var(--text-xs); width: 120px;">
                             <option value="">All Scopes</option>
@@ -121,18 +144,19 @@
                         <tr>
                             <th>volume id</th>
                             <th style="width: 150px;">node / scope</th>
-                            <th style="width: 110px;">pool</th>
+                            <th style="width: 170px;">role / read tier</th>
+                            <th style="width: 100px;">pool</th>
                             <th>capabilities</th>
                             <th>location / endpoint</th>
-                            <th style="width: 210px;">capacity</th>
-                            <th style="width: 110px;">status</th>
+                            <th style="width: 200px;">capacity</th>
+                            <th style="width: 100px;">status</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (FilteredVolumes.Count == 0)
                         {
                             <tr>
-                                <td colspan="7" class="empty-state">no storage volumes matching filter criteria.</td>
+                                <td colspan="8" class="empty-state">no storage volumes matching filter criteria.</td>
                             </tr>
                         }
                         else
@@ -159,6 +183,11 @@
                                                 <span class="mono muted" style="font-size: 11px;">@vol.NodeId</span>
                                             }
                                         </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetVolumeRoleBadgeClass(vol) mono" style="font-size: 10px;">
+                                            @GetVolumeRoleLabel(vol)
+                                        </span>
                                     </td>
                                     <td>
                                         <span class="badge badge-neutral mono">@vol.Pool</span>
@@ -220,11 +249,12 @@
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 200px;">node id</th>
-                            <th style="width: 240px;">gossip endpoint</th>
-                            <th style="width: 110px;">status</th>
-                            <th style="width: 110px;">incarnation</th>
-                            <th style="width: 160px;">last seen</th>
+                            <th style="width: 190px;">node id</th>
+                            <th style="width: 165px;">topology role</th>
+                            <th style="width: 220px;">gossip endpoint</th>
+                            <th style="width: 100px;">status</th>
+                            <th style="width: 100px;">incarnation</th>
+                            <th style="width: 140px;">last seen</th>
                             <th>advertised volumes</th>
                         </tr>
                     </thead>
@@ -240,6 +270,11 @@
                                             <span class="badge badge-accent mono" style="font-size: 10px;">self</span>
                                         }
                                     </div>
+                                </td>
+                                <td>
+                                    <span class="badge @GetPeerRoleBadgeClass(peer) mono" style="font-size: 10px;">
+                                        @GetPeerRoleLabel(peer, st.ClusterEnabled)
+                                    </span>
                                 </td>
                                 <td>
                                     <span class="mono muted" style="font-size: 11px;">
@@ -276,6 +311,91 @@
                 </table>
             </div>
         </div>
+
+        <div class="stack" style="gap: var(--space-3);">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2 style="margin: 0;">Bucket Replication Watermarks</h2>
+                    <span class="counter">@BucketWatermarks.Count</span>
+                </div>
+            </div>
+
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>bucket</th>
+                            <th style="width: 150px;">applied seq</th>
+                            <th style="width: 150px;">compaction floor</th>
+                            <th style="width: 130px;">versioning</th>
+                            <th style="width: 150px;">access policy</th>
+                            <th style="width: 210px;">replication state</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (BucketWatermarks.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="empty-state">no buckets provisioned yet.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var b in BucketWatermarks)
+                            {
+                                <tr>
+                                    <td>
+                                        <a href="buckets/@b.Name" class="row align-center" style="text-decoration: none; color: var(--color-text); font-weight: var(--weight-semibold); gap: var(--space-2);">
+                                            <Icon Name="bucket" Class="faint" />
+                                            <span class="mono">@b.Name</span>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="mono" style="font-weight: var(--weight-semibold);">seq #@b.AppliedSeq</span>
+                                    </td>
+                                    <td>
+                                        <span class="mono muted" style="font-size: 11px;">log #@b.FirstAvailableLogSeq</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(string.Equals(b.VersioningStatus, "Enabled", StringComparison.OrdinalIgnoreCase) ? "badge-mint" : "badge-neutral") mono" style="font-size: 10px;">
+                                            @b.VersioningStatus.ToLowerInvariant()
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="row" style="gap: 4px;">
+                                            @if (b.ReadOnly)
+                                            {
+                                                <span class="badge badge-warning mono" style="font-size: 10px;">read-only</span>
+                                            }
+                                            @if (b.PublicRead)
+                                            {
+                                                <span class="badge badge-accent mono" style="font-size: 10px;">public-read</span>
+                                            }
+                                            @if (!b.ReadOnly && !b.PublicRead)
+                                            {
+                                                <span class="badge badge-neutral mono" style="font-size: 10px;">private</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (MirroredVolumeCount > 1)
+                                        {
+                                            <span class="badge @(st.PendingMirrorBlobs == 0 ? "badge-mint" : "badge-warning") mono" style="font-size: 10px;">
+                                                @(st.PendingMirrorBlobs == 0 ? $"mirrored ({MirroredVolumeCount} vols)" : $"syncing ({MirroredVolumeCount} vols)")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge badge-neutral mono" style="font-size: 10px;">local volume only</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
     }
     else if (loading)
     {
@@ -287,9 +407,81 @@
     }
 </div>
 
+<Modal IsOpen="showJoinModal" Title="Join Cluster Peer or Offsite NAS" OnClose="@(() => showJoinModal = false)">
+    <ChildContent>
+        <div class="stack" style="gap: var(--space-4);">
+            <div class="field" style="margin-bottom: 0;">
+                <label>Node Topology Preset</label>
+                <div class="grid grid-2" style="gap: var(--space-2);">
+                    <button type="button"
+                            class="btn @(joinPreset == PresetOffsite ? "btn-primary" : "btn-ghost")"
+                            style="justify-content: flex-start; padding: var(--space-3);"
+                            @onclick="@(() => SelectJoinPreset(PresetOffsite))">
+                        <Icon Name="shield" /> offsite tailscale vault
+                    </button>
+                    <button type="button"
+                            class="btn @(joinPreset == PresetActiveHa ? "btn-primary" : "btn-ghost")"
+                            style="justify-content: flex-start; padding: var(--space-3);"
+                            @onclick="@(() => SelectJoinPreset(PresetActiveHa))">
+                        <Icon Name="server" /> active-active lan peer
+                    </button>
+                </div>
+                <span class="muted" style="font-size: var(--text-xs);">
+                    @if (joinPreset == PresetOffsite)
+                    {
+                        <span>Configures <code class="mono">ReadOnly,Mirrored,OnDemand</code> so the node rejects client writes, continuously mirrors metadata and blobs in the background, and serves fallback reads only when LAN copies are unreachable.</span>
+                    }
+                    else
+                    {
+                        <span>Configures <code class="mono">Ingest,Mirrored</code> so every node accepts S3/OCI/Azure writes and replicates deterministically across plain <code class="mono">ext4</code> or <code class="mono">local-path</code> drives.</span>
+                    }
+                </span>
+            </div>
+
+            <div class="grid grid-2" style="gap: var(--space-3);">
+                <div class="field" style="margin-bottom: 0;">
+                    <label>New Peer Node ID</label>
+                    <input class="input mono" @bind="joinNodeId" @bind:event="oninput" placeholder="pi-offsite-vault" />
+                </div>
+                <div class="field" style="margin-bottom: 0;">
+                    <label>New Peer Advertised Endpoint</label>
+                    <input class="input mono" @bind="joinAdvertiseEndpoint" @bind:event="oninput" placeholder="http://100.94.18.42:9000" />
+                </div>
+            </div>
+
+            <div class="field" style="margin-bottom: 0;">
+                <div class="row justify-between align-center">
+                    <label>Docker / Raspberry Pi Command</label>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopySnippet(DockerJoinSnippet, "Docker command"))">
+                        <Icon Name="copy" /> copy docker
+                    </button>
+                </div>
+                <pre class="mono" style="background: var(--color-surface-sunken); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); overflow-x: auto; margin: 0;">@DockerJoinSnippet</pre>
+            </div>
+
+            <div class="field" style="margin-bottom: 0;">
+                <div class="row justify-between align-center">
+                    <label>Kubernetes / Helm Values</label>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => CopySnippet(HelmJoinSnippet, "Helm values"))">
+                        <Icon Name="copy" /> copy helm
+                    </button>
+                </div>
+                <pre class="mono" style="background: var(--color-surface-sunken); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); overflow-x: auto; margin: 0;">@HelmJoinSnippet</pre>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showJoinModal = false)">close</button>
+    </FooterContent>
+</Modal>
+
 @code {
     private const string ScopeLocal = "local";
     private const string ScopeRemote = "remote";
+    private const string RoleActiveHa = "active-ha";
+    private const string RoleOffsiteVault = "offsite-vault";
+    private const string PresetOffsite = "offsite";
+    private const string PresetActiveHa = "active-ha";
     private const string BadgeMint = "badge-mint";
     private const string BadgeNeutral = "badge-neutral";
     private const string BadgeWarning = "badge-warning";
@@ -327,6 +519,11 @@
     private bool autoRefresh;
     private string scopeFilter = string.Empty;
     private string poolFilter = string.Empty;
+    private string roleFilter = string.Empty;
+    private bool showJoinModal;
+    private string joinPreset = PresetOffsite;
+    private string joinNodeId = "pi-offsite-vault";
+    private string joinAdvertiseEndpoint = "http://100.94.18.42:9000";
     private CancellationTokenSource? refreshCts;
 
     private int AlivePeerCount =>
@@ -335,20 +532,20 @@
             : (string.Equals(status.LocalNode.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
               + status.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Alive, StringComparison.OrdinalIgnoreCase));
 
-    private int SuspectPeerCount =>
-        status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Suspect, StringComparison.OrdinalIgnoreCase)) ?? 0;
-
     private int DeadPeerCount =>
         status?.Peers.Count(static p => string.Equals(p.Status, VesselPeerStatuses.Dead, StringComparison.OrdinalIgnoreCase)) ?? 0;
 
-    private int OnlineVolumeCount =>
-        status?.Volumes.Count(static v => string.Equals(v.Status, VesselVolumeStatuses.Online, StringComparison.OrdinalIgnoreCase)) ?? 0;
+    private int ActiveHaNodeCount =>
+        AllNodes.Count(static n => IsPeerActiveHa(n.Peer));
 
-    private int LocalVolumeCount =>
-        status?.Volumes.Count(static v => !v.IsRemote) ?? 0;
+    private int OffsiteVaultNodeCount =>
+        AllNodes.Count(static n => IsPeerOffsiteVault(n.Peer));
 
-    private int RemoteVolumeCount =>
-        status?.Volumes.Count(static v => v.IsRemote) ?? 0;
+    private int MirroredVolumeCount =>
+        status?.Volumes.Count(static v => HasCapability(v.Capabilities, VesselVolumeCapabilities.Mirrored)) ?? 0;
+
+    private IReadOnlyList<BucketReplicationDto> BucketWatermarks =>
+        status?.BucketWatermarks ?? [];
 
     private IReadOnlyList<string> PoolNames =>
         status is null
@@ -373,6 +570,64 @@
             ? Math.Clamp(TotalLocalUsedBytes * 100.0 / TotalLocalCapacityBytes, 0.0, 100.0)
             : 0.0;
 
+    private string SeedEndpoint
+    {
+        get
+        {
+            if (status is { } st && !string.IsNullOrEmpty(st.LocalNode.Endpoint))
+            {
+                return st.LocalNode.Endpoint;
+            }
+
+            return Nav.BaseUri.TrimEnd('/');
+        }
+    }
+
+    private string DockerJoinSnippet
+    {
+        get
+        {
+            var nodeId = string.IsNullOrWhiteSpace(joinNodeId) ? "pi-node-02" : joinNodeId.Trim();
+            var adv = string.IsNullOrWhiteSpace(joinAdvertiseEndpoint) ? "http://100.94.18.42:9000" : joinAdvertiseEndpoint.Trim();
+            var volSpec = joinPreset == PresetOffsite
+                ? "vault:/data:offsite-backup:ReadOnly,Mirrored,OnDemand"
+                : "local:/data:default:Ingest,Mirrored";
+
+            return $"""
+                docker run -d --name vessel3-{nodeId} \
+                  -p 9000:9000 \
+                  -v /mnt/usb-nas:/data \
+                  -e VESSEL3_CLUSTER_ENABLED=true \
+                  -e VESSEL3_NODE_ID={nodeId} \
+                  -e VESSEL3_ADVERTISE_ENDPOINT={adv} \
+                  -e VESSEL3_PEERS={SeedEndpoint} \
+                  -e VESSEL3_CLUSTER_SECRET=<your-cluster-secret> \
+                  -e VESSEL3_VOLUMES="{volSpec}" \
+                  ghcr.io/nechja/vessel3:latest
+                """;
+        }
+    }
+
+    private string HelmJoinSnippet =>
+        joinPreset == PresetOffsite
+            ? $"""
+              replicaCount: 1
+              cluster:
+                enabled: true
+                peers:
+                  - "{SeedEndpoint}"
+                volumes: "vault:/data:offsite-backup:ReadOnly,Mirrored,OnDemand"
+              """
+            : """
+              replicaCount: 3
+              cluster:
+                enabled: true
+              persistence:
+                enabled: true
+                storageClass: "local-path"
+                size: 500Gi
+              """;
+
     private IReadOnlyList<VolumeDto> FilteredVolumes
     {
         get
@@ -390,6 +645,15 @@
             else if (scopeFilter == ScopeRemote)
             {
                 query = query.Where(static v => v.IsRemote);
+            }
+
+            if (roleFilter == RoleActiveHa)
+            {
+                query = query.Where(static v => IsVolumeActiveHa(v.Capabilities));
+            }
+            else if (roleFilter == RoleOffsiteVault)
+            {
+                query = query.Where(static v => IsVolumeOffsiteVault(v.Capabilities));
             }
 
             if (!string.IsNullOrEmpty(poolFilter))
@@ -453,6 +717,39 @@
         }
     }
 
+    private void OpenJoinModal()
+    {
+        showJoinModal = true;
+    }
+
+    private void SelectJoinPreset(string preset)
+    {
+        joinPreset = preset;
+        if (preset == PresetOffsite && string.Equals(joinNodeId, "pi-lan-node-02", StringComparison.Ordinal))
+        {
+            joinNodeId = "pi-offsite-vault";
+            joinAdvertiseEndpoint = "http://100.94.18.42:9000";
+        }
+        else if (preset == PresetActiveHa && string.Equals(joinNodeId, "pi-offsite-vault", StringComparison.Ordinal))
+        {
+            joinNodeId = "pi-lan-node-02";
+            joinAdvertiseEndpoint = "http://192.168.1.42:9000";
+        }
+    }
+
+    private async Task CopySnippet(string text, string label)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success($"{label} copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy error: {ex.Message}");
+        }
+    }
+
     private void ToggleAutoRefresh()
     {
         autoRefresh = !autoRefresh;
@@ -485,6 +782,116 @@
                 });
             }
         }, token);
+    }
+
+    private static bool HasCapability(IReadOnlyList<string> capabilities, string target)
+    {
+        for (var i = 0; i < capabilities.Count; i++)
+        {
+            if (string.Equals(capabilities[i], target, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsVolumeOffsiteVault(IReadOnlyList<string> capabilities) =>
+        HasCapability(capabilities, VesselVolumeCapabilities.ReadOnly)
+        && HasCapability(capabilities, VesselVolumeCapabilities.Mirrored);
+
+    private static bool IsVolumeActiveHa(IReadOnlyList<string> capabilities) =>
+        HasCapability(capabilities, VesselVolumeCapabilities.Ingest)
+        && HasCapability(capabilities, VesselVolumeCapabilities.Mirrored)
+        && !HasCapability(capabilities, VesselVolumeCapabilities.ReadOnly);
+
+    private static bool IsPeerOffsiteVault(ClusterPeerDto peer) =>
+        peer.Volumes.Count > 0 && peer.Volumes.All(static v => IsVolumeOffsiteVault(v.Capabilities));
+
+    private static bool IsPeerActiveHa(ClusterPeerDto peer) =>
+        peer.Volumes.Any(static v => IsVolumeActiveHa(v.Capabilities));
+
+    private static string GetPeerRoleLabel(ClusterPeerDto peer, bool clusterEnabled)
+    {
+        if (!clusterEnabled && peer.Volumes.Count <= 1 && !IsPeerActiveHa(peer) && !IsPeerOffsiteVault(peer))
+        {
+            return "standalone";
+        }
+
+        if (IsPeerOffsiteVault(peer))
+        {
+            return "offsite vault";
+        }
+
+        if (IsPeerActiveHa(peer))
+        {
+            return "active-active ha";
+        }
+
+        return "ingest node";
+    }
+
+    private static string GetPeerRoleBadgeClass(ClusterPeerDto peer)
+    {
+        if (IsPeerOffsiteVault(peer))
+        {
+            return BadgeWarning;
+        }
+
+        if (IsPeerActiveHa(peer))
+        {
+            return BadgeMint;
+        }
+
+        return BadgeNeutral;
+    }
+
+    private static string GetVolumeRoleLabel(VolumeDto vol)
+    {
+        if (IsVolumeOffsiteVault(vol.Capabilities))
+        {
+            return HasCapability(vol.Capabilities, VesselVolumeCapabilities.OnDemand)
+                ? "offsite vault · tier 2"
+                : "mirror vault · ro";
+        }
+
+        if (IsVolumeActiveHa(vol.Capabilities))
+        {
+            return vol.IsRemote ? "ha peer · tier 1" : "ha primary · tier 0";
+        }
+
+        if (HasCapability(vol.Capabilities, VesselVolumeCapabilities.Mirrored))
+        {
+            return "mirror replica";
+        }
+
+        if (HasCapability(vol.Capabilities, VesselVolumeCapabilities.Ingest))
+        {
+            return vol.IsRemote ? "remote ingest · tier 1" : "local ingest · tier 0";
+        }
+
+        return "read-only";
+    }
+
+    private static string GetVolumeRoleBadgeClass(VolumeDto vol)
+    {
+        if (IsVolumeOffsiteVault(vol.Capabilities))
+        {
+            return BadgeWarning;
+        }
+
+        if (IsVolumeActiveHa(vol.Capabilities))
+        {
+            return vol.IsRemote ? BadgeAccent : BadgeMint;
+        }
+
+        if (HasCapability(vol.Capabilities, VesselVolumeCapabilities.Ingest))
+        {
+            return BadgeMint;
+        }
+
+        return BadgeNeutral;
     }
 
     private static string GetVolumeStatusBadgeClass(string status) =>

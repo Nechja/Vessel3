@@ -145,13 +145,24 @@ public sealed record VolumeDto(
     long? AvailableBytes = null,
     string? NodeId = null);
 
+public sealed record BucketReplicationDto(
+    string Name,
+    long AppliedSeq,
+    long FirstAvailableLogSeq,
+    string VersioningStatus = "Suspended",
+    bool PublicRead = false,
+    bool ReadOnly = false);
+
 public sealed record ClusterStatusDto(
     string NodeId,
     string Region,
     bool ClusterEnabled,
     ClusterPeerDto LocalNode,
     IReadOnlyList<ClusterPeerDto> Peers,
-    IReadOnlyList<VolumeDto> Volumes);
+    IReadOnlyList<VolumeDto> Volumes,
+    long IamGeneration = 0,
+    int PendingMirrorBlobs = 0,
+    IReadOnlyList<BucketReplicationDto>? BucketWatermarks = null);
 
 public sealed record VesselObjectDownload(
     Stream Content,
@@ -219,5 +230,8 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(VolumeDto))]
 [JsonSerializable(typeof(IReadOnlyList<VolumeDto>))]
 [JsonSerializable(typeof(List<VolumeDto>))]
+[JsonSerializable(typeof(BucketReplicationDto))]
+[JsonSerializable(typeof(IReadOnlyList<BucketReplicationDto>))]
+[JsonSerializable(typeof(List<BucketReplicationDto>))]
 [JsonSerializable(typeof(ClusterStatusDto))]
 internal partial class VesselJsonContext : JsonSerializerContext;
