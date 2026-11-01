@@ -82,4 +82,46 @@ internal sealed class BucketsClient(VesselHttpTransport transport) : IBucketsCli
         using var res = await transport.SendAsync(req, ct);
         return res.IsSuccessStatusCode ? Result.Ok : await transport.ReadError(res, ct);
     }
+
+    public async Task<Result<LifecycleConfigDto?>> GetBucketLifecycle(string bucket, CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Get, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/lifecycle");
+        using var res = await transport.SendAsync(req, ct);
+        if (res.StatusCode == HttpStatusCode.NotFound)
+        {
+            return (LifecycleConfigDto?)null;
+        }
+        var readResult = await transport.ReadJson(res, VesselJsonContext.Default.LifecycleConfigDto, ct);
+        return readResult.TryGetValue(out var dto, out var err) ? (LifecycleConfigDto?)dto : err;
+    }
+
+    public async Task<Result> SetBucketLifecycle(string bucket, LifecycleConfigDto lifecycle, CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Put, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/lifecycle");
+        req.Content = transport.CreateJsonContent(lifecycle, VesselJsonContext.Default.LifecycleConfigDto);
+        using var res = await transport.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await transport.ReadError(res, ct);
+    }
+
+    public async Task<Result> DeleteBucketLifecycle(string bucket, CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Delete, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/lifecycle");
+        using var res = await transport.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await transport.ReadError(res, ct);
+    }
+
+    public async Task<Result<BucketOwnerDto>> GetBucketOwner(string bucket, CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Get, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/owner");
+        using var res = await transport.SendAsync(req, ct);
+        return await transport.ReadJson(res, VesselJsonContext.Default.BucketOwnerDto, ct);
+    }
+
+    public async Task<Result> SetBucketOwner(string bucket, string ownerId, CancellationToken ct = default)
+    {
+        using var req = transport.CreateRequest(HttpMethod.Put, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/owner");
+        req.Content = transport.CreateJsonContent(new BucketOwnerDto(ownerId), VesselJsonContext.Default.BucketOwnerDto);
+        using var res = await transport.SendAsync(req, ct);
+        return res.IsSuccessStatusCode ? Result.Ok : await transport.ReadError(res, ct);
+    }
 }

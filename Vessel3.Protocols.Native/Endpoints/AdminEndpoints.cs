@@ -12,6 +12,7 @@ internal static class AdminEndpoints
     {
         endpoints.MapPost(VesselRoutes.GcRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.RunGc(ctx));
         endpoints.MapPost(VesselRoutes.SweepRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.RunSweep(ctx));
+        endpoints.MapPost(VesselRoutes.CompactRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.RunCompact(ctx));
         endpoints.MapGet(VesselRoutes.LogsRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.GetLogs(ctx));
         endpoints.MapDelete(VesselRoutes.LogsRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.ClearLogs(ctx));
         endpoints.MapGet(VesselRoutes.ClusterStatusRoute, static (NativeAdminAdapter adapter, HttpContext ctx) => adapter.GetClusterStatus(ctx));

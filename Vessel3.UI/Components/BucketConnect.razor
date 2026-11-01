@@ -1,0 +1,67 @@
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject UiNotifications Toast
+
+<Modal IsOpen="IsOpen" Title="@Bucket" OnClose="OnClose">
+    <ChildContent>
+        <div class="stack">
+            <div class="field">
+                <label>Vessel</label>
+                <div class="copy-field">
+                    <input class="input mono text-xs" readonly value="@NativeUrl" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(NativeUrl))"><Icon Name="copy" /></button>
+                </div>
+            </div>
+            <div class="field">
+                <label>S3</label>
+                <div class="copy-field">
+                    <input class="input mono text-xs" readonly value="@S3Url" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(S3Url))"><Icon Name="copy" /></button>
+                </div>
+            </div>
+            <div class="field">
+                <label>Azure</label>
+                <div class="copy-field">
+                    <input class="input mono text-xs" readonly value="@AzureUrl" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(AzureUrl))"><Icon Name="copy" /></button>
+                </div>
+            </div>
+            <div class="field">
+                <label>WebDAV</label>
+                <div class="copy-field">
+                    <input class="input mono text-xs" readonly value="@WebDavUrl" />
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(WebDavUrl))"><Icon Name="copy" /></button>
+                </div>
+            </div>
+        </div>
+    </ChildContent>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string Origin => new Uri(Nav.BaseUri).GetLeftPart(UriPartial.Authority);
+
+    private string NativeUrl => $"{Origin}/v1/buckets/{Bucket}/objects/";
+
+    private string S3Url => $"{Origin}/{Bucket}";
+
+    private string AzureUrl => $"{Origin}/<key-id>/{Bucket}";
+
+    private string WebDavUrl => $"{Origin}/dav/{Bucket}/";
+
+    private async Task Copy(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success("Copied");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+}

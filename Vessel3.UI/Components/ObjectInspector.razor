@@ -40,13 +40,64 @@
             <dl class="inspector-meta">
                 <dt>key</dt>
                 <dd>@ObjectKey</dd>
+                @if (!string.IsNullOrEmpty(obj.ContentType))
+                {
+                    <dt>type</dt>
+                    <dd>@obj.ContentType</dd>
+                }
                 <dt>size</dt>
                 <dd>@Fmt.Bytes(obj.Size)</dd>
                 <dt>modified</dt>
                 <dd>@obj.LastModified.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                @if (!string.IsNullOrEmpty(obj.VersionId))
+                {
+                    <dt>version</dt>
+                    <dd>@obj.VersionId</dd>
+                }
                 <dt>etag</dt>
                 <dd>@obj.ETag</dd>
+                @foreach (var (name, value) in obj.Metadata)
+                {
+                    <dt>@name</dt>
+                    <dd>@value</dd>
+                }
             </dl>
+
+            @if (versions.Count > 1)
+            {
+                <div class="stack gap-2">
+                    @foreach (var version in versions)
+                    {
+                        <div class="list-item">
+                            <div class="stack gap-1">
+                                <div class="row align-center gap-2">
+                                    <span class="meta">@version.VersionId</span>
+                                    @if (version.IsLatest)
+                                    {
+                                        <span class="badge badge-mint badge-sm">current</span>
+                                    }
+                                    @if (version.IsDeleteMarker)
+                                    {
+                                        <span class="badge badge-warning badge-sm">delete marker</span>
+                                    }
+                                </div>
+                                <span class="meta">@version.LastModified.ToString("yyyy-MM-dd HH:mm:ss")@(version.IsDeleteMarker ? "" : $" · {Fmt.Bytes(version.Size)}")</span>
+                            </div>
+                            <div class="row gap-1">
+                                @if (!version.IsDeleteMarker)
+                                {
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Download version" @onclick="@(() => DownloadVersion(version.VersionId))">
+                                        <Icon Name="download" />
+                                    </button>
+                                }
+                                <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete version" @onclick="@(() => pendingVersion = version.VersionId)">
+                                    <Icon Name="trash" />
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
         </div>
 
         <div class="inspector-actions">
@@ -78,6 +129,8 @@
     }
 </aside>
 
+<ConfirmDialog Title="Delete version" Target="@pendingVersion" OnConfirm="DeleteVersion" OnCancel="@(() => pendingVersion = null)" />
+
 @code {
     const int TextPreviewChars = 16 * 1024;
     const long MaxImagePreviewBytes = 16L * 1024 * 1024;
@@ -89,7 +142,7 @@
 
     private enum Preview { None, Text, Image }
 
-    private ObjectSummaryDto? info;
+    private ObjectStatDto? info;
     private bool loading = true;
     private string? errorMessage;
     private Preview preview;
@@ -97,6 +150,8 @@
     private string? previewUrl;
     private bool deleteArmed;
     private bool deleting;
+    private List<ObjectVersionDto> versions = [];
+    private string? pendingVersion;
     private (string Bucket, string Key)? loadedTarget;
 
     private string Name
@@ -112,6 +167,11 @@
     {
         if (loadedTarget == (Bucket, ObjectKey)) return;
         loadedTarget = (Bucket, ObjectKey);
+        await Load();
+    }
+
+    private async Task Load()
+    {
         loading = true;
         errorMessage = null;
         info = null;
@@ -119,6 +179,8 @@
         previewText = null;
         previewUrl = null;
         deleteArmed = false;
+        pendingVersion = null;
+        versions = [];
 
         try
         {
@@ -139,6 +201,8 @@
             {
                 await LoadTextPreview();
             }
+
+            await LoadVersions();
         }
         catch (Exception ex)
         {
@@ -147,6 +211,52 @@
         finally
         {
             loading = false;
+        }
+    }
+
+    private async Task LoadVersions()
+    {
+        var res = await Client.ListObjectVersions(Bucket, prefix: ObjectKey);
+        if (!res.TryGetValue(out var page, out _)) return;
+        versions = page.Versions.Where(v => v.Key == ObjectKey).ToList();
+    }
+
+    private async Task DownloadVersion(string versionId)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.open", Urls.For(Bucket, ObjectKey, versionId), "_blank");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Download failed: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteVersion()
+    {
+        if (pendingVersion is not { } versionId) return;
+        pendingVersion = null;
+        try
+        {
+            var res = await Client.DeleteObject(Bucket, ObjectKey, versionId);
+            if (res.TryGetError(out var err))
+            {
+                Toast.Error($"Failed to delete version: {err.Message}");
+                return;
+            }
+            Toast.Success("Version deleted");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Delete error: {ex.Message}");
+            return;
+        }
+
+        await Load();
+        if (info is null)
+        {
+            await OnDeleted.InvokeAsync();
         }
     }
 

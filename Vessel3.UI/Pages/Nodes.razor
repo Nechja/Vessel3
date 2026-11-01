@@ -1,0 +1,365 @@
+@page "/nodes"
+@page "/cluster"
+@using System.Globalization
+@implements IDisposable
+@inject IVesselClient Client
+@inject UiNotifications Toast
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="split @(selected is null ? "" : "split--open")">
+    <div class="stack">
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <span class="toolbar-title">Nodes</span>
+                <span class="counter">@nodes.Count</span>
+            </div>
+            <div class="toolbar-actions">
+                <button type="button" class="btn @(autoRefresh ? "btn-primary" : "btn-ghost")" @onclick="ToggleAutoRefresh">
+                    <Icon Name="activity" /> live
+                </button>
+                <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                    <Icon Name="refresh" /> refresh
+                </button>
+                <button type="button" class="btn btn-primary" @onclick="@(() => showJoin = true)">
+                    <Icon Name="server" /> join node
+                </button>
+            </div>
+        </div>
+
+        <div class="table-card">
+            @if (loading)
+            {
+                <div class="empty-state">loading nodes...</div>
+            }
+            else if (nodes.Count == 0)
+            {
+                <EmptyState Icon="server" Text="status unavailable" />
+            }
+            else
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th>node</th>
+                            <th>level</th>
+                            <th>status</th>
+                            <th>endpoint</th>
+                            <th>last seen</th>
+                            <th>capacity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in nodes)
+                        {
+                            var level = WriteLevel.OfNode(entry.Node);
+                            var capacity = Capacity(entry);
+                            <tr class="is-clickable @(selected?.Node.NodeId == entry.Node.NodeId ? "is-selected" : "")" @onclick="@(() => Select(entry))">
+                                <td>
+                                    <span class="cell-link">
+                                        <Icon Name="server" Class="faint" />
+                                        <span class="mono">@entry.Node.NodeId</span>
+                                        @if (entry.IsSelf)
+                                        {
+                                            <span class="badge badge-accent badge-sm">self</span>
+                                        }
+                                    </span>
+                                </td>
+                                <td><span class="badge @WriteLevel.Badge(level) badge-sm">@level</span></td>
+                                <td><span class="badge @StatusBadge(entry.Node.Status) badge-sm">@entry.Node.Status.ToLowerInvariant()</span></td>
+                                <td><span class="meta">@(string.IsNullOrEmpty(entry.Node.Endpoint) ? "—" : entry.Node.Endpoint)</span></td>
+                                <td><span class="meta">@Age(entry.Node.LastSeenUtc)</span></td>
+                                <td>
+                                    @if (capacity is { } cap)
+                                    {
+                                        <div class="stack gap-1 capacity">
+                                            <div class="progress-track">
+                                                <div class="progress-fill" style="width: @(cap.Percent)%"></div>
+                                            </div>
+                                            <span class="meta">@Fmt.Bytes(cap.Used) of @Fmt.Bytes(cap.Total)</span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="meta">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    @if (selected is { } current)
+    {
+        <NodeInspector Node="current.Node" IsSelf="current.IsSelf" Volumes="current.Volumes" OnClose="@(() => selected = null)" />
+    }
+</div>
+
+<Modal IsOpen="showJoin" Title="Join node" OnClose="@(() => showJoin = false)">
+    <ChildContent>
+        <div class="stack">
+            <div class="field">
+                <label>Level</label>
+                <div class="grid grid-2 gap-2">
+                    <button type="button" class="btn btn-option @(joinVault ? "btn-ghost" : "btn-primary")" @onclick="@(() => joinVault = false)">
+                        <Icon Name="server" /> peer · ingest, mirror
+                    </button>
+                    <button type="button" class="btn btn-option @(joinVault ? "btn-primary" : "btn-ghost")" @onclick="@(() => joinVault = true)">
+                        <Icon Name="shield" /> vault · mirror, on-demand, read-only
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-2 gap-3">
+                <div class="field">
+                    <label>Node ID</label>
+                    <input class="input mono" @bind="joinNodeId" @bind:event="oninput" placeholder="node-02" />
+                </div>
+                <div class="field">
+                    <label>Advertised URL</label>
+                    <input class="input mono" @bind="joinEndpoint" @bind:event="oninput" placeholder="http://192.168.1.42:9000" />
+                </div>
+            </div>
+
+            <div class="field">
+                <div class="row justify-between align-center">
+                    <label>Docker</label>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(DockerSnippet))"><Icon Name="copy" /></button>
+                </div>
+                <pre class="code-block">@DockerSnippet</pre>
+            </div>
+
+            <div class="field">
+                <div class="row justify-between align-center">
+                    <label>Helm</label>
+                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(HelmSnippet))"><Icon Name="copy" /></button>
+                </div>
+                <pre class="code-block">@HelmSnippet</pre>
+            </div>
+        </div>
+    </ChildContent>
+</Modal>
+
+@code {
+    private sealed record NodeEntry(ClusterPeerDto Node, bool IsSelf, IReadOnlyList<VolumeDto> Volumes);
+
+    private readonly record struct CapacityInfo(long Used, long Total)
+    {
+        public int Percent => Total > 0 ? (int)Math.Clamp(Used * 100 / Total, 0, 100) : 0;
+    }
+
+    private ClusterStatusDto? status;
+    private List<NodeEntry> nodes = [];
+    private NodeEntry? selected;
+    private bool loading = true;
+    private bool refreshing;
+    private bool autoRefresh;
+    private PeriodicTimer? timer;
+    private bool showJoin;
+    private bool joinVault = true;
+    private string joinNodeId = "node-02";
+    private string joinEndpoint = "http://192.168.1.42:9000";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        if (refreshing) return;
+        refreshing = true;
+        try
+        {
+            var res = await Client.GetClusterStatus();
+            if (!res.TryGetValue(out var current, out var err))
+            {
+                Toast.Error(err.Message);
+                return;
+            }
+            status = current;
+            nodes = Build(current);
+            if (selected is { } open)
+            {
+                selected = nodes.FirstOrDefault(n => n.Node.NodeId == open.Node.NodeId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Status error: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+            refreshing = false;
+        }
+    }
+
+    private static List<NodeEntry> Build(ClusterStatusDto current)
+    {
+        var local = current.Volumes.Where(v => !v.IsRemote).ToList();
+        List<NodeEntry> list = [new NodeEntry(current.LocalNode, true, local)];
+        foreach (var peer in current.Peers.OrderBy(p => p.NodeId, StringComparer.Ordinal))
+        {
+            var volumes = peer.Volumes.Select(v => Advertised(peer, v)).ToList();
+            list.Add(new NodeEntry(peer, false, volumes));
+        }
+        return list;
+    }
+
+    private static VolumeDto Advertised(ClusterPeerDto peer, AdvertisedVolumeDto volume) => new(
+        volume.VolumeId,
+        peer.Endpoint,
+        volume.Pool,
+        volume.Capabilities,
+        volume.Status,
+        IsRemote: true,
+        IsWritable: false,
+        IsReadable: volume.Status != "Faulted",
+        IsDefaultIngest: false,
+        volume.CapacityBytes,
+        volume.AvailableBytes,
+        peer.NodeId);
+
+    private void Select(NodeEntry entry)
+    {
+        selected = selected?.Node.NodeId == entry.Node.NodeId ? null : entry;
+    }
+
+    private static CapacityInfo? Capacity(NodeEntry entry)
+    {
+        long total = 0;
+        long available = 0;
+        foreach (var volume in entry.Node.Volumes)
+        {
+            if (volume.CapacityBytes is not > 0) continue;
+            total += volume.CapacityBytes.Value;
+            available += volume.AvailableBytes ?? 0;
+        }
+        if (total == 0) return null;
+        return new CapacityInfo(Math.Max(0, total - available), total);
+    }
+
+    private static string StatusBadge(string status) => status.ToLowerInvariant() switch
+    {
+        "alive" => "badge-mint",
+        "suspect" => "badge-warning",
+        "dead" => "badge-danger",
+        _ => "badge-neutral"
+    };
+
+    private static string Age(DateTimeOffset timestamp)
+    {
+        var elapsed = DateTimeOffset.UtcNow - timestamp;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        return timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private string SeedEndpoint
+    {
+        get
+        {
+            if (status is { LocalNode.Endpoint: { Length: > 0 } endpoint }) return endpoint;
+            return Nav.BaseUri.TrimEnd('/');
+        }
+    }
+
+    private string VolumeSpec => joinVault
+        ? "vault:/data:offsite-backup:ReadOnly+Mirrored+OnDemand"
+        : "local:/data:default:Ingest+Mirrored";
+
+    private string DockerSnippet
+    {
+        get
+        {
+            var nodeId = string.IsNullOrWhiteSpace(joinNodeId) ? "node-02" : joinNodeId.Trim();
+            var advertised = string.IsNullOrWhiteSpace(joinEndpoint) ? "http://192.168.1.42:9000" : joinEndpoint.Trim();
+            return $"""
+                docker run -d --name vessel3-{nodeId} \
+                  -p 9000:9000 \
+                  -v /mnt/data:/data \
+                  -e {VesselEnvVars.NodeId}={nodeId} \
+                  -e {VesselEnvVars.AdvertiseUrl}={advertised} \
+                  -e {VesselEnvVars.Peers}={SeedEndpoint} \
+                  -e {VesselEnvVars.ClusterSecret}=<cluster-secret> \
+                  -e {VesselEnvVars.Volumes}="{VolumeSpec}" \
+                  ghcr.io/nechja/vessel3:latest
+                """;
+        }
+    }
+
+    private string HelmSnippet
+    {
+        get
+        {
+            if (joinVault)
+            {
+                return $"""
+                    replicaCount: 1
+                    cluster:
+                      enabled: true
+                      peers:
+                        - "{SeedEndpoint}"
+                    config:
+                      volumes: "{VolumeSpec}"
+                    """;
+            }
+            return """
+                replicaCount: 3
+                cluster:
+                  enabled: true
+                storage:
+                  storageClassName: "local-path"
+                  size: 500Gi
+                """;
+        }
+    }
+
+    private async Task Copy(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Toast.Success("Copied");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+
+    private void ToggleAutoRefresh()
+    {
+        autoRefresh = !autoRefresh;
+        timer?.Dispose();
+        timer = null;
+        if (!autoRefresh) return;
+
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        _ = Poll(timer);
+    }
+
+    private async Task Poll(PeriodicTimer ticker)
+    {
+        try
+        {
+            while (await ticker.WaitForNextTickAsync())
+            {
+                await Refresh();
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        timer?.Dispose();
+    }
+}

@@ -1,0 +1,60 @@
+@using System.Globalization
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject UiNotifications Toast
+
+<aside class="inspector">
+    <div class="inspector-head">
+        <span class="inspector-title">@Event.Type</span>
+        <button type="button" class="btn btn-ghost btn-icon" @onclick="OnClose">
+            <Icon Name="close" />
+        </button>
+    </div>
+    <div class="inspector-body">
+        <dl class="inspector-meta">
+            <dt>id</dt>
+            <dd>@Event.Id</dd>
+            <dt>time</dt>
+            <dd>@Event.Time.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)</dd>
+            <dt>subject</dt>
+            <dd>@Event.Subject</dd>
+            <dt>actor</dt>
+            <dd>@(Event.Actor ?? "anonymous")</dd>
+            <dt>source</dt>
+            <dd>@Event.Source</dd>
+            @foreach (var (key, value) in Event.Data ?? new Dictionary<string, string>())
+            {
+                <dt>@key</dt>
+                <dd>@value</dd>
+            }
+        </dl>
+        <pre class="code-block">@Json</pre>
+    </div>
+    <div class="inspector-actions">
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="Copy">
+            <Icon Name="copy" /> copy json
+        </button>
+    </div>
+</aside>
+
+@code {
+    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+
+    [Parameter, EditorRequired] public VesselEventDto Event { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string Json => JsonSerializer.Serialize(Event, Indented);
+
+    private async Task Copy()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Json);
+            Toast.Success("Copied");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+}

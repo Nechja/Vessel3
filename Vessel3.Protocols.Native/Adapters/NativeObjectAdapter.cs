@@ -17,6 +17,41 @@ internal sealed class NativeObjectAdapter(
     IChunkStager stager,
     IBucketLister lister)
 {
+    public IResult ListVersions(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("ListVersions", bucket);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var prefix = NativeHeaderCodec.Nullify(context.Request.Query["prefix"]);
+        var marker = NativeHeaderCodec.Nullify(context.Request.Query["marker"]);
+        var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit) && parsedLimit > 0
+            ? Math.Clamp(parsedLimit, 1, 1000)
+            : 1000;
+
+        var result = registry.ListAllVersions(bucket, prefix, marker, limit);
+        if (!result.TryGetValue(out var page, out var error))
+        {
+            return error.ToHttpResult();
+        }
+
+        List<ObjectVersionDto> versions = new(page.Entries.Count);
+        foreach (var entry in page.Entries)
+        {
+            versions.Add(entry switch
+            {
+                AllVersionsEntry.Put put => new ObjectVersionDto(put.Key, put.VersionId, put.At, put.IsLatest, false, put.Size, put.WireEtag),
+                _ => new ObjectVersionDto(entry.Key, entry.VersionId, entry.At, entry.IsLatest, true, 0, null)
+            });
+        }
+
+        var nextMarker = page.IsTruncated && versions.Count > 0 ? versions[^1].Key : null;
+        return Results.Json(new ObjectVersionsPageDto(versions, page.IsTruncated, nextMarker), NativeJsonContext.Default.ObjectVersionsPageDto);
+    }
+
     public IResult ListObjects(string bucket, HttpContext context)
     {
         RequestTrace.SetTarget("ListObjects", bucket);

@@ -7,7 +7,7 @@
 <div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
-            <span class="toolbar-title">IAM &amp; Keys</span>
+            <span class="toolbar-title">Users &amp; Keys</span>
             <span class="counter">@users.Count users</span>
         </div>
         <div class="toolbar-actions">
@@ -114,7 +114,7 @@
                     <div>the secret is shown once</div>
                     <div class="grid grid-2">
                         <div class="field">
-                            <label>Access Key ID</label>
+                            <label>Key</label>
                             <div class="copy-field">
                                 <input class="input mono" readonly value="@createdKey.Id" />
                                 <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.Id, "Access Key ID"))">
@@ -123,7 +123,7 @@
                             </div>
                         </div>
                         <div class="field">
-                            <label>Secret Access Key</label>
+                            <label>Secret</label>
                             <div class="copy-field">
                                 <input class="input mono" readonly value="@createdKey.SecretKey" />
                                 <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(createdKey.SecretKey, "Secret Key"))">
@@ -133,19 +133,28 @@
                         </div>
                     </div>
                     <div class="field">
-                        <label>Azure Blob Storage Connection String</label>
+                        <label>Vessel</label>
                         <div class="copy-field">
-                            <input class="input mono" readonly value="@GetAzureConnectionString(createdKey)" />
-                            <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetAzureConnectionString(createdKey), "Azure connection string"))">
+                            <input class="input mono" readonly value="@GetVesselAuth(createdKey)" />
+                            <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetVesselAuth(createdKey), "Vessel auth header"))">
                                 <Icon Name="copy" /> copy
                             </button>
                         </div>
                     </div>
                     <div class="field">
-                        <label>S3 / AWS CLI Environment</label>
+                        <label>S3</label>
                         <div class="copy-field">
                             <input class="input mono" readonly value="@GetS3EnvVars(createdKey)" />
                             <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetS3EnvVars(createdKey), "S3 environment"))">
+                                <Icon Name="copy" /> copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Azure</label>
+                        <div class="copy-field">
+                            <input class="input mono" readonly value="@GetAzureConnectionString(createdKey)" />
+                            <button type="button" class="btn btn-ghost" @onclick="@(() => CopyText(GetAzureConnectionString(createdKey), "Azure connection string"))">
                                 <Icon Name="copy" /> copy
                             </button>
                         </div>
@@ -178,6 +187,7 @@
                                 <th>description</th>
                                 <th>status</th>
                                 <th>created</th>
+                                <th>expires</th>
                                 <th class="text-right">actions</th>
                             </tr>
                         </thead>
@@ -210,6 +220,9 @@
                                     </td>
                                     <td>
                                         <span class="mono muted">@k.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                    </td>
+                                    <td>
+                                        <span class="mono muted">@(k.ExpiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</span>
                                     </td>
                                     <td class="text-right">
                                         @if (!k.IsRevoked)
@@ -286,8 +299,19 @@
     <ChildContent>
         <div class="stack">
             <div class="field">
-                <label>Description (Optional)</label>
-                <input class="input" @bind="newKeyDescription" placeholder="e.g. CLI or CI token" />
+                <label>Description</label>
+                <input class="input" @bind="newKeyDescription" placeholder="optional" />
+            </div>
+            <div class="field">
+                <label>Expires</label>
+                <select class="select" @bind="newKeyTtlDays">
+                    <option value="0">never</option>
+                    <option value="1">1 day</option>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="365">1 year</option>
+                </select>
             </div>
         </div>
     </ChildContent>
@@ -324,6 +348,7 @@
 
     private bool showNewKeyModal;
     private string newKeyDescription = "";
+    private int newKeyTtlDays;
     private bool creatingKey;
     private AccessKeyDto? newlyCreatedKey;
 
@@ -506,7 +531,8 @@
         creatingKey = true;
         try
         {
-            var res = await Client.CreateAccessKey(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription);
+            var ttl = newKeyTtlDays > 0 ? TimeSpan.FromDays(newKeyTtlDays) : (TimeSpan?)null;
+            var res = await Client.CreateAccessKey(su.Id, string.IsNullOrEmpty(newKeyDescription) ? null : newKeyDescription, ttl);
             if (!res.TryGetValue(out var key, out var err))
             {
                 Toast.Error($"Failed to generate key: {err.Message}");
@@ -517,6 +543,7 @@
             keys.Insert(0, key);
             showNewKeyModal = false;
             newKeyDescription = "";
+            newKeyTtlDays = 0;
             Toast.Success("Access key generated successfully");
         }
         catch (Exception ex)
@@ -559,6 +586,8 @@
         var endpoint = $"{scheme}://{hostPort}/{key.Id}";
         return $"DefaultEndpointsProtocol={scheme};AccountName={key.Id};AccountKey={key.SecretKey};BlobEndpoint={endpoint};";
     }
+
+    private static string GetVesselAuth(AccessKeyDto key) => $"Authorization: Vessel {key.Id}:{key.SecretKey}";
 
     private string GetS3EnvVars(AccessKeyDto key) =>
         $"export AWS_ACCESS_KEY_ID={key.Id}\nexport AWS_SECRET_ACCESS_KEY={key.SecretKey}\nexport AWS_ENDPOINT_URL={Nav.BaseUri.TrimEnd('/')}";

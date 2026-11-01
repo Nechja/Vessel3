@@ -17,7 +17,8 @@ internal sealed class NativeAdminAdapter(
     ServerRegion region,
     IBucketRegistry? buckets = null,
     IIdentityRegistry? identity = null,
-    IBlobMirrorQueue? mirrorQueue = null)
+    IBlobMirrorQueue? mirrorQueue = null,
+    ICompactor? compactor = null)
 {
     public async Task<IResult> RunGc(HttpContext ctx)
     {
@@ -52,6 +53,24 @@ internal sealed class NativeAdminAdapter(
 
         var report = sweeper.Run(now);
         return Results.Json(new SweepReportDto(report.Expired, report.MarkersReaped), NativeJsonContext.Default.SweepReportDto);
+    }
+
+    public IResult RunCompact(HttpContext ctx)
+    {
+        RequestTrace.SetTarget(NativeConstants.TraceAdminCompact);
+        var caller = ctx.GetCaller();
+        if (caller is null || !caller.IsAdmin)
+        {
+            return new AccessDeniedError(NativeConstants.AdminRoleRequiredMessage).ToHttpResult();
+        }
+        if (compactor is null)
+        {
+            return new InvalidRequestError("Compaction is not available").ToHttpResult();
+        }
+
+        var minLogBytes = long.TryParse(ctx.Request.Query["minLogBytes"], out var parsed) && parsed >= 0 ? parsed : 0;
+        var report = compactor.Run(minLogBytes);
+        return Results.Json(new CompactReportDto(report.BucketsCompacted, report.Failed, report.LogBytesBefore, report.LogBytesAfter), NativeJsonContext.Default.CompactReportDto);
     }
 
     public IResult GetLogs(HttpContext ctx)

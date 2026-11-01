@@ -401,8 +401,8 @@ hr {
   padding: var(--space-3) var(--space-4);
   border-top: var(--border-thin) solid var(--color-border);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 
@@ -682,9 +682,9 @@ hr {
 .wordmark--nav { font-size: var(--text-lg); }
 
 .grid { display: grid; gap: var(--space-4); }
-.grid-2 { grid-template-columns: repeat(2, 1fr); }
-.grid-3 { grid-template-columns: repeat(3, 1fr); }
-.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 840px) {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
@@ -985,6 +985,9 @@ tbody tr.is-clickable { cursor: pointer; }
   border-radius: var(--radius-lg);
   width: 100%;
   max-width: 540px;
+  max-height: calc(100vh - var(--space-4) * 2);
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: scaleUp var(--duration-fast) ease-out;
@@ -1003,6 +1006,7 @@ tbody tr.is-clickable { cursor: pointer; }
 }
 .modal-body {
   padding: var(--space-5);
+  overflow-y: auto;
 }
 .modal-foot {
   padding: var(--space-4) var(--space-5);
@@ -1462,4 +1466,76 @@ tbody tr.is-clickable { cursor: pointer; }
     box-shadow: var(--shadow-lg);
     z-index: 70;
   }
+}
+
+.drop {
+  position: relative;
+}
+.drop > input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.drop--active > input[type="file"] {
+  pointer-events: auto;
+}
+.drop--active > .table-card {
+  outline: var(--border-thick) dashed var(--color-accent);
+  outline-offset: -2px;
+}
+.upload-status {
+  width: 180px;
+}
+.upload-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+.filter .rule-days {
+  flex: 0 0 72px;
+}
+
+.capacity {
+  min-width: 140px;
+}
+a.nav-meta-item {
+  text-decoration: none;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: -1px;
+  background: transparent;
+  border: 0;
+  border-bottom: var(--border-thick) solid transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--color-text);
+}
+.tab.is-active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+.cell-ellipsis {
+  display: block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

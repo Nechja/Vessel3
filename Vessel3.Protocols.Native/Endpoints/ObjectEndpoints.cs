@@ -10,6 +10,7 @@ internal static class ObjectEndpoints
     public static IEndpointRouteBuilder MapObjectEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/v1/buckets/{bucket}/objects", static (NativeObjectAdapter adapter, string bucket, HttpContext ctx) => adapter.ListObjects(bucket, ctx));
+        endpoints.MapGet("/v1/buckets/{bucket}/versions", static (NativeObjectAdapter adapter, string bucket, HttpContext ctx) => adapter.ListVersions(bucket, ctx));
         endpoints.MapGet("/v1/buckets/{bucket}/objects/{**key}", static (NativeObjectAdapter adapter, string bucket, string key, HttpContext ctx) => adapter.GetObject(bucket, key, ctx));
         endpoints.MapMethods("/v1/buckets/{bucket}/objects/{**key}", ["HEAD"], static (NativeObjectAdapter adapter, string bucket, string key, HttpContext ctx) => adapter.HeadObject(bucket, key, ctx));
         endpoints.MapPut("/v1/buckets/{bucket}/objects/{**key}", static (NativeObjectAdapter adapter, string bucket, string key, HttpContext ctx) => adapter.PutObject(bucket, key, ctx));

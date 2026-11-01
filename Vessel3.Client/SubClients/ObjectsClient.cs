@@ -64,7 +64,25 @@ internal sealed class ObjectsClient(VesselHttpTransport transport) : IObjectsCli
         return new VesselObjectDownload(stream, contentType, contentLength, etag, lastModified, verId, metadata ?? (IReadOnlyDictionary<string, string>)System.Collections.Frozen.FrozenDictionary<string, string>.Empty, res);
     }
 
-    public async Task<Result<ObjectSummaryDto>> StatObject(string bucket, string key, string? versionId = null, CancellationToken ct = default)
+    public async Task<Result<ObjectVersionsPageDto>> ListObjectVersions(
+        string bucket,
+        string? prefix = null,
+        string? marker = null,
+        int limit = 1000,
+        CancellationToken ct = default)
+    {
+        List<string> queryParameters = [];
+        if (!string.IsNullOrEmpty(prefix)) queryParameters.Add($"prefix={Uri.EscapeDataString(prefix)}");
+        if (!string.IsNullOrEmpty(marker)) queryParameters.Add($"marker={Uri.EscapeDataString(marker)}");
+        if (limit > 0) queryParameters.Add($"limit={limit}");
+        var query = queryParameters.Count > 0 ? "?" + string.Join('&', queryParameters) : string.Empty;
+
+        using var req = transport.CreateRequest(HttpMethod.Get, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/versions{query}");
+        using var res = await transport.SendAsync(req, ct);
+        return await transport.ReadJson(res, VesselJsonContext.Default.ObjectVersionsPageDto, ct);
+    }
+
+    public async Task<Result<ObjectStatDto>> StatObject(string bucket, string key, string? versionId = null, CancellationToken ct = default)
     {
         var query = !string.IsNullOrEmpty(versionId) ? $"?versionId={Uri.EscapeDataString(versionId)}" : string.Empty;
         using var req = transport.CreateRequest(HttpMethod.Head, $"{VesselRoutes.Buckets}/{Uri.EscapeDataString(bucket)}/objects/{VesselHttpTransport.EscapeKey(key)}{query}");
@@ -79,8 +97,15 @@ internal sealed class ObjectsClient(VesselHttpTransport transport) : IObjectsCli
         var etag = res.Headers.ETag?.Tag?.Trim('"') ?? string.Empty;
         var lastModified = res.Content.Headers.LastModified ?? DateTimeOffset.UtcNow;
         var verId = res.Headers.TryGetValues(VesselHeaders.VersionId, out var versionValues) ? versionValues.FirstOrDefault() : null;
+        var contentType = res.Content.Headers.ContentType?.ToString();
+        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in res.Headers)
+        {
+            if (!header.Key.StartsWith(VesselHeaders.MetaPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+            metadata[header.Key[VesselHeaders.MetaPrefix.Length..]] = string.Join(",", header.Value);
+        }
 
-        return new ObjectSummaryDto(key, size, etag, lastModified, verId);
+        return new ObjectStatDto(key, size, etag, lastModified, verId, contentType, metadata);
     }
 
     public Task<Result<PutObjectResultDto>> PutObject(

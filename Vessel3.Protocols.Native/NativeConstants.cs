@@ -7,6 +7,7 @@ internal static class NativeConstants
     public const string AdminRoleRequiredMessage = "Admin role required";
     public const string TraceAdminGc = "AdminGc";
     public const string TraceAdminSweep = "AdminSweep";
+    public const string TraceAdminCompact = "AdminCompact";
     public const string TraceAdminLogs = "AdminLogs";
     public const string TraceAdminClearLogs = "AdminClearLogs";
     public const string TraceAdminClusterStatus = "AdminClusterStatus";
