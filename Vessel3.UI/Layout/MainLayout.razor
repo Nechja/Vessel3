@@ -28,10 +28,6 @@
                     <Icon Name="server" />
                     <span class="sidebar-label">Container Repos</span>
                 </NavLink>
-                <NavLink href="websites" class="sidebar-item" @onclick="CloseMobileMenu">
-                    <Icon Name="globe" />
-                    <span class="sidebar-label">Websites</span>
-                </NavLink>
             </div>
 
             <div class="sidebar-section">
@@ -229,10 +225,6 @@
             if ("container repos".Contains(query, StringComparison.OrdinalIgnoreCase) || "containers".Contains(query, StringComparison.OrdinalIgnoreCase) || "images".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 results.Add(new SearchResult("Container Repos", "OCI container image repos & tags", "container-repos", "server", CategoryNavigation));
-            }
-            if ("websites".Contains(query, StringComparison.OrdinalIgnoreCase) || "static hosting".Contains(query, StringComparison.OrdinalIgnoreCase) || "deploy".Contains(query, StringComparison.OrdinalIgnoreCase) || "vite".Contains(query, StringComparison.OrdinalIgnoreCase) || "blazor".Contains(query, StringComparison.OrdinalIgnoreCase))
-            {
-                results.Add(new SearchResult("Static Websites", "Deploy Vite, Blazor WASM & static sites", "websites", "globe", CategoryNavigation));
             }
             if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
             {

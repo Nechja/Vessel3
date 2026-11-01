@@ -1,4 +1,5 @@
 @inject NavigationManager Nav
+@inject IVesselClient Client
 @inject IJSRuntime JS
 @inject UiNotifications Toast
 
@@ -33,6 +34,17 @@
                     <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(WebDavUrl))"><Icon Name="copy" /></button>
                 </div>
             </div>
+            @if (hosted)
+            {
+                <div class="field">
+                    <label>Website</label>
+                    <div class="copy-field">
+                        <input class="input mono text-xs" readonly value="@SiteUrl" />
+                        <a href="@SiteUrl" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm"><Icon Name="globe" /></a>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Copy(SiteUrl))"><Icon Name="copy" /></button>
+                    </div>
+                </div>
+            }
         </div>
     </ChildContent>
 </Modal>
@@ -51,6 +63,21 @@
     private string AzureUrl => $"{Origin}/<key-id>/{Bucket}";
 
     private string WebDavUrl => $"{Origin}/dav/{Bucket}/";
+
+    private string SiteUrl => $"{Origin}/_site/{Bucket}/";
+
+    private bool hosted;
+    private bool wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            var result = await Client.GetBucketWebsite(Bucket);
+            hosted = result.TryGetValue(out var website, out _) && website is not null;
+        }
+        wasOpen = IsOpen;
+    }
 
     private async Task Copy(string text)
     {

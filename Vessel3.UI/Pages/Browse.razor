@@ -18,6 +18,9 @@
                 <button type="button" class="btn btn-ghost" @onclick="@(() => showConnect = true)">
                     <Icon Name="link" /> connect
                 </button>
+                <button type="button" class="btn btn-ghost" @onclick="@(() => showDeploy = true)">
+                    <Icon Name="globe" /> deploy site
+                </button>
                 <button type="button" class="btn btn-ghost" @onclick="@(() => showSettings = true)">
                     <Icon Name="gear" /> settings
                 </button>
@@ -107,6 +110,7 @@
 
 <BucketSettings Bucket="@Bucket" IsOpen="showSettings" OnClose="@(() => showSettings = false)" />
 <BucketConnect Bucket="@Bucket" IsOpen="showConnect" OnClose="@(() => showConnect = false)" />
+<DeploySite Bucket="@Bucket" IsOpen="showDeploy" OnClose="@(() => showDeploy = false)" OnDeployed="Refresh" />
 
 @code {
     [Parameter] public string Bucket { get; set; } = "";
@@ -123,6 +127,7 @@
     private string? openKey;
     private bool showSettings;
     private bool showConnect;
+    private bool showDeploy;
     private (string Bucket, string Prefix)? loadedState;
     private string searchFilter = "";
 

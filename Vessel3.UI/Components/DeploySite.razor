@@ -1,0 +1,310 @@
+@using System.IO.Compression
+@inject IVesselClient Client
+@inject IJSRuntime JS
+@inject UiNotifications Toast
+
+<Modal IsOpen="IsOpen" Title="@($"Deploy to {Bucket}")" OnClose="Close">
+    <ChildContent>
+        <div class="stack">
+            <div class="field">
+                <label>Preset</label>
+                <div class="row gap-2 wrap-items">
+                    @foreach (var option in Presets)
+                    {
+                        <button type="button" class="btn btn-sm @(preset == option ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetPreset(option))">@option</button>
+                    }
+                </div>
+                <div class="grid grid-2 gap-2">
+                    <div class="field">
+                        <label>Index Document</label>
+                        <input class="input mono" @bind="indexDocument" disabled="@(preset != "custom")" />
+                    </div>
+                    <div class="field">
+                        <label>Error Document</label>
+                        <input class="input mono" @bind="errorDocument" disabled="@(preset != "custom")" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label>Source</label>
+                <div class="row gap-2">
+                    @foreach (var option in Sources)
+                    {
+                        <button type="button" class="btn btn-sm @(source == option ? "btn-primary" : "btn-ghost")" @onclick="@(() => SetSource(option))">@option</button>
+                    }
+                </div>
+                @if (source == "folder")
+                {
+                    <InputFile id="deployFolderInput" webkitdirectory directory multiple OnChange="OnFolderSelected" hidden />
+                    <label for="deployFolderInput" class="dropzone">
+                        <Icon Name="folder" Class="icon-lg" />
+                        <div class="dropzone-title">drop a build folder</div>
+                    </label>
+                }
+                else if (source == "zip")
+                {
+                    <InputFile id="deployZipInput" accept=".zip" OnChange="OnZipSelected" hidden />
+                    <label for="deployZipInput" class="dropzone">
+                        <Icon Name="upload" Class="icon-lg" />
+                        <div class="dropzone-title">drop a zip</div>
+                    </label>
+                }
+                else
+                {
+                    <InputFile id="deployFilesInput" multiple OnChange="OnFilesSelected" hidden />
+                    <label for="deployFilesInput" class="dropzone">
+                        <Icon Name="upload" Class="icon-lg" />
+                        <div class="dropzone-title">drop files</div>
+                    </label>
+                }
+                @if (files.Count > 0)
+                {
+                    <div class="row align-center justify-between">
+                        <span class="meta">@files.Count files · @Fmt.Bytes(totalBytes)</span>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="ClearFiles">clear</button>
+                    </div>
+                }
+            </div>
+
+            <div class="row gap-4 wrap-items">
+                <label class="check"><input type="checkbox" @bind="cleanFirst" /> empty bucket first</label>
+                <label class="check"><input type="checkbox" @bind="publicRead" /> public read</label>
+            </div>
+
+            @if (deploying)
+            {
+                <div class="stack gap-2">
+                    <span class="meta">@status</span>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: @(percent)%"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="Close" disabled="@deploying">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Deploy" disabled="@(deploying || files.Count == 0)">
+            @(deploying ? "deploying..." : "deploy")
+        </button>
+    </FooterContent>
+</Modal>
+
+@code {
+    private const long MaxFileBytes = 500L * 1024 * 1024;
+    private static readonly string[] Presets = ["vite", "blazor", "static", "custom"];
+    private static readonly string[] Sources = ["folder", "zip", "files"];
+
+    private sealed record Payload(string Path, long Size, Func<Task<Stream>> Open);
+
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnDeployed { get; set; }
+
+    private string preset = "vite";
+    private string source = "folder";
+    private string indexDocument = "index.html";
+    private string errorDocument = "index.html";
+    private readonly List<Payload> files = [];
+    private long totalBytes;
+    private bool cleanFirst;
+    private bool publicRead = true;
+    private bool deploying;
+    private string status = "";
+    private int percent;
+
+    private void SetPreset(string next)
+    {
+        preset = next;
+        if (next == "custom") return;
+        indexDocument = "index.html";
+        errorDocument = next == "static" ? "404.html" : "index.html";
+    }
+
+    private void SetSource(string next)
+    {
+        source = next;
+        ClearFiles();
+    }
+
+    private void ClearFiles()
+    {
+        files.Clear();
+        totalBytes = 0;
+    }
+
+    private Task Close()
+    {
+        if (deploying) return Task.CompletedTask;
+        ClearFiles();
+        return OnClose.InvokeAsync();
+    }
+
+    private void OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        ClearFiles();
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 2000))
+        {
+            Add(file.Name, file.Size, () => Task.FromResult(file.OpenReadStream(MaxFileBytes)));
+        }
+    }
+
+    private async Task OnFolderSelected(InputFileChangeEventArgs e)
+    {
+        ClearFiles();
+        try
+        {
+            var selected = e.GetMultipleFiles(maximumFileCount: 2000).ToList();
+            var paths = await JS.InvokeAsync<string[]>("vesselGetFilePaths", "deployFolderInput");
+            var prefix = CommonDirectory(paths);
+            for (var i = 0; i < selected.Count; i++)
+            {
+                var file = selected[i];
+                var path = i < paths.Length && !string.IsNullOrEmpty(paths[i]) ? paths[i] : file.Name;
+                Add(StripPrefix(path, prefix), file.Size, () => Task.FromResult(file.OpenReadStream(MaxFileBytes)));
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Folder read failed: {ex.Message}");
+        }
+    }
+
+    private async Task OnZipSelected(InputFileChangeEventArgs e)
+    {
+        ClearFiles();
+        try
+        {
+            using var buffer = new MemoryStream();
+            await e.File.OpenReadStream(MaxFileBytes).CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            using var archive = new ZipArchive(buffer, ZipArchiveMode.Read);
+            var entries = archive.Entries.Where(entry => entry.Name.Length > 0 && !entry.FullName.EndsWith('/')).ToList();
+            var prefix = CommonDirectory(entries.Select(entry => entry.FullName).ToArray());
+            foreach (var entry in entries)
+            {
+                var bytes = new byte[entry.Length];
+                await using (var stream = entry.Open())
+                {
+                    await stream.ReadExactlyAsync(bytes);
+                }
+                Add(StripPrefix(entry.FullName, prefix), bytes.Length, () => Task.FromResult<Stream>(new MemoryStream(bytes)));
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Zip read failed: {ex.Message}");
+        }
+    }
+
+    private void Add(string path, long size, Func<Task<Stream>> open)
+    {
+        files.Add(new Payload(path, size, open));
+        totalBytes += size;
+    }
+
+    private static string CommonDirectory(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return "";
+        var slash = paths[0].IndexOf('/');
+        if (slash < 0) return "";
+        var prefix = paths[0][..(slash + 1)];
+        foreach (var path in paths)
+        {
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return "";
+        }
+        return prefix;
+    }
+
+    private static string StripPrefix(string path, string prefix)
+    {
+        if (prefix.Length == 0 || !path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return path;
+        return path[prefix.Length..].TrimStart('/');
+    }
+
+    private async Task Deploy()
+    {
+        deploying = true;
+        percent = 0;
+        try
+        {
+            if (cleanFirst && !await EmptyBucket()) return;
+            if (!await UploadAll()) return;
+
+            status = "configuring";
+            percent = 95;
+            StateHasChanged();
+            var website = new BucketWebsiteDto(indexDocument, string.IsNullOrWhiteSpace(errorDocument) ? null : errorDocument);
+            var websiteResult = await Client.SetBucketWebsite(Bucket, website);
+            if (websiteResult.TryGetError(out var websiteError))
+            {
+                Toast.Error($"Files uploaded, website config failed: {websiteError.Message}");
+                return;
+            }
+            if (publicRead)
+            {
+                await Client.SetBucketAccess(Bucket, new BucketAccessDto(PublicRead: true, ReadOnly: false));
+            }
+
+            percent = 100;
+            Toast.Success($"Deployed {files.Count} files to {Bucket}");
+            ClearFiles();
+            await OnDeployed.InvokeAsync();
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Deploy failed: {ex.Message}");
+        }
+        finally
+        {
+            deploying = false;
+        }
+    }
+
+    private async Task<bool> EmptyBucket()
+    {
+        status = "emptying bucket";
+        StateHasChanged();
+        var listed = await Client.ListObjects(Bucket, limit: 1000);
+        if (!listed.TryGetValue(out var page, out var error))
+        {
+            Toast.Error($"List failed: {error.Message}");
+            return false;
+        }
+        foreach (var obj in page.Objects)
+        {
+            var deleted = await Client.DeleteObject(Bucket, obj.Key);
+            if (deleted.TryGetError(out var deleteError))
+            {
+                Toast.Error($"Delete failed for {obj.Key}: {deleteError.Message}");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private async Task<bool> UploadAll()
+    {
+        for (var i = 0; i < files.Count; i++)
+        {
+            var file = files[i];
+            status = $"{i + 1}/{files.Count} · {file.Path}";
+            percent = (i + 1) * 90 / files.Count;
+            StateHasChanged();
+
+            await using var stream = await file.Open();
+            var mime = MimeHelper.GetMimeType(file.Path);
+            var put = await Client.UploadObject(Bucket, file.Path, stream, file.Size, mime);
+            if (put.TryGetError(out var error))
+            {
+                Toast.Error($"Upload failed for {file.Path}: {error.Message}");
+                return false;
+            }
+        }
+        return true;
+    }
+}
