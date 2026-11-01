@@ -2,7 +2,7 @@ apiVersion: v2
 name: vessel3-operator
 description: Kubernetes Operator for Vessel3 Object Storage and GitOps Resource Management
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "3.0.0"
 keywords:
   - s3
