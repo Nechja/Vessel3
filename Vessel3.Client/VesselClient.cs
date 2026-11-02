@@ -74,6 +74,12 @@ public sealed class VesselClient : IVesselClient
     public Task<Result> DeleteBucket(string bucket, CancellationToken ct = default) =>
         Buckets.DeleteBucket(bucket, ct);
 
+    public Task<Result<BucketOwnerDto>> GetBucketOwner(string bucket, CancellationToken ct = default) =>
+        Buckets.GetBucketOwner(bucket, ct);
+
+    public Task<Result> SetBucketOwner(string bucket, string ownerId, CancellationToken ct = default) =>
+        Buckets.SetBucketOwner(bucket, ownerId, ct);
+
     public Task<Result<BucketAccessDto>> GetBucketAccess(string bucket, CancellationToken ct = default) =>
         Buckets.GetBucketAccess(bucket, ct);
 
@@ -95,13 +101,25 @@ public sealed class VesselClient : IVesselClient
     public Task<Result> DeleteBucketWebsite(string bucket, CancellationToken ct = default) =>
         Buckets.DeleteBucketWebsite(bucket, ct);
 
+    public Task<Result<LifecycleConfigDto?>> GetBucketLifecycle(string bucket, CancellationToken ct = default) =>
+        Buckets.GetBucketLifecycle(bucket, ct);
+
+    public Task<Result> SetBucketLifecycle(string bucket, LifecycleConfigDto lifecycle, CancellationToken ct = default) =>
+        Buckets.SetBucketLifecycle(bucket, lifecycle, ct);
+
+    public Task<Result> DeleteBucketLifecycle(string bucket, CancellationToken ct = default) =>
+        Buckets.DeleteBucketLifecycle(bucket, ct);
+
     public Task<Result<ObjectsPageDto>> ListObjects(string bucket, string? prefix = null, string? delimiter = null, string? marker = null, int limit = 1000, CancellationToken ct = default) =>
         Objects.ListObjects(bucket, prefix, delimiter, marker, limit, ct);
 
     public Task<Result<VesselObjectDownload>> GetObject(string bucket, string key, string? versionId = null, CancellationToken ct = default) =>
         Objects.GetObject(bucket, key, versionId, ct);
 
-    public Task<Result<ObjectSummaryDto>> StatObject(string bucket, string key, string? versionId = null, CancellationToken ct = default) =>
+    public Task<Result<ObjectVersionsPageDto>> ListObjectVersions(string bucket, string? prefix = null, string? marker = null, int limit = 1000, CancellationToken ct = default) =>
+        Objects.ListObjectVersions(bucket, prefix, marker, limit, ct);
+
+    public Task<Result<ObjectStatDto>> StatObject(string bucket, string key, string? versionId = null, CancellationToken ct = default) =>
         Objects.StatObject(bucket, key, versionId, ct);
 
     public Task<Result<PutObjectResultDto>> PutObject(string bucket, string key, Stream content, string? contentType = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default) =>
@@ -130,6 +148,9 @@ public sealed class VesselClient : IVesselClient
 
     public Task<Result<GcReportDto>> RunGc(long minBlobAgeSec = 3600, long minUploadAgeSec = 604800, CancellationToken ct = default) =>
         Admin.RunGc(minBlobAgeSec, minUploadAgeSec, ct);
+
+    public Task<Result<CompactReportDto>> RunCompact(long minLogBytes = 0, CancellationToken ct = default) =>
+        Admin.RunCompact(minLogBytes, ct);
 
     public Task<Result<SweepReportDto>> RunSweep(string? nowOverride = null, CancellationToken ct = default) =>
         Admin.RunSweep(nowOverride, ct);

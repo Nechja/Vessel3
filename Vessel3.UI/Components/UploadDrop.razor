@@ -1,0 +1,142 @@
+@inject IVesselClient Client
+@inject UiNotifications Toast
+
+@if (jobs.Count > 0)
+{
+    <div class="table-card">
+        <table>
+            <tbody>
+                @foreach (var job in jobs)
+                {
+                    <tr>
+                        <td><span class="mono">@job.Key</span></td>
+                        <td><span class="mono muted">@Fmt.Bytes(job.Size)</span></td>
+                        <td class="upload-status">
+                            @if (job.State == UploadState.Done)
+                            {
+                                <span class="badge badge-mint"><Icon Name="check" /> done</span>
+                            }
+                            else if (job.State == UploadState.Failed)
+                            {
+                                <span class="badge badge-danger" title="@job.Error">failed</span>
+                            }
+                            else if (job.State == UploadState.Uploading)
+                            {
+                                <div class="progress-track">
+                                    <div class="progress-fill" style="width: @(job.Percent)%"></div>
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">queued</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (jobs.All(j => j.State is UploadState.Done or UploadState.Failed))
+        {
+            <div class="upload-foot">
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => jobs.Clear())">clear</button>
+            </div>
+        }
+    </div>
+}
+
+<div class="drop @(dragging ? "drop--active" : "")" @ondragenter="@(() => dragging = true)">
+    @ChildContent
+    <InputFile id="@InputId" multiple OnChange="OnFilesSelected" @ondragleave="@(() => dragging = false)" />
+</div>
+
+@code {
+    const long MaxUploadBytes = 5L * 1024 * 1024 * 1024;
+
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter] public string Prefix { get; set; } = "";
+    [Parameter] public string InputId { get; set; } = "uploadInput";
+    [Parameter] public EventCallback OnUploaded { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private sealed class UploadJob
+    {
+        public string Key { get; init; } = "";
+        public long Size { get; init; }
+        public long TransferredBytes { get; set; }
+        public int Percent => Size > 0 ? (int)Math.Clamp(Math.Round((double)TransferredBytes / Size * 100), 0, 100) : 0;
+        public UploadState State { get; set; } = UploadState.Queued;
+        public string? Error { get; set; }
+    }
+
+    private enum UploadState { Queued, Uploading, Done, Failed }
+
+    private readonly List<UploadJob> jobs = [];
+    private readonly SemaphoreSlim gate = new(4);
+    private bool dragging;
+
+    private void OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        dragging = false;
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 50))
+        {
+            _ = Upload(file);
+        }
+    }
+
+    private async Task Upload(IBrowserFile file)
+    {
+        var job = new UploadJob { Key = $"{Prefix}{file.Name}", Size = file.Size };
+        jobs.Insert(0, job);
+        StateHasChanged();
+
+        if (file.Size > MaxUploadBytes)
+        {
+            job.State = UploadState.Failed;
+            job.Error = $"{Fmt.Bytes(file.Size)} exceeds {Fmt.Bytes(MaxUploadBytes)}";
+            StateHasChanged();
+            return;
+        }
+
+        await gate.WaitAsync();
+        job.State = UploadState.Uploading;
+        StateHasChanged();
+
+        var lastUpdate = DateTime.UtcNow;
+        var progress = new Progress<long>(bytes =>
+        {
+            job.TransferredBytes = bytes;
+            var now = DateTime.UtcNow;
+            if ((now - lastUpdate).TotalMilliseconds < 100 && bytes < job.Size) return;
+            lastUpdate = now;
+            StateHasChanged();
+        });
+
+        try
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadBytes);
+            var contentType = MimeHelper.GetMimeType(file.Name, file.ContentType);
+            var res = await Client.UploadObject(Bucket, job.Key, stream, file.Size, contentType, progress: progress);
+            if (res.TryGetError(out var err))
+            {
+                job.State = UploadState.Failed;
+                job.Error = err.Message;
+                Toast.Error($"Upload failed for {file.Name}: {err.Message}");
+                return;
+            }
+            job.TransferredBytes = job.Size;
+            job.State = UploadState.Done;
+            await OnUploaded.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            job.State = UploadState.Failed;
+            job.Error = ex.Message;
+            Toast.Error($"Upload failed for {file.Name}: {ex.Message}");
+        }
+        finally
+        {
+            gate.Release();
+            StateHasChanged();
+        }
+    }
+}

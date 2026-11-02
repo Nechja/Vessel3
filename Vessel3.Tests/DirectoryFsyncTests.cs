@@ -134,7 +134,7 @@ public class DirectoryFsyncTests : IDisposable
 
         var res = reg.Create("mybucket");
 
-        Assert.IsType<Result<bool>.Failure>(res);
+        Assert.IsType<Result.Failure>(res);
     }
 
     [Fact]

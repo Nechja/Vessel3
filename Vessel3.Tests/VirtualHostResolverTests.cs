@@ -21,7 +21,7 @@ public class VirtualHostResolverTests
         public Result EnsureExists(string bucket) =>
             existingBuckets.Contains(bucket) ? Result.Ok : new NoSuchBucketError(bucket);
 
-        public Result<bool> Create(string bucket, string? ownerId = null) => true;
+        public Result Create(string bucket, string? ownerId = null) => Result.Ok;
         public Result Delete(string bucket) => Result.Ok;
         public IEnumerable<BucketInfo> List(string? ownerId = null) => [];
         public Result<string?> GetOwner(string bucket) => (string?)null;

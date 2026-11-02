@@ -39,7 +39,7 @@ public sealed class MultiProtocolDomainEventTests : IDisposable
         var durable = new DurableWrite(fileSync);
         var regOpts = new BucketRegistryOptions(testDir);
         using var registry = new BucketRegistry(regOpts, fileSync, durable, publisher);
-        Assert.IsType<Result<bool>.Success>(registry.Create("my-bucket"));
+        Assert.IsType<Result.OkResult>(registry.Create("my-bucket"));
 
         var blobOpts = new BlobPoolOptions(Path.Combine(testDir, "blobs"));
         var blobs = new BlobPool(blobOpts, fileSync);
@@ -131,8 +131,7 @@ public sealed class MultiProtocolDomainEventTests : IDisposable
         try
         {
             RequestTrace.SetContext(protocol: "native", actor: "admin-bob");
-            var createRes = Assert.IsType<Result<bool>.Success>(registry.Create("cloud-bucket", "owner-123"));
-            Assert.True(createRes.Value);
+            Assert.IsType<Result.OkResult>(registry.Create("cloud-bucket", "owner-123"));
 
             var createEvent = publisher.Events.ToArray().FirstOrDefault(e => e.Type == VesselEventTypes.BucketCreated);
             Assert.NotNull(createEvent);

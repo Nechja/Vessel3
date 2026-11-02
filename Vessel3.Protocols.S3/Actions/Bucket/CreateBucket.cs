@@ -10,6 +10,6 @@ internal sealed class CreateBucket(IBucketRegistry registry, IHttpResultMapper h
         var result = caller is not null
             ? registry.Create(bucket, caller)
             : registry.Create(bucket);
-        return Task.FromResult(result.Match<IResult>(_ => Results.Ok(), http.Map));
+        return Task.FromResult(result.Match<IResult>(() => Results.Ok(), http.Map));
     }
 }

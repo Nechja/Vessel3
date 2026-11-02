@@ -44,7 +44,7 @@ Common error codes and status mappings:
 - `401 Unauthorized`: `Unauthorized`, `InvalidCredentials`, `ExpiredToken`
 - `403 Forbidden`: `AccessDenied`
 - `404 Not Found`: `NoSuchBucket`, `NoSuchKey`, `UserNotFound`, `KeyNotFound`
-- `409 Conflict`: `BucketNotEmpty`, `BucketAlreadyExists`
+- `409 Conflict`: `BucketNotEmpty`, `BucketAlreadyExists`, `BucketAlreadyOwnedByYou`
 
 ---
 
@@ -247,6 +247,24 @@ Content-Type: application/json
 ```
 **Response: `200 OK`**
 
+### Get Bucket Owner
+```http
+GET /v1/buckets/{bucket}/owner
+```
+**Response: `200 OK`**
+```json
+{ "ownerId": "usr_01J8RAB654..." }
+```
+
+### Update Bucket Owner (Admin only)
+```http
+PUT /v1/buckets/{bucket}/owner
+Content-Type: application/json
+
+{ "ownerId": "usr_01J8RAB654..." }
+```
+**Response: `200 OK`**
+
 ### Get Bucket Versioning Status
 ```http
 GET /v1/buckets/{bucket}/versioning
@@ -271,6 +289,36 @@ Content-Type: application/json
 **Response: `200 OK`**
 
 ---
+
+### Get Bucket Lifecycle
+```http
+GET /v1/buckets/{bucket}/lifecycle
+```
+**Response: `200 OK`** (or `404 NoSuchLifecycleConfiguration` when none is set)
+```json
+{
+  "rules": [
+    { "id": "logs", "enabled": true, "prefix": "logs/", "expirationDays": 30, "expiredObjectDeleteMarker": false, "noncurrentDays": 7 }
+  ]
+}
+```
+
+### Update Bucket Lifecycle
+```http
+PUT /v1/buckets/{bucket}/lifecycle
+Content-Type: application/json
+
+{ "rules": [ { "id": "logs", "enabled": true, "prefix": "logs/", "expirationDays": 30, "expiredObjectDeleteMarker": false, "noncurrentDays": 7 } ] }
+```
+Each rule needs an `id` and at least one action; day counts must be positive.
+
+**Response: `200 OK`**
+
+### Delete Bucket Lifecycle
+```http
+DELETE /v1/buckets/{bucket}/lifecycle
+```
+**Response: `204 No Content`**
 
 ## Object Endpoints
 
@@ -299,6 +347,23 @@ Query Parameters:
   "prefixes": ["logs/archived/"],
   "isTruncated": false,
   "nextMarker": null
+}
+```
+
+### List Object Versions
+```http
+GET /v1/buckets/{bucket}/versions?prefix=logs/&marker=&limit=100
+```
+Returns every version and delete marker, newest first per key.
+
+**Response: `200 OK`**
+```json
+{
+  "versions": [
+    { "key": "logs/app.log", "versionId": "01J8RAB654...", "lastModified": "2026-09-27T08:30:00Z", "isLatest": true, "isDeleteMarker": false, "size": 4096, "eTag": "b10a8db1..." }
+  ],
+  "isTruncated": false,
+  "nextKeyMarker": null
 }
 ```
 
@@ -380,6 +445,23 @@ Query parameters:
 {
   "expired": 85,
   "markersReaped": 12
+}
+```
+
+### Trigger Compaction
+```http
+POST /v1/admin/compact?minLogBytes=0
+```
+Query parameters:
+- `minLogBytes` (optional): Only compact buckets whose write log is at least this large (default: `0`).
+
+**Response: `200 OK`**
+```json
+{
+  "bucketsCompacted": 3,
+  "failed": 0,
+  "logBytesBefore": 10485760,
+  "logBytesAfter": 2048
 }
 ```
 

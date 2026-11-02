@@ -1,419 +1,219 @@
 @page "/webhooks"
 @using System.Globalization
 @inject IVesselClient Client
-@inject UiAuth Auth
 @inject UiNotifications Toast
 @inject IJSRuntime JS
-@inject NavigationManager Nav
 
-<div class="stack" style="gap: var(--space-4);">
-    <div class="toolbar">
-        <div class="toolbar-left">
-            <span class="toolbar-title">Webhooks</span>
-            <span class="counter">@filteredWebhooks.Count webhooks</span>
+<div class="split @(selected is null ? "" : "split--open")">
+    <div class="stack">
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <span class="toolbar-title">Webhooks</span>
+                <span class="counter">@Filtered.Count</span>
+            </div>
+            <div class="toolbar-search">
+                <input class="input" type="search" placeholder="Filter webhooks..." @bind="searchFilter" @bind:event="oninput" />
+            </div>
+            <div class="toolbar-actions">
+                <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                    <Icon Name="refresh" /> refresh
+                </button>
+                <button type="button" class="btn btn-ghost" @onclick="OpenExport">
+                    <Icon Name="file" /> export yaml
+                </button>
+                <button type="button" class="btn btn-primary" @onclick="OpenNew">
+                    <Icon Name="bolt" /> new webhook
+                </button>
+            </div>
         </div>
-        <div class="toolbar-search">
-            <input class="input" type="search" placeholder="Filter webhooks by name, URL, event..." @bind="searchFilter" @bind:event="oninput" />
-        </div>
-        <div class="toolbar-actions">
-            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
-                <Icon Name="refresh" /> refresh
-            </button>
-            <button type="button" class="btn btn-ghost" @onclick="OpenExportModal">
-                <Icon Name="file" /> export yaml
-            </button>
-            <button type="button" class="btn btn-primary" @onclick="OpenNewWebhookModal">
-                <Icon Name="bolt" /> new webhook
-            </button>
-        </div>
-    </div>
 
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="callout callout-danger">
-            <div>@errorMessage</div>
-        </div>
-    }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="callout callout-danger">
+                <div>@errorMessage</div>
+            </div>
+        }
 
-    <div class="table-card">
-        <table>
-            <thead>
-                <tr>
-                    <th>name &amp; endpoint</th>
-                    <th>source</th>
-                    <th>event filters</th>
-                    <th>resource filters</th>
-                    <th>status</th>
-                    <th>last delivery</th>
-                    <th style="text-align: right;">actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (loading)
+        <div class="table-card">
+            @if (loading)
+            {
+                <div class="empty-state">loading webhooks...</div>
+            }
+            else if (Filtered.Count == 0)
+            {
+                @if (string.IsNullOrWhiteSpace(searchFilter))
                 {
-                    <tr>
-                        <td colspan="7" class="empty-state">loading webhooks...</td>
-                    </tr>
-                }
-                else if (filteredWebhooks.Count == 0)
-                {
-                    <tr>
-                        <td colspan="7" class="empty-state">
-                            @(string.IsNullOrWhiteSpace(searchFilter)
-                                ? "no webhooks configured. create one above or declare them in webhooks.yaml."
-                                : "no webhooks matching search filter.")
-                        </td>
-                    </tr>
+                    <EmptyState Icon="bolt" Text="no webhooks">
+                        <button type="button" class="btn btn-primary" @onclick="OpenNew">
+                            <Icon Name="bolt" /> new webhook
+                        </button>
+                    </EmptyState>
                 }
                 else
                 {
-                    @foreach (var hook in filteredWebhooks)
-                    {
-                        <tr>
-                            <td>
-                                <div class="stack" style="gap: var(--space-1);">
-                                    <div class="row align-center" style="gap: var(--space-2);">
-                                        <Icon Name="bolt" Class="faint" />
-                                        <span style="font-weight: var(--weight-semibold); color: var(--color-text);">@hook.Name</span>
-                                    </div>
-                                    <span class="mono muted" style="font-size: var(--text-xs);" title="@hook.Url">@TruncateUrl(hook.Url)</span>
-                                </div>
-                            </td>
-                            <td>
-                                @if (hook.IsStatic)
-                                {
-                                    <span class="badge badge-neutral" title="Configured statically via YAML or Kubernetes CRD">YAML</span>
-                                }
-                                else
-                                {
-                                    <span class="badge badge-mint" title="Created dynamically via UI or API">Dynamic</span>
-                                }
-                            </td>
-                            <td>
-                                <div class="row" style="flex-wrap: wrap; gap: var(--space-1);">
-                                    @foreach (var ev in hook.EventFilters)
-                                    {
-                                        <span class="badge badge-neutral mono" style="font-size: 11px;">@ev</span>
-                                    }
-                                </div>
-                            </td>
-                            <td>
-                                @if (hook.ResourceFilters is { Count: > 0 } res)
-                                {
-                                    <div class="row" style="flex-wrap: wrap; gap: var(--space-1);">
-                                        @foreach (var r in res)
-                                        {
-                                            <span class="badge badge-neutral mono" style="font-size: 11px;">@r</span>
-                                        }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <span class="muted mono" style="font-size: var(--text-xs);">* (all)</span>
-                                }
-                            </td>
-                            <td>
-                                @if (hook.Active)
-                                {
-                                    <span class="badge badge-mint">active</span>
-                                }
-                                else
-                                {
-                                    <span class="badge badge-neutral faint">disabled</span>
-                                }
-                            </td>
-                            <td>
-                                @if (hook.LastTriggeredAt.HasValue)
-                                {
-                                    <div class="stack" style="gap: var(--space-1);">
-                                        <div class="row align-center" style="gap: var(--space-2);">
-                                            @if (hook.LastStatusCode is >= 200 and < 300)
-                                            {
-                                                <span class="badge badge-mint mono">@hook.LastStatusCode</span>
-                                            }
-                                            else if (hook.LastStatusCode.HasValue)
-                                            {
-                                                <span class="badge badge-danger mono">@hook.LastStatusCode</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="badge badge-danger mono">err</span>
-                                            }
-                                            <span class="mono faint" style="font-size: 11px;">@hook.LastTriggeredAt.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</span>
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(hook.LastError))
-                                        {
-                                            <span class="muted" style="font-size: 10px; color: var(--color-danger);" title="@hook.LastError">@hook.LastError</span>
-                                        }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <span class="mono muted" style="font-size: var(--text-xs);">never</span>
-                                }
-                            </td>
-                            <td style="text-align: right;">
-                                <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
-                                    <button type="button" class="btn btn-ghost btn-sm" title="Test webhook ping" @onclick="@(() => TestWebhook(hook.Id))" disabled="@isTesting">
-                                        <Icon Name="refresh" /> ping
-                                    </button>
-                                    @if (!hook.IsStatic)
-                                    {
-                                        <button type="button" class="btn btn-ghost btn-sm" title="Edit webhook" @onclick="@(() => OpenEditModal(hook))">
-                                            edit
-                                        </button>
-                                        @if (armedDeleteId == hook.Id)
-                                        {
-                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteWebhook(hook.Id))">
-                                                confirm?
-                                            </button>
-                                            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteId = null)">
-                                                cancel
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete webhook" @onclick="@(() => armedDeleteId = hook.Id)">
-                                                <Icon Name="trash" />
-                                            </button>
-                                        }
-                                    }
-                                </div>
-                            </td>
-                        </tr>
-                    }
+                    <EmptyState Icon="search" Text="no matches" />
                 }
-            </tbody>
-        </table>
+            }
+            else
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th>name</th>
+                            <th>events</th>
+                            <th>status</th>
+                            <th>last delivery</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var hook in Filtered)
+                        {
+                            <tr class="is-clickable @(selected?.Id == hook.Id ? "is-selected" : "")" @onclick="@(() => Select(hook))">
+                                <td>
+                                    <div class="stack gap-1">
+                                        <span class="cell-link">
+                                            <Icon Name="bolt" Class="faint" />
+                                            <span>@hook.Name</span>
+                                            @if (hook.IsStatic)
+                                            {
+                                                <span class="badge badge-neutral badge-sm">yaml</span>
+                                            }
+                                        </span>
+                                        <span class="meta cell-ellipsis" title="@hook.Url">@hook.Url</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="row wrap-items gap-1">
+                                        @foreach (var filter in hook.EventFilters)
+                                        {
+                                            <span class="badge badge-neutral badge-sm">@filter</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge @(hook.Active ? "badge-mint" : "badge-neutral") badge-sm">@(hook.Active ? "active" : "off")</span>
+                                </td>
+                                <td>
+                                    @if (hook.LastTriggeredAt is { } last)
+                                    {
+                                        <div class="row align-center gap-2">
+                                            <span class="badge @(hook.LastStatusCode is >= 200 and < 300 ? "badge-mint" : "badge-danger") badge-sm">@(hook.LastStatusCode?.ToString() ?? "err")</span>
+                                            <span class="meta">@last.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="meta">never</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
     </div>
 
-    <div class="panel stack" style="gap: var(--space-3);">
-        <div class="row align-center" style="gap: var(--space-2);">
-            <Icon Name="bolt" />
-            <span style="font-weight: var(--weight-bold); font-size: var(--text-md);">Hexagonal Event Architecture</span>
-        </div>
-        <p class="muted" style="font-size: var(--text-sm); line-height: 1.5;">
-            Vessel3 emits decoupled domain events for container registry operations and storage actions. Subscribed endpoints receive an HTTP POST request containing structured JSON and an HMAC-SHA256 signature in the <code class="mono">X-Vessel-Signature</code> header.
-        </p>
-        <div class="grid grid-2" style="gap: var(--space-3);">
-            <div class="field">
-                <label>Supported Event Topics</label>
-                <ul class="mono muted" style="font-size: var(--text-xs); line-height: 1.8; margin: 0; padding-left: var(--space-4);">
-                    <li><strong style="color: var(--color-text);">object.created</strong> &mdash; Object uploaded via S3, Azure, WebDAV, or Native API</li>
-                    <li><strong style="color: var(--color-text);">object.deleted</strong> &mdash; Object or version deleted</li>
-                    <li><strong style="color: var(--color-text);">bucket.created</strong> &mdash; Bucket provisioned</li>
-                    <li><strong style="color: var(--color-text);">bucket.deleted</strong> &mdash; Bucket removed</li>
-                    <li><strong style="color: var(--color-text);">container.image.pushed</strong> &mdash; Fired when a docker/podman push completes</li>
-                    <li><strong style="color: var(--color-text);">container.image.deleted</strong> &mdash; Fired when a manifest tag is removed</li>
-                    <li><strong style="color: var(--color-text);">user.created</strong> &mdash; IAM user created</li>
-                    <li><strong style="color: var(--color-text);">*</strong> &mdash; Match all domain event types</li>
-                </ul>
-            </div>
-            <div class="field">
-                <label>Resource Matching Patterns</label>
-                <ul class="mono muted" style="font-size: var(--text-xs); line-height: 1.8; margin: 0; padding-left: var(--space-4);">
-                    <li><code class="mono">drummer:*</code> &mdash; Any tag in the drummer repository</li>
-                    <li><code class="mono">rainier/*</code> &mdash; Any object in the rainier bucket</li>
-                    <li><code class="mono">avasarala:v1.0</code> &mdash; Exact match on repository and tag</li>
-                    <li><code class="mono">*</code> &mdash; Matches all resources</li>
-                </ul>
-            </div>
-        </div>
-    </div>
+    @if (selected is { } open)
+    {
+        <WebhookInspector Hook="open" OnClose="@(() => selected = null)" OnEdit="@(() => OpenEdit(open))" OnDelete="@(() => pendingDelete = open)" OnPinged="Refresh" />
+    }
 </div>
 
-<Modal IsOpen="showNewModal" Title="New Webhook Subscription" OnClose="@(() => showNewModal = false)">
+<Modal IsOpen="showForm" Title="@(editing is null ? "New webhook" : editing.Name)" OnClose="CloseForm">
     <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
+        <div class="stack">
             <div class="field">
                 <label>Name</label>
-                <input class="input mono" @bind="newName" placeholder="e.g. drummer-ci-pipeline or rainier-events" />
+                <input class="input mono" @bind="formName" />
             </div>
             <div class="field">
-                <label>Target URL</label>
-                <input class="input mono" @bind="newUrl" placeholder="https://notifications.internal/webhooks/vessel" />
+                <label>URL</label>
+                <input class="input mono" @bind="formUrl" placeholder="https://" />
             </div>
             <div class="field">
-                <label>Secret (Optional HMAC SHA-256)</label>
-                <input class="input mono" type="password" @bind="newSecret" placeholder="Optional secret for X-Vessel-Signature validation" />
+                <label>Secret</label>
+                <input class="input mono" type="password" @bind="formSecret" placeholder="@(editing is null ? "optional" : "unchanged")" />
             </div>
             <div class="field">
-                <label>Event Filters (comma separated)</label>
-                <input class="input mono" @bind="newEventsText" placeholder="object.*, container.*" />
-                <div class="row" style="gap: var(--space-2); margin-top: var(--space-1); flex-wrap: wrap;">
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.*")">+ all objects</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "object.created")">+ object created</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "bucket.*")">+ buckets</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.image.pushed")">+ image pushed</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "container.*")">+ all container</button>
-                    <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => newEventsText = "*")">+ all events (*)</button>
-                </div>
-            </div>
-            <div class="field">
-                <label>Resource Filters (optional, comma separated, e.g. drummer:*, rainier/*)</label>
-                <input class="input mono" @bind="newResourcesText" placeholder="Leave empty for all resources (*)" />
-            </div>
-            <div class="field">
-                <label class="row align-center" style="gap: var(--space-2); cursor: pointer;">
-                    <input type="checkbox" @bind="newActive" />
-                    <span>Active (enabled immediately)</span>
-                </label>
-            </div>
-        </div>
-    </ChildContent>
-    <FooterContent>
-        <button type="button" class="btn btn-ghost" @onclick="@(() => showNewModal = false)">cancel</button>
-        <button type="button" class="btn btn-primary" @onclick="CreateWebhook" disabled="@isSubmitting">
-            @(isSubmitting ? "creating..." : "create webhook")
-        </button>
-    </FooterContent>
-</Modal>
-
-<Modal IsOpen="showEditModal" Title="@($"Edit Webhook: {editingWebhook?.Name}")" OnClose="@(() => showEditModal = false)">
-    <ChildContent>
-        @if (editingWebhook is not null)
-        {
-            <div class="stack" style="gap: var(--space-4);">
-                <div class="field">
-                    <label>Name</label>
-                    <input class="input mono" @bind="editName" />
-                </div>
-                <div class="field">
-                    <label>Target URL</label>
-                    <input class="input mono" @bind="editUrl" />
-                </div>
-                <div class="field">
-                    <label>Secret</label>
-                    <input class="input mono" type="password" @bind="editSecret" placeholder="(unchanged if empty)" />
-                </div>
-                <div class="field">
-                    <label>Event Filters (comma separated)</label>
-                    <input class="input mono" @bind="editEventsText" />
-                </div>
-                <div class="field">
-                    <label>Resource Filters (comma separated)</label>
-                    <input class="input mono" @bind="editResourcesText" placeholder="Leave empty for all resources (*)" />
-                </div>
-                <div class="field">
-                    <label class="row align-center" style="gap: var(--space-2); cursor: pointer;">
-                        <input type="checkbox" @bind="editActive" />
-                        <span>Active</span>
-                    </label>
-                </div>
-            </div>
-        }
-    </ChildContent>
-    <FooterContent>
-        <button type="button" class="btn btn-ghost" @onclick="@(() => showEditModal = false)">cancel</button>
-        <button type="button" class="btn btn-primary" @onclick="UpdateWebhook" disabled="@isSubmitting">
-            @(isSubmitting ? "saving..." : "save changes")
-        </button>
-    </FooterContent>
-</Modal>
-
-<Modal IsOpen="showTestModal" Title="Webhook Test Ping Result" OnClose="@(() => showTestModal = false)">
-    <ChildContent>
-        @if (testResult is not null)
-        {
-            <div class="stack" style="gap: var(--space-3);">
-                <div class="row align-center justify-between">
-                    <div class="row align-center" style="gap: var(--space-2);">
-                        @if (testResult.Success)
-                        {
-                            <span class="badge badge-mint">SUCCESS</span>
-                        }
-                        else
-                        {
-                            <span class="badge badge-danger">FAILED</span>
-                        }
-                        <span class="mono muted">Latency: @(testResult.LatencyMs.ToString("F1", CultureInfo.InvariantCulture)) ms</span>
-                    </div>
-                    @if (testResult.StatusCode.HasValue)
+                <label>Events</label>
+                <input class="input mono" @bind="formEvents" placeholder="comma separated" />
+                <div class="row wrap-items gap-1">
+                    @foreach (var topic in EventPresets)
                     {
-                        <span class="badge @(testResult.StatusCode is >= 200 and < 300 ? "badge-mint" : "badge-danger") mono">
-                            HTTP @testResult.StatusCode
-                        </span>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => formEvents = topic)">@topic</button>
                     }
                 </div>
-
-                @if (!string.IsNullOrEmpty(testResult.ErrorMessage))
-                {
-                    <div class="callout callout-danger">
-                        <div class="mono" style="font-size: var(--text-xs);">@testResult.ErrorMessage</div>
-                    </div>
-                }
-
-                @if (!string.IsNullOrEmpty(testResult.ResponseBody))
-                {
-                    <div class="field">
-                        <label>Response Body Preview</label>
-                        <pre class="mono" style="background: var(--color-surface); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); max-height: 200px; overflow-y: auto;">@testResult.ResponseBody</pre>
-                    </div>
-                }
             </div>
-        }
-    </ChildContent>
-    <FooterContent>
-        <button type="button" class="btn btn-primary" @onclick="@(() => showTestModal = false)">close</button>
-    </FooterContent>
-</Modal>
-
-<Modal IsOpen="showExportModal" Title="Declarative Webhook YAML" OnClose="@(() => showExportModal = false)">
-    <ChildContent>
-        <div class="stack" style="gap: var(--space-3);">
-            <p class="muted" style="font-size: var(--text-sm);">
-                You can save this configuration as <code class="mono">webhooks.yaml</code> and point Vessel3 to it using <code class="mono">VESSEL3_WEBHOOKS_FILE=webhooks.yaml</code> or mount it into your Kubernetes pod.
-            </p>
-            <pre class="mono" style="background: var(--color-surface); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: var(--text-xs); max-height: 350px; overflow-y: auto;">@exportedYaml</pre>
+            <div class="field">
+                <label>Resources</label>
+                <input class="input mono" @bind="formResources" placeholder="comma separated, empty for all" />
+            </div>
+            <label class="check"><input type="checkbox" @bind="formActive" /> active</label>
         </div>
     </ChildContent>
     <FooterContent>
-        <button type="button" class="btn btn-ghost" @onclick="@(() => showExportModal = false)">close</button>
-        <button type="button" class="btn btn-primary" @onclick="CopyExportedYaml">
-            <Icon Name="copy" /> copy yaml
+        <button type="button" class="btn btn-ghost" @onclick="CloseForm">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Save" disabled="@saving">
+            @(saving ? "saving..." : "save")
         </button>
     </FooterContent>
 </Modal>
 
+<Modal IsOpen="showExport" Title="webhooks.yaml" OnClose="@(() => showExport = false)">
+    <ChildContent>
+        <pre class="code-block">@exportedYaml</pre>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="@(() => showExport = false)">close</button>
+        <button type="button" class="btn btn-primary" @onclick="CopyYaml">
+            <Icon Name="copy" /> copy
+        </button>
+    </FooterContent>
+</Modal>
+
+<ConfirmDialog Title="Delete webhook" Target="@pendingDelete?.Name" OnConfirm="Delete" OnCancel="@(() => pendingDelete = null)" />
+
 @code {
+    private static readonly string[] EventPresets = ["object.*", "object.created", "bucket.*", "container.*", "container.image.pushed", "*"];
+
+    private List<WebhookDto> webhooks = [];
+    private WebhookDto? selected;
+    private WebhookDto? pendingDelete;
     private bool loading = true;
-    private bool isSubmitting;
-    private bool isTesting;
     private string errorMessage = "";
     private string searchFilter = "";
-    private List<WebhookDto> webhooks = [];
-    private string? armedDeleteId;
 
-    private bool showNewModal;
-    private string newName = "";
-    private string newUrl = "";
-    private string newSecret = "";
-    private string newEventsText = "container.image.pushed";
-    private string newResourcesText = "";
-    private bool newActive = true;
+    private bool showForm;
+    private bool saving;
+    private WebhookDto? editing;
+    private string formName = "";
+    private string formUrl = "";
+    private string formSecret = "";
+    private string formEvents = "";
+    private string formResources = "";
+    private bool formActive = true;
 
-    private bool showEditModal;
-    private WebhookDto? editingWebhook;
-    private string editName = "";
-    private string editUrl = "";
-    private string editSecret = "";
-    private string editEventsText = "";
-    private string editResourcesText = "";
-    private bool editActive = true;
-
-    private bool showTestModal;
-    private WebhookTestResultDto? testResult;
-
-    private bool showExportModal;
+    private bool showExport;
     private string exportedYaml = "";
 
-    private List<WebhookDto> filteredWebhooks => string.IsNullOrWhiteSpace(searchFilter)
-        ? webhooks
-        : webhooks.Where(w =>
-            w.Name.Contains(searchFilter.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            w.Url.Contains(searchFilter.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            w.EventFilters.Any(e => e.Contains(searchFilter.Trim(), StringComparison.OrdinalIgnoreCase)) ||
-            (w.ResourceFilters != null && w.ResourceFilters.Any(r => r.Contains(searchFilter.Trim(), StringComparison.OrdinalIgnoreCase)))).ToList();
+    private List<WebhookDto> Filtered
+    {
+        get
+        {
+            var term = searchFilter.Trim();
+            if (term.Length == 0) return webhooks;
+            return webhooks.Where(w => Matches(w, term)).ToList();
+        }
+    }
+
+    private static bool Matches(WebhookDto hook, string term)
+    {
+        if (hook.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) return true;
+        if (hook.Url.Contains(term, StringComparison.OrdinalIgnoreCase)) return true;
+        if (hook.EventFilters.Any(e => e.Contains(term, StringComparison.OrdinalIgnoreCase))) return true;
+        return hook.ResourceFilters?.Any(r => r.Contains(term, StringComparison.OrdinalIgnoreCase)) == true;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -422,18 +222,20 @@
 
     private async Task Refresh()
     {
-        loading = true;
+        loading = webhooks.Count == 0;
         errorMessage = "";
         try
         {
             var res = await Client.ListWebhooks();
-            if (res.TryGetValue(out var list, out var err))
-            {
-                webhooks = list.OrderBy(w => w.Name, StringComparer.Ordinal).ToList();
-            }
-            else
+            if (!res.TryGetValue(out var list, out var err))
             {
                 errorMessage = $"Failed to load webhooks: {err.Message}";
+                return;
+            }
+            webhooks = list.OrderBy(w => w.Name, StringComparer.Ordinal).ToList();
+            if (selected is { } open)
+            {
+                selected = webhooks.FirstOrDefault(w => w.Id == open.Id);
             }
         }
         catch (Exception ex)
@@ -446,65 +248,79 @@
         }
     }
 
-    private void OpenNewWebhookModal()
+    private void Select(WebhookDto hook)
     {
-        newName = "";
-        newUrl = "";
-        newSecret = "";
-        newEventsText = "container.image.pushed";
-        newResourcesText = "";
-        newActive = true;
-        showNewModal = true;
+        selected = selected?.Id == hook.Id ? null : hook;
     }
 
-    private async Task CreateWebhook()
+    private void OpenNew()
     {
-        if (string.IsNullOrWhiteSpace(newName))
+        editing = null;
+        formName = "";
+        formUrl = "";
+        formSecret = "";
+        formEvents = "object.*";
+        formResources = "";
+        formActive = true;
+        showForm = true;
+    }
+
+    private void OpenEdit(WebhookDto hook)
+    {
+        editing = hook;
+        formName = hook.Name;
+        formUrl = hook.Url;
+        formSecret = "";
+        formEvents = string.Join(", ", hook.EventFilters);
+        formResources = hook.ResourceFilters is { } resources ? string.Join(", ", resources) : "";
+        formActive = hook.Active;
+        showForm = true;
+    }
+
+    private void CloseForm()
+    {
+        showForm = false;
+        editing = null;
+    }
+
+    private async Task Save()
+    {
+        var name = formName.Trim();
+        var url = formUrl.Trim();
+        var events = Split(formEvents);
+        if (name.Length == 0 || url.Length == 0 || events.Count == 0)
         {
-            Toast.Error("Webhook name cannot be empty");
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(newUrl))
-        {
-            Toast.Error("Target URL cannot be empty");
+            Toast.Error("Name, URL and at least one event are required");
             return;
         }
 
-        var events = newEventsText
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
-        if (events.Count == 0)
-        {
-            Toast.Error("At least one event filter must be specified");
-            return;
-        }
+        var resources = Split(formResources);
+        var secret = string.IsNullOrWhiteSpace(formSecret) ? editing?.Secret : formSecret.Trim();
 
-        var resources = string.IsNullOrWhiteSpace(newResourcesText)
-            ? null
-            : newResourcesText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-
-        isSubmitting = true;
+        saving = true;
         try
         {
-            var req = new CreateWebhookDto(
-                newName.Trim(),
-                newUrl.Trim(),
-                string.IsNullOrWhiteSpace(newSecret) ? null : newSecret.Trim(),
-                events,
-                resources,
-                newActive);
-
-            var res = await Client.CreateWebhook(req);
-            if (res.TryGetValue(out var created, out var err))
+            if (editing is { } hook)
             {
-                Toast.Success($"Webhook '{created.Name}' created");
-                showNewModal = false;
-                await Refresh();
+                var updated = await Client.UpdateWebhook(hook.Id, new UpdateWebhookDto(name, url, secret, events, resources.Count == 0 ? null : resources, formActive));
+                if (updated.TryGetError(out var updateErr))
+                {
+                    Toast.Error($"Failed to update webhook: {updateErr.Message}");
+                    return;
+                }
             }
             else
             {
-                Toast.Error($"Failed to create webhook: {err.Message}");
+                var created = await Client.CreateWebhook(new CreateWebhookDto(name, url, secret, events, resources.Count == 0 ? null : resources, formActive));
+                if (created.TryGetError(out var createErr))
+                {
+                    Toast.Error($"Failed to create webhook: {createErr.Message}");
+                    return;
+                }
             }
+            Toast.Success($"Saved {name}");
+            CloseForm();
+            await Refresh();
         }
         catch (Exception ex)
         {
@@ -512,95 +328,27 @@
         }
         finally
         {
-            isSubmitting = false;
+            saving = false;
         }
     }
 
-    private void OpenEditModal(WebhookDto hook)
+    private static List<string> Split(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private async Task Delete()
     {
-        editingWebhook = hook;
-        editName = hook.Name;
-        editUrl = hook.Url;
-        editSecret = hook.Secret ?? "";
-        editEventsText = string.Join(", ", hook.EventFilters);
-        editResourcesText = hook.ResourceFilters != null ? string.Join(", ", hook.ResourceFilters) : "";
-        editActive = hook.Active;
-        showEditModal = true;
-    }
-
-    private async Task UpdateWebhook()
-    {
-        if (editingWebhook is null) return;
-        if (string.IsNullOrWhiteSpace(editName))
-        {
-            Toast.Error("Webhook name cannot be empty");
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(editUrl))
-        {
-            Toast.Error("Target URL cannot be empty");
-            return;
-        }
-
-        var events = editEventsText
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
-        if (events.Count == 0)
-        {
-            Toast.Error("At least one event filter must be specified");
-            return;
-        }
-
-        var resources = string.IsNullOrWhiteSpace(editResourcesText)
-            ? null
-            : editResourcesText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-
-        isSubmitting = true;
+        if (pendingDelete is not { } hook) return;
+        pendingDelete = null;
         try
         {
-            var req = new UpdateWebhookDto(
-                editName.Trim(),
-                editUrl.Trim(),
-                string.IsNullOrWhiteSpace(editSecret) ? null : editSecret.Trim(),
-                events,
-                resources,
-                editActive);
-
-            var res = await Client.UpdateWebhook(editingWebhook.Id, req);
-            if (res.TryGetValue(out var updated, out var err))
-            {
-                Toast.Success($"Webhook '{updated.Name}' updated");
-                showEditModal = false;
-                await Refresh();
-            }
-            else
-            {
-                Toast.Error($"Failed to update webhook: {err.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Toast.Error($"Error: {ex.Message}");
-        }
-        finally
-        {
-            isSubmitting = false;
-        }
-    }
-
-    private async Task DeleteWebhook(string id)
-    {
-        armedDeleteId = null;
-        try
-        {
-            var res = await Client.DeleteWebhook(id);
+            var res = await Client.DeleteWebhook(hook.Id);
             if (res.TryGetError(out var err))
             {
                 Toast.Error($"Failed to delete webhook: {err.Message}");
                 return;
             }
-
-            Toast.Success("Webhook deleted");
+            Toast.Success($"Deleted {hook.Name}");
+            selected = null;
             await Refresh();
         }
         catch (Exception ex)
@@ -609,75 +357,35 @@
         }
     }
 
-    private async Task TestWebhook(string id)
-    {
-        isTesting = true;
-        try
-        {
-            var res = await Client.TestWebhook(id);
-            if (res.TryGetValue(out var test, out var err))
-            {
-                testResult = test;
-                showTestModal = true;
-                if (test.Success)
-                {
-                    Toast.Success($"Webhook responded HTTP {test.StatusCode} in {test.LatencyMs:F0}ms");
-                }
-                else
-                {
-                    Toast.Error($"Webhook test failed: {test.ErrorMessage ?? $"HTTP {test.StatusCode}"}");
-                }
-                await Refresh();
-            }
-            else
-            {
-                Toast.Error($"Test failed: {err.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Toast.Error($"Error testing webhook: {ex.Message}");
-        }
-        finally
-        {
-            isTesting = false;
-        }
-    }
-
-    private async Task OpenExportModal()
+    private async Task OpenExport()
     {
         try
         {
             var res = await Client.ExportWebhooksYaml();
-            if (res.TryGetValue(out var yaml, out var err))
+            if (!res.TryGetValue(out var yaml, out var err))
             {
-                exportedYaml = yaml;
-                showExportModal = true;
+                Toast.Error($"Export failed: {err.Message}");
+                return;
             }
-            else
-            {
-                Toast.Error($"Failed to export YAML: {err.Message}");
-            }
+            exportedYaml = yaml;
+            showExport = true;
         }
         catch (Exception ex)
         {
-            Toast.Error($"Error exporting YAML: {ex.Message}");
+            Toast.Error($"Export error: {ex.Message}");
         }
     }
 
-    private async Task CopyExportedYaml()
+    private async Task CopyYaml()
     {
         try
         {
             await JS.InvokeVoidAsync("navigator.clipboard.writeText", exportedYaml);
-            Toast.Success("Copied YAML to clipboard");
+            Toast.Success("Copied");
         }
         catch (Exception ex)
         {
-            Toast.Error($"Copy error: {ex.Message}");
+            Toast.Error($"Copy failed: {ex.Message}");
         }
     }
-
-    private static string TruncateUrl(string url) =>
-        url.Length > 50 ? url[..47] + "..." : url;
 }

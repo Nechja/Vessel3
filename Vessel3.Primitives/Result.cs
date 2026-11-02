@@ -46,6 +46,10 @@ internal sealed record BucketAlreadyExistsError(string Bucket)
     : Error("BucketAlreadyExists", $"The requested bucket name is not available: {Bucket}")
 { public override int Status => 409; }
 
+internal sealed record BucketAlreadyOwnedByYouError(string Bucket)
+    : Error("BucketAlreadyOwnedByYou", $"You already own bucket {Bucket}")
+{ public override int Status => 409; }
+
 internal sealed record IncompleteBodyError(long Declared, long Received)
     : Error("IncompleteBody", $"You did not provide the number of bytes specified by the request: declared {Declared}, received {Received}")
 { public override int Status => 400; }

@@ -14,11 +14,16 @@ internal static class BucketEndpoints
         endpoints.MapDelete("/v1/buckets/{bucket}", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.DeleteBucket(bucket, ctx));
         endpoints.MapGet("/v1/buckets/{bucket}/access", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.GetBucketAccess(bucket, ctx));
         endpoints.MapPut("/v1/buckets/{bucket}/access", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.PutBucketAccess(bucket, ctx));
+        endpoints.MapGet("/v1/buckets/{bucket}/owner", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.GetBucketOwner(bucket, ctx));
+        endpoints.MapPut("/v1/buckets/{bucket}/owner", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.PutBucketOwner(bucket, ctx));
         endpoints.MapGet("/v1/buckets/{bucket}/versioning", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.GetBucketVersioning(bucket, ctx));
         endpoints.MapPut("/v1/buckets/{bucket}/versioning", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.PutBucketVersioning(bucket, ctx));
         endpoints.MapGet("/v1/buckets/{bucket}/website", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.GetBucketWebsite(bucket, ctx));
         endpoints.MapPut("/v1/buckets/{bucket}/website", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.PutBucketWebsite(bucket, ctx));
         endpoints.MapDelete("/v1/buckets/{bucket}/website", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.DeleteBucketWebsite(bucket, ctx));
+        endpoints.MapGet("/v1/buckets/{bucket}/lifecycle", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.GetBucketLifecycle(bucket, ctx));
+        endpoints.MapPut("/v1/buckets/{bucket}/lifecycle", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.PutBucketLifecycle(bucket, ctx));
+        endpoints.MapDelete("/v1/buckets/{bucket}/lifecycle", static (NativeBucketAdapter adapter, string bucket, HttpContext ctx) => adapter.DeleteBucketLifecycle(bucket, ctx));
 
         return endpoints;
     }

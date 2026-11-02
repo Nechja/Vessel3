@@ -158,6 +158,89 @@ public class NativeClientTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ListObjectVersions_VersionedBucket_ReturnsHistory()
+    {
+        var (_, client) = await StartServer("versions");
+        Assert.IsType<Result.OkResult>(await client.CreateBucket("versioned"));
+        Assert.IsType<Result.OkResult>(await client.SetBucketVersioning("versioned", "Enabled"));
+
+        using var first = new MemoryStream("one"u8.ToArray());
+        Assert.True((await client.PutObject("versioned", "doc.txt", first, "text/plain")).TryGetValue(out var firstPut, out _));
+        using var second = new MemoryStream("two"u8.ToArray());
+        Assert.True((await client.PutObject("versioned", "doc.txt", second, "text/plain")).TryGetValue(out var secondPut, out _));
+        Assert.IsType<Result.OkResult>(await client.DeleteObject("versioned", "doc.txt"));
+
+        var listed = await client.ListObjectVersions("versioned", prefix: "doc.txt");
+        Assert.True(listed.TryGetValue(out var page, out var err), err?.Message);
+        Assert.Equal(3, page.Versions.Count);
+
+        var marker = Assert.Single(page.Versions, v => v.IsDeleteMarker);
+        Assert.True(marker.IsLatest);
+        Assert.Contains(page.Versions, v => v.VersionId == firstPut.VersionId && v.Size == 3 && !v.IsLatest);
+        Assert.Contains(page.Versions, v => v.VersionId == secondPut.VersionId && !v.IsDeleteMarker);
+
+        Assert.IsType<Result.OkResult>(await client.DeleteObject("versioned", "doc.txt", marker.VersionId));
+        Assert.True((await client.StatObject("versioned", "doc.txt")).TryGetValue(out var restored, out _));
+        Assert.Equal(secondPut.ETag, restored.ETag);
+    }
+
+    [Fact]
+    public async Task BucketLifecycle_RoundTripsAndDeletes()
+    {
+        var (_, client) = await StartServer("lifecycle");
+        Assert.IsType<Result.OkResult>(await client.CreateBucket("expiring"));
+
+        Assert.True((await client.GetBucketLifecycle("expiring")).TryGetValue(out var before, out _));
+        Assert.Null(before);
+
+        var config = new LifecycleConfigDto([new LifecycleRuleDto("logs", true, "logs/", 30, false, 7)]);
+        Assert.IsType<Result.OkResult>(await client.SetBucketLifecycle("expiring", config));
+
+        Assert.True((await client.GetBucketLifecycle("expiring")).TryGetValue(out var stored, out _));
+        var rule = Assert.Single(stored!.Value.Rules);
+        Assert.Equal(config.Rules[0], rule);
+
+        var invalid = new LifecycleConfigDto([new LifecycleRuleDto("bad", true, "", 0, false, null)]);
+        Assert.True((await client.SetBucketLifecycle("expiring", invalid)).TryGetError(out var invalidErr));
+        Assert.Equal(400, invalidErr.Status);
+
+        Assert.IsType<Result.OkResult>(await client.DeleteBucketLifecycle("expiring"));
+        Assert.True((await client.GetBucketLifecycle("expiring")).TryGetValue(out var after, out _));
+        Assert.Null(after);
+    }
+
+    [Fact]
+    public async Task BucketOwner_ReadsAndReassigns()
+    {
+        var (_, client) = await StartServer("owner");
+        Assert.IsType<Result.OkResult>(await client.CreateBucket("shared"));
+
+        Assert.True((await client.GetBucketOwner("shared")).TryGetValue(out var initial, out _));
+        Assert.Equal("usr_system", initial.OwnerId);
+
+        Assert.IsType<Result.OkResult>(await client.SetBucketOwner("shared", "usr_alice"));
+        Assert.True((await client.GetBucketOwner("shared")).TryGetValue(out var reassigned, out _));
+        Assert.Equal("usr_alice", reassigned.OwnerId);
+
+        Assert.True((await client.SetBucketOwner("shared", " ")).TryGetError(out var err));
+        Assert.Equal(400, err.Status);
+    }
+
+    [Fact]
+    public async Task RunCompact_ReturnsReport()
+    {
+        var (_, client) = await StartServer("compact");
+        Assert.IsType<Result.OkResult>(await client.CreateBucket("compactable"));
+        using var body = new MemoryStream("data"u8.ToArray());
+        Assert.True((await client.PutObject("compactable", "a.txt", body, "text/plain")).TryGetValue(out _, out _));
+
+        var result = await client.RunCompact();
+        Assert.True(result.TryGetValue(out var report, out var err), err?.Message);
+        Assert.Equal(0, report.Failed);
+        Assert.True(report.BucketsCompacted >= 0);
+    }
+
+    [Fact]
     public async Task SoloAuthenticatedMode_EnforcesAuthentication()
     {
         var (app, adminClient) = await StartServer("solo-auth", accessKey: "admin-key", secretKey: "admin-secret-pass");

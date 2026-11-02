@@ -31,6 +31,7 @@ public static class VesselRoutes
     public const string Keys = "v1/iam/keys";
     public const string Gc = "v1/admin/gc";
     public const string Sweep = "v1/admin/sweep";
+    public const string Compact = "v1/admin/compact";
     public const string Logs = "v1/admin/logs";
     public const string ClusterStatus = "v1/admin/cluster";
     public const string Webhooks = "v1/webhooks";
@@ -38,6 +39,7 @@ public static class VesselRoutes
     public const string OciCatalog = "v2/_catalog";
     public const string GcRoute = $"/{Gc}";
     public const string SweepRoute = $"/{Sweep}";
+    public const string CompactRoute = $"/{Compact}";
     public const string LogsRoute = $"/{Logs}";
     public const string ClusterStatusRoute = $"/{ClusterStatus}";
     public const string ClusterGossipSubpath = "/gossip";

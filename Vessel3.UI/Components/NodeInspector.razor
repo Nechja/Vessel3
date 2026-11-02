@@ -1,0 +1,100 @@
+@using System.Globalization
+
+<aside class="inspector">
+    <div class="inspector-head">
+        <div class="row align-center gap-2">
+            <span class="inspector-title">@Node.NodeId</span>
+            @if (IsSelf)
+            {
+                <span class="badge badge-accent badge-sm">self</span>
+            }
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" @onclick="OnClose">
+            <Icon Name="close" />
+        </button>
+    </div>
+
+    <div class="inspector-body">
+        <dl class="inspector-meta">
+            <dt>level</dt>
+            <dd><span class="badge @WriteLevel.Badge(WriteLevel.OfNode(Node)) badge-sm">@WriteLevel.OfNode(Node)</span></dd>
+            <dt>status</dt>
+            <dd><span class="badge @StatusBadge(Node.Status) badge-sm">@Node.Status.ToLowerInvariant()</span></dd>
+            @if (!string.IsNullOrEmpty(Node.Endpoint))
+            {
+                <dt>endpoint</dt>
+                <dd>@Node.Endpoint</dd>
+            }
+            <dt>incarnation</dt>
+            <dd>@Node.Incarnation</dd>
+            <dt>last seen</dt>
+            <dd>@Node.LastSeenUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</dd>
+        </dl>
+
+        <div class="stack gap-2">
+            @foreach (var volume in Volumes)
+            {
+                var level = WriteLevel.Of(volume.Capabilities);
+                <div class="list-item">
+                    <div class="stack gap-1 flex-1">
+                        <div class="row align-center gap-2">
+                            <span class="mono semibold">@volume.Id</span>
+                            <span class="badge @WriteLevel.Badge(level) badge-sm">@level</span>
+                            <span class="badge @VolumeStatusBadge(volume.Status) badge-sm">@volume.Status.ToLowerInvariant()</span>
+                            @if (volume.IsDefaultIngest)
+                            {
+                                <span class="badge badge-neutral badge-sm">default</span>
+                            }
+                        </div>
+                        <span class="meta break-all">@volume.Pool · @volume.Path</span>
+                        @if (volume.CapacityBytes is > 0)
+                        {
+                            <div class="progress-track">
+                                <div class="progress-fill" style="width: @(UsedPercent(volume))%"></div>
+                            </div>
+                            <span class="meta">@Fmt.Bytes(Used(volume)) of @Fmt.Bytes(volume.CapacityBytes.Value)</span>
+                        }
+                        <div class="row gap-1 wrap-items">
+                            @foreach (var capability in volume.Capabilities)
+                            {
+                                <span class="badge badge-neutral badge-sm">@capability.ToLowerInvariant()</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public ClusterPeerDto Node { get; set; } = null!;
+    [Parameter] public bool IsSelf { get; set; }
+    [Parameter] public IReadOnlyList<VolumeDto> Volumes { get; set; } = [];
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static long Used(VolumeDto volume) =>
+        Math.Max(0, (volume.CapacityBytes ?? 0) - (volume.AvailableBytes ?? 0));
+
+    private static int UsedPercent(VolumeDto volume)
+    {
+        if (volume.CapacityBytes is not > 0) return 0;
+        return (int)Math.Clamp(Used(volume) * 100 / volume.CapacityBytes.Value, 0, 100);
+    }
+
+    private static string StatusBadge(string status) => status.ToLowerInvariant() switch
+    {
+        "alive" => "badge-mint",
+        "suspect" => "badge-warning",
+        "dead" => "badge-danger",
+        _ => "badge-neutral"
+    };
+
+    private static string VolumeStatusBadge(string status) => status.ToLowerInvariant() switch
+    {
+        "online" => "badge-mint",
+        "waking" or "degraded" => "badge-warning",
+        "faulted" => "badge-danger",
+        _ => "badge-neutral"
+    };
+}

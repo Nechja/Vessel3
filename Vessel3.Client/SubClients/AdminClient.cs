@@ -19,6 +19,14 @@ internal sealed class AdminClient(VesselHttpTransport transport) : IAdminClient
         return await transport.ReadJson(res, VesselJsonContext.Default.SweepReportDto, ct);
     }
 
+    public async Task<Result<CompactReportDto>> RunCompact(long minLogBytes = 0, CancellationToken ct = default)
+    {
+        var query = minLogBytes > 0 ? $"?minLogBytes={minLogBytes}" : string.Empty;
+        using var req = transport.CreateRequest(HttpMethod.Post, $"{VesselRoutes.Compact}{query}");
+        using var res = await transport.SendAsync(req, ct);
+        return await transport.ReadJson(res, VesselJsonContext.Default.CompactReportDto, ct);
+    }
+
     public async Task<Result<IReadOnlyList<ServerLogEntryDto>>> GetServerLogs(int limit = 100, string? level = null, string? protocol = null, CancellationToken ct = default)
     {
         var query = $"?{VesselQueryParams.Limit}={limit}";

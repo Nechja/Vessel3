@@ -1,9 +1,9 @@
 @page "/"
 @inject IVesselClient Client
-@inject UiAuth Auth
+@inject NavigationManager Nav
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
             <span class="toolbar-title">Buckets</span>
@@ -30,40 +30,45 @@
     }
 
     <div class="table-card">
-        <table>
-            <thead>
-                <tr>
-                    <th>name</th>
-                    <th>created</th>
-                    <th>owner</th>
-                    <th style="text-align: right;">actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (loading)
-                {
+        @if (loading)
+        {
+            <div class="empty-state">loading buckets...</div>
+        }
+        else if (!filteredBuckets.Any())
+        {
+            @if (string.IsNullOrEmpty(searchFilter))
+            {
+                <EmptyState Icon="bucket" Text="no buckets">
+                    <button type="button" class="btn btn-primary" @onclick="@(() => showCreateModal = true)">
+                        <Icon Name="bucket" /> create bucket
+                    </button>
+                </EmptyState>
+            }
+            else
+            {
+                <EmptyState Icon="search" Text="no matches" />
+            }
+        }
+        else
+        {
+            <table>
+                <thead>
                     <tr>
-                        <td colspan="4" class="empty-state">loading buckets...</td>
+                        <th>name</th>
+                        <th>created</th>
+                        <th>owner</th>
+                        <th></th>
                     </tr>
-                }
-                else if (!filteredBuckets.Any())
-                {
-                    <tr>
-                        <td colspan="4" class="empty-state">
-                            @(string.IsNullOrEmpty(searchFilter) ? "no buckets found. create one above." : "no matching buckets found.")
-                        </td>
-                    </tr>
-                }
-                else
-                {
+                </thead>
+                <tbody>
                     @foreach (var b in filteredBuckets)
                     {
-                        <tr>
+                        <tr class="is-clickable" @onclick="@(() => Nav.NavigateTo($"buckets/{b.Name}"))">
                             <td>
-                                <a href="buckets/@b.Name" class="row align-center" style="text-decoration:none; color:var(--color-text); font-weight:var(--weight-semibold); gap:var(--space-2);">
+                                <span class="cell-link">
                                     <Icon Name="bucket" Class="faint" />
                                     <span class="mono">@b.Name</span>
-                                </a>
+                                </span>
                             </td>
                             <td>
                                 <span class="mono muted">@b.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
@@ -71,36 +76,18 @@
                             <td>
                                 <span class="badge badge-neutral">@(b.OwnerId ?? "system")</span>
                             </td>
-                            <td style="text-align: right;">
-                                <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
-                                    <a href="buckets/@b.Name" class="btn btn-ghost btn-sm">
-                                        browse <Icon Name="arrow-right" />
-                                    </a>
-                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Bucket settings" @onclick="@(() => OpenSettings(b.Name))">
-                                        <Icon Name="gear" />
+                            <td class="text-right">
+                                <div class="cell-actions" @onclick:stopPropagation="true">
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete bucket" @onclick="@(() => pendingDeleteBucket = b.Name)">
+                                        <Icon Name="trash" />
                                     </button>
-                                    @if (armedDeleteBucket == b.Name)
-                                    {
-                                        <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => DeleteBucket(b.Name))">
-                                            confirm?
-                                        </button>
-                                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteBucket = null)">
-                                            cancel
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete bucket" @onclick="@(() => armedDeleteBucket = b.Name)">
-                                            <Icon Name="trash" />
-                                        </button>
-                                    }
                                 </div>
                             </td>
                         </tr>
                     }
-                }
-            </tbody>
-        </table>
+                </tbody>
+            </table>
+        }
     </div>
 </div>
 
@@ -119,65 +106,13 @@
     </FooterContent>
 </Modal>
 
-<Modal IsOpen="showSettingsModal" Title="@($"Settings: {activeSettingsBucket}")" OnClose="@(() => showSettingsModal = false)">
-    <ChildContent>
-        <div class="stack" style="gap: var(--space-4);">
-            <div class="field">
-                <label>Access Policies</label>
-                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
-                    <input type="checkbox" id="chkPublic" @bind="publicRead" />
-                    <label for="chkPublic" style="text-transform:none; cursor:pointer;">Public Read (allows unauthenticated GET/HEAD)</label>
-                </div>
-                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
-                    <input type="checkbox" id="chkReadOnly" @bind="readOnly" />
-                    <label for="chkReadOnly" style="text-transform:none; cursor:pointer;">Read Only (blocks uploads and mutations)</label>
-                </div>
-            </div>
-
-            <div class="field">
-                <label>Versioning</label>
-                <select class="select" @bind="versioningStatus">
-                    <option value="Suspended">Suspended</option>
-                    <option value="Enabled">Enabled</option>
-                </select>
-            </div>
-
-            <div class="field">
-                <label>Static Website Hosting</label>
-                <div class="row align-center" style="gap: var(--space-3); margin-top: var(--space-2);">
-                    <input type="checkbox" id="chkWebsite" @bind="websiteEnabled" />
-                    <label for="chkWebsite" style="text-transform:none; cursor:pointer;">Enable Static Website Hosting</label>
-                </div>
-                @if (websiteEnabled)
-                {
-                    <div class="grid grid-2" style="gap: var(--space-2); margin-top: var(--space-2);">
-                        <div>
-                            <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Index Document</label>
-                            <input class="input mono" @bind="websiteIndexDoc" placeholder="index.html" />
-                        </div>
-                        <div>
-                            <label style="font-size: var(--text-xs); color: var(--color-text-muted);">Error / SPA Document</label>
-                            <input class="input mono" @bind="websiteErrorDoc" placeholder="index.html or 404.html" />
-                        </div>
-                    </div>
-                }
-            </div>
-        </div>
-    </ChildContent>
-    <FooterContent>
-        <button type="button" class="btn btn-ghost" @onclick="@(() => showSettingsModal = false)">cancel</button>
-        <button type="button" class="btn btn-primary" @onclick="SaveSettings" disabled="@savingSettings">
-            @(savingSettings ? "saving..." : "save settings")
-        </button>
-    </FooterContent>
-</Modal>
+<ConfirmDialog Title="Delete bucket" Target="@pendingDeleteBucket" OnConfirm="DeleteBucket" OnCancel="@(() => pendingDeleteBucket = null)" />
 
 @code {
     private List<BucketDto> buckets = [];
     private bool loading = true;
-    private string summary = "";
     private string? errorMessage;
-    private string? armedDeleteBucket;
+    private string? pendingDeleteBucket;
     private string searchFilter = "";
 
     private IEnumerable<BucketDto> filteredBuckets => string.IsNullOrWhiteSpace(searchFilter)
@@ -187,16 +122,6 @@
     private bool showCreateModal;
     private string newBucketName = "";
     private bool creating;
-
-    private bool showSettingsModal;
-    private string activeSettingsBucket = "";
-    private bool publicRead;
-    private bool readOnly;
-    private string versioningStatus = "Suspended";
-    private bool websiteEnabled;
-    private string websiteIndexDoc = "index.html";
-    private string websiteErrorDoc = "";
-    private bool savingSettings;
 
     protected override Task OnInitializedAsync() => Refresh();
 
@@ -210,18 +135,15 @@
             if (res.TryGetValue(out var list, out var err))
             {
                 buckets = list.OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
-                summary = $"{buckets.Count} bucket{(buckets.Count == 1 ? "" : "s")} available";
             }
             else
             {
                 errorMessage = err.Message;
-                summary = "failed to load buckets";
             }
         }
         catch (Exception ex)
         {
             errorMessage = ex.Message;
-            summary = "error connecting to server";
         }
         finally
         {
@@ -257,9 +179,10 @@
         }
     }
 
-    private async Task DeleteBucket(string name)
+    private async Task DeleteBucket()
     {
-        armedDeleteBucket = null;
+        if (pendingDeleteBucket is not { } name) return;
+        pendingDeleteBucket = null;
         try
         {
             var res = await Client.DeleteBucket(name);
@@ -277,85 +200,4 @@
         }
     }
 
-    private async Task OpenSettings(string bucket)
-    {
-        activeSettingsBucket = bucket;
-        publicRead = false;
-        readOnly = false;
-        versioningStatus = "Suspended";
-
-        var accessRes = await Client.GetBucketAccess(bucket);
-        if (accessRes.TryGetValue(out var access, out _))
-        {
-            publicRead = access.PublicRead;
-            readOnly = access.ReadOnly;
-        }
-
-        var verRes = await Client.GetBucketVersioning(bucket);
-        if (verRes.TryGetValue(out var ver, out _))
-        {
-            versioningStatus = ver.Status;
-        }
-
-        websiteEnabled = false;
-        websiteIndexDoc = "index.html";
-        websiteErrorDoc = "";
-        var webRes = await Client.GetBucketWebsite(bucket);
-        if (webRes.TryGetValue(out var web, out _) && web is not null)
-        {
-            websiteEnabled = true;
-            websiteIndexDoc = web.Value.IndexDocument;
-            websiteErrorDoc = web.Value.ErrorDocument ?? "";
-        }
-
-        showSettingsModal = true;
-    }
-
-    private async Task SaveSettings()
-    {
-        savingSettings = true;
-        try
-        {
-            var accessRes = await Client.SetBucketAccess(activeSettingsBucket, new BucketAccessDto(publicRead, readOnly));
-            if (accessRes.TryGetError(out var aErr))
-            {
-                Toast.Error($"Failed to update access: {aErr.Message}");
-                return;
-            }
-
-            var verRes = await Client.SetBucketVersioning(activeSettingsBucket, versioningStatus);
-            if (verRes.TryGetError(out var vErr))
-            {
-                Toast.Error($"Failed to update versioning: {vErr.Message}");
-                return;
-            }
-
-            if (websiteEnabled)
-            {
-                var webRes = await Client.SetBucketWebsite(activeSettingsBucket, new BucketWebsiteDto(
-                    string.IsNullOrWhiteSpace(websiteIndexDoc) ? "index.html" : websiteIndexDoc.Trim(),
-                    string.IsNullOrWhiteSpace(websiteErrorDoc) ? null : websiteErrorDoc.Trim()));
-                if (webRes.TryGetError(out var wErr))
-                {
-                    Toast.Error($"Failed to update website settings: {wErr.Message}");
-                    return;
-                }
-            }
-            else
-            {
-                await Client.DeleteBucketWebsite(activeSettingsBucket);
-            }
-
-            Toast.Success($"Settings for '{activeSettingsBucket}' saved");
-            showSettingsModal = false;
-        }
-        catch (Exception ex)
-        {
-            Toast.Error($"Settings error: {ex.Message}");
-        }
-        finally
-        {
-            savingSettings = false;
-        }
-    }
 }

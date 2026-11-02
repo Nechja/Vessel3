@@ -14,7 +14,7 @@ public sealed class ListPagingTests : IDisposable
         root = Path.Combine(Path.GetTempPath(), $"vessel3-listpaging-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         registry = new BucketRegistry(new BucketRegistryOptions(root), new PortableFileSync(), new DurableWrite(new PortableFileSync()));
-        Assert.IsType<Result<bool>.Success>(registry.Create("bucket"));
+        Assert.IsType<Result.OkResult>(registry.Create("bucket"));
     }
 
     public void Dispose()

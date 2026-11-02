@@ -31,7 +31,7 @@ public sealed class ObjectLockTests : IDisposable
     public void SetObjectLock_VersioningDisabled_Fails()
     {
         const string b = "lock-req-ver";
-        Assert.IsType<Result<bool>.Success>(registry.Create(b));
+        Assert.IsType<Result.OkResult>(registry.Create(b));
 
         var setResult = registry.SetObjectLock(b, new ObjectLockConfig(Enabled: true, Default: null));
         var failure = Assert.IsType<Result.Failure>(setResult);

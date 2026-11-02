@@ -8,6 +8,9 @@ public interface IBucketsClient
     Task<Result> CreateBucket(string bucket, CancellationToken ct = default);
     Task<Result> DeleteBucket(string bucket, CancellationToken ct = default);
 
+    Task<Result<BucketOwnerDto>> GetBucketOwner(string bucket, CancellationToken ct = default);
+    Task<Result> SetBucketOwner(string bucket, string ownerId, CancellationToken ct = default);
+
     Task<Result<BucketAccessDto>> GetBucketAccess(string bucket, CancellationToken ct = default);
     Task<Result> SetBucketAccess(string bucket, BucketAccessDto access, CancellationToken ct = default);
 
@@ -17,4 +20,8 @@ public interface IBucketsClient
     Task<Result<BucketWebsiteDto?>> GetBucketWebsite(string bucket, CancellationToken ct = default);
     Task<Result> SetBucketWebsite(string bucket, BucketWebsiteDto website, CancellationToken ct = default);
     Task<Result> DeleteBucketWebsite(string bucket, CancellationToken ct = default);
+
+    Task<Result<LifecycleConfigDto?>> GetBucketLifecycle(string bucket, CancellationToken ct = default);
+    Task<Result> SetBucketLifecycle(string bucket, LifecycleConfigDto lifecycle, CancellationToken ct = default);
+    Task<Result> DeleteBucketLifecycle(string bucket, CancellationToken ct = default);
 }

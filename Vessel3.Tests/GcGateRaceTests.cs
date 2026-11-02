@@ -170,7 +170,7 @@ public class GcGateRaceTests : IDisposable
         }
 
         public bool IsValidName(string bucket) => inner.IsValidName(bucket);
-        public Result<bool> Create(string bucket, string? ownerId = null) => inner.Create(bucket, ownerId);
+        public Result Create(string bucket, string? ownerId = null) => inner.Create(bucket, ownerId);
         public Result Delete(string bucket) => inner.Delete(bucket);
         public Result<bool> Exists(string bucket) => inner.Exists(bucket);
         public Result EnsureExists(string bucket) => inner.EnsureExists(bucket);

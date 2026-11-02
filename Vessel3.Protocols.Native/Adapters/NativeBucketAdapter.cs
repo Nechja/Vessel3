@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Vessel3.Primitives;
 using Vessel3.Protocols.Native.Serialization;
 using Vessel3.Storage;
+using Vessel3.Storage.Lifecycle;
 
 namespace Vessel3.Protocols.Native.Adapters;
 
@@ -21,7 +22,7 @@ internal sealed class NativeBucketAdapter(IBucketRegistry registry)
         RequestTrace.SetTarget("CreateBucket", bucket);
         var caller = context.GetCaller();
         var result = caller is not null ? registry.Create(bucket, caller) : registry.Create(bucket);
-        return result.TryGetValue(out _, out var err) ? Results.Ok() : err.ToHttpResult();
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
     public IResult DeleteBucket(string bucket, HttpContext context)
@@ -64,6 +65,37 @@ internal sealed class NativeBucketAdapter(IBucketRegistry registry)
         return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
     }
 
+    public IResult GetBucketOwner(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("GetBucketOwner", bucket);
+        var caller = context.GetCaller();
+        var result = caller is not null ? registry.GetOwner(bucket, caller) : registry.GetOwner(bucket);
+        if (!result.TryGetValue(out var owner, out var err))
+        {
+            return err.ToHttpResult();
+        }
+        return Results.Json(new BucketOwnerDto(owner), NativeJsonContext.Default.BucketOwnerDto);
+    }
+
+    public async Task<IResult> PutBucketOwner(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("PutBucketOwner", bucket);
+        var caller = context.GetCaller();
+        if (caller is not null && !caller.IsAdmin)
+        {
+            return new AccessDeniedError("Only admins can change bucket ownership").ToHttpResult();
+        }
+
+        var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.BucketOwnerDto);
+        if (string.IsNullOrWhiteSpace(body.OwnerId))
+        {
+            return new InvalidArgumentError("OwnerId is required").ToHttpResult();
+        }
+
+        var result = registry.SetOwner(bucket, body.OwnerId);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
+    }
+
     public IResult GetBucketVersioning(string bucket, HttpContext context)
     {
         RequestTrace.SetTarget("GetBucketVersioning", bucket);
@@ -99,6 +131,79 @@ internal sealed class NativeBucketAdapter(IBucketRegistry registry)
 
         var result = registry.SetVersioning(bucket, status);
         return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
+    }
+
+    public IResult GetBucketLifecycle(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("GetBucketLifecycle", bucket);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Read) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var result = registry.GetLifecycle(bucket);
+        if (!result.TryGetValue(out var config, out var err))
+        {
+            return err.ToHttpResult();
+        }
+
+        List<LifecycleRuleDto> rules = new(config.Rules.Count);
+        foreach (var rule in config.Rules)
+        {
+            rules.Add(new LifecycleRuleDto(rule.Id, rule.Enabled, rule.Prefix, rule.ExpirationDays, rule.ExpiredObjectDeleteMarker, rule.NoncurrentDays));
+        }
+        return Results.Json(new LifecycleConfigDto(rules), NativeJsonContext.Default.LifecycleConfigDto);
+    }
+
+    public async Task<IResult> PutBucketLifecycle(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("PutBucketLifecycle", bucket);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var body = await context.Request.ReadFromJsonAsync(NativeJsonContext.Default.LifecycleConfigDto);
+        if (body.Rules is not { Count: > 0 } incoming)
+        {
+            return new InvalidArgumentError("Lifecycle configuration requires at least one rule").ToHttpResult();
+        }
+
+        List<LifecycleRule> rules = new(incoming.Count);
+        foreach (var rule in incoming)
+        {
+            if (string.IsNullOrWhiteSpace(rule.Id))
+            {
+                return new InvalidArgumentError("Lifecycle rule id is required").ToHttpResult();
+            }
+            if (rule.ExpirationDays is <= 0 || rule.NoncurrentDays is <= 0)
+            {
+                return new InvalidArgumentError($"Lifecycle rule {rule.Id} days must be positive").ToHttpResult();
+            }
+            if (rule.ExpirationDays is null && rule.NoncurrentDays is null && !rule.ExpiredObjectDeleteMarker)
+            {
+                return new InvalidArgumentError($"Lifecycle rule {rule.Id} has no action").ToHttpResult();
+            }
+            rules.Add(new LifecycleRule(rule.Id, rule.Enabled, rule.Prefix ?? "", rule.ExpirationDays, rule.ExpiredObjectDeleteMarker, rule.NoncurrentDays));
+        }
+
+        var result = registry.SetLifecycle(bucket, new LifecycleConfig(rules));
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.Ok();
+    }
+
+    public IResult DeleteBucketLifecycle(string bucket, HttpContext context)
+    {
+        RequestTrace.SetTarget("DeleteBucketLifecycle", bucket);
+        var caller = context.GetCaller();
+        if (registry.AuthorizeAccess(bucket, caller, BucketCapability.Admin) is Result.Failure authFail)
+        {
+            return authFail.Error.ToHttpResult();
+        }
+
+        var result = registry.RemoveLifecycle(bucket);
+        return result.TryGetError(out var err) ? err.ToHttpResult() : Results.NoContent();
     }
 
     public IResult GetBucketWebsite(string bucket, HttpContext context)

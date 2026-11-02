@@ -57,7 +57,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serves_Root_IndexDocument()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "index.html", "<h1>Hello World</h1>", "text/html");
 
@@ -73,7 +73,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serves_Subfolder_IndexDocument()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "docs/index.html", "<h1>Documentation</h1>", "text/html");
 
@@ -89,7 +89,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_DirectoryWithoutTrailingSlash_Redirects()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "docs/index.html", "<h1>Docs</h1>", "text/html");
 
@@ -106,7 +106,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_DirectAssetFile_ServesContent()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "styles/main.css", "body { margin: 0; }", "text/css");
 
@@ -122,7 +122,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_NotFoundRoute_ServesCustomErrorDocument()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "custom-404.html"));
         await SeedObject(bucket, "custom-404.html", "<h1>Page Lost</h1>", "text/html");
 
@@ -139,7 +139,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_HeadRequest_ReturnsHeadersWithoutBody()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "index.html", "<h1>Hello</h1>", "text/html");
 
@@ -157,7 +157,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_IfNoneMatchMatch_Returns304()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "404.html"));
         await SeedObject(bucket, "index.html", "<h1>Hello</h1>", "text/html");
 
@@ -177,7 +177,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_WasmFile_SetsApplicationWasmMimeType()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
         var wasmBytes = new byte[] { 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
         var putRes = await objects.Put(new ObjectPutRequest(
@@ -198,7 +198,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_WebmanifestFile_SetsManifestJsonMimeType()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
         await SeedObject(bucket, "app.webmanifest", "{}", "application/octet-stream");
 
@@ -214,7 +214,7 @@ public class WebsiteServingTests : IDisposable
     public async Task Serve_SpaFallback_Serves200WithIndexDocument()
     {
         const string bucket = "mysite";
-        Assert.True(registry.Create(bucket).Match(v => v, _ => false));
+        Assert.IsType<Result.OkResult>(registry.Create(bucket));
         registry.SetWebsite(bucket, new WebsiteConfig("index.html", "index.html"));
         await SeedObject(bucket, "index.html", "<div id='app'>SPA</div>", "text/html");
 

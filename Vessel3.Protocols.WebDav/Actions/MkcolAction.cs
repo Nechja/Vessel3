@@ -30,7 +30,7 @@ internal sealed class MkcolAction(
     private IResult CreateBucket(string bucket, CallerIdentity caller, HttpResponse res)
     {
         var createRes = registry.Create(bucket, caller);
-        if (!createRes.TryGetValue(out _, out var err))
+        if (createRes.TryGetError(out var err))
         {
             return new WebDavErrorResult(err);
         }

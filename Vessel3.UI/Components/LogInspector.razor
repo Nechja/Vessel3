@@ -1,0 +1,79 @@
+@using System.Globalization
+@inject IJSRuntime JS
+@inject UiNotifications Toast
+
+<aside class="inspector">
+    <div class="inspector-head">
+        <span class="inspector-title">@(Entry.Action ?? Entry.Source)</span>
+        <button type="button" class="btn btn-ghost btn-icon" @onclick="OnClose">
+            <Icon Name="close" />
+        </button>
+    </div>
+    <div class="inspector-body">
+        <dl class="inspector-meta">
+            <dt>time</dt>
+            <dd>@Entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)</dd>
+            <dt>level</dt>
+            <dd>@LogLevel.Label(Entry.Level)</dd>
+            <dt>message</dt>
+            <dd>@Entry.Message</dd>
+            @if (!string.IsNullOrEmpty(Entry.Protocol))
+            {
+                <dt>protocol</dt>
+                <dd>@Entry.Protocol</dd>
+            }
+            @if (!string.IsNullOrEmpty(Entry.Subject))
+            {
+                <dt>subject</dt>
+                <dd>@Entry.Subject</dd>
+            }
+            <dt>actor</dt>
+            <dd>@(Entry.Actor ?? "anonymous")</dd>
+            @if (Entry.StatusCode is { } status)
+            {
+                <dt>status</dt>
+                <dd>@status</dd>
+            }
+            @if (Entry.DurationMs is { } duration)
+            {
+                <dt>duration</dt>
+                <dd>@duration.ToString("F2", CultureInfo.InvariantCulture) ms</dd>
+            }
+            @if (!string.IsNullOrEmpty(Entry.TraceId))
+            {
+                <dt>trace</dt>
+                <dd>@Entry.TraceId</dd>
+            }
+        </dl>
+        @if (!string.IsNullOrEmpty(Entry.ErrorDetails))
+        {
+            <pre class="code-block text-danger">@Entry.ErrorDetails</pre>
+        }
+    </div>
+    @if (!string.IsNullOrEmpty(Entry.TraceId))
+    {
+        <div class="inspector-actions">
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="CopyTrace">
+                <Icon Name="copy" /> copy trace
+            </button>
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public ServerLogEntryDto Entry { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private async Task CopyTrace()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Entry.TraceId);
+            Toast.Success("Copied");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Copy failed: {ex.Message}");
+        }
+    }
+}

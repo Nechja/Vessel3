@@ -2,82 +2,81 @@
 @inject IVesselClient Client
 @inject UiNotifications Toast
 
-<div class="stack" style="gap: var(--space-4);">
+<div class="stack">
     <div class="toolbar">
         <div class="toolbar-left">
-            <span class="toolbar-title">Maintenance & GC</span>
+            <span class="toolbar-title">Maintenance</span>
         </div>
     </div>
 
-    <div class="grid grid-2">
-        <div class="panel stack" style="gap: var(--space-4);">
-            <div>
-                <h3>Garbage Collector</h3>
-                <p class="muted" style="font-size: var(--text-xs);">
-                    Delete unreferenced blobs and reap abandoned multipart uploads from the storage pool.
-                </p>
-            </div>
+    <div class="grid grid-3">
+        <div class="panel stack">
+            <h3>Garbage Collector</h3>
 
-            <div class="grid grid-2">
-                <div class="field">
-                    <label>Min Blob Age (Seconds)</label>
-                    <input type="number" class="input mono" @bind="gcBlobAgeSec" />
-                </div>
-                <div class="field">
-                    <label>Min Upload Age (Seconds)</label>
-                    <input type="number" class="input mono" @bind="gcUploadAgeSec" />
-                </div>
+            <div class="field">
+                <label>Min Blob Age (Seconds)</label>
+                <input type="number" class="input mono" @bind="gcBlobAgeSec" />
+            </div>
+            <div class="field">
+                <label>Min Upload Age (Seconds)</label>
+                <input type="number" class="input mono" @bind="gcUploadAgeSec" />
             </div>
 
             <button type="button" class="btn btn-primary" @onclick="RunGc" disabled="@gcBusy">
-                <Icon Name="trash" /> @(gcBusy ? "running gc..." : "run garbage collector")
+                <Icon Name="trash" /> @(gcBusy ? "running..." : "run")
             </button>
 
             @if (gcReport is { } gc)
             {
                 <hr />
-                <div class="stack" style="gap: var(--space-2);">
-                    <div class="row justify-between mono" style="font-size: var(--text-sm);">
-                        <span class="muted">blobs deleted</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gc.BlobsDeleted</span>
-                    </div>
-                    <div class="row justify-between mono" style="font-size: var(--text-sm);">
-                        <span class="muted">uploads reaped</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@gc.UploadsReaped</span>
-                    </div>
+                <div class="stack gap-2">
+                    <div class="kv"><span>blobs deleted</span><strong>@gc.BlobsDeleted</strong></div>
+                    <div class="kv"><span>uploads reaped</span><strong>@gc.UploadsReaped</strong></div>
                 </div>
             }
         </div>
 
-        <div class="panel stack" style="gap: var(--space-4);">
-            <div>
-                <h3>Lifecycle Sweep</h3>
-                <p class="muted" style="font-size: var(--text-xs);">
-                    Expire object versions according to bucket lifecycle rules and clean up lone delete markers.
-                </p>
-            </div>
+        <div class="panel stack">
+            <h3>Lifecycle Sweep</h3>
 
             <div class="field">
-                <label>Now Override (ISO 8601, Optional)</label>
+                <label>Now Override</label>
                 <input class="input mono" @bind="sweepNow" placeholder="@DateTimeOffset.UtcNow.ToString("u")" />
             </div>
 
             <button type="button" class="btn btn-primary" @onclick="RunSweep" disabled="@sweepBusy">
-                <Icon Name="refresh" /> @(sweepBusy ? "running sweep..." : "run lifecycle sweep")
+                <Icon Name="refresh" /> @(sweepBusy ? "running..." : "run")
             </button>
 
             @if (sweepReport is { } sweep)
             {
                 <hr />
-                <div class="stack" style="gap: var(--space-2);">
-                    <div class="row justify-between mono" style="font-size: var(--text-sm);">
-                        <span class="muted">versions expired</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweep.Expired</span>
-                    </div>
-                    <div class="row justify-between mono" style="font-size: var(--text-sm);">
-                        <span class="muted">markers reaped</span>
-                        <span style="font-weight: var(--weight-bold); color: var(--color-mint);">@sweep.MarkersReaped</span>
-                    </div>
+                <div class="stack gap-2">
+                    <div class="kv"><span>versions expired</span><strong>@sweep.Expired</strong></div>
+                    <div class="kv"><span>markers reaped</span><strong>@sweep.MarkersReaped</strong></div>
+                </div>
+            }
+        </div>
+
+        <div class="panel stack">
+            <h3>Compaction</h3>
+
+            <div class="field">
+                <label>Min Log Bytes</label>
+                <input type="number" class="input mono" @bind="compactMinBytes" />
+            </div>
+
+            <button type="button" class="btn btn-primary" @onclick="RunCompact" disabled="@compactBusy">
+                <Icon Name="server" /> @(compactBusy ? "running..." : "run")
+            </button>
+
+            @if (compactReport is { } compact)
+            {
+                <hr />
+                <div class="stack gap-2">
+                    <div class="kv"><span>buckets compacted</span><strong>@compact.BucketsCompacted</strong></div>
+                    <div class="kv"><span>failed</span><strong>@compact.Failed</strong></div>
+                    <div class="kv"><span>log size</span><strong>@Fmt.Bytes(compact.LogBytesBefore) → @Fmt.Bytes(compact.LogBytesAfter)</strong></div>
                 </div>
             }
         </div>
@@ -92,6 +91,9 @@
     private bool sweepBusy;
     private GcReportDto? gcReport;
     private SweepReportDto? sweepReport;
+    private long compactMinBytes;
+    private bool compactBusy;
+    private CompactReportDto? compactReport;
 
     private async Task RunGc()
     {
@@ -140,6 +142,30 @@
         finally
         {
             sweepBusy = false;
+        }
+    }
+
+    private async Task RunCompact()
+    {
+        compactBusy = true;
+        try
+        {
+            var res = await Client.RunCompact(compactMinBytes);
+            if (!res.TryGetValue(out var report, out var err))
+            {
+                Toast.Error($"Compaction failed: {err.Message}");
+                return;
+            }
+            compactReport = report;
+            Toast.Success("Compaction complete");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Compaction error: {ex.Message}");
+        }
+        finally
+        {
+            compactBusy = false;
         }
     }
 }

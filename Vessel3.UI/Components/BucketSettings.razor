@@ -1,0 +1,323 @@
+@inject IVesselClient Client
+@inject UiNotifications Toast
+@inject UiAuth Auth
+
+<Modal IsOpen="IsOpen" Title="@Bucket" OnClose="OnClose">
+    <ChildContent>
+        <div class="stack">
+            <div class="field">
+                <label>Access</label>
+                <label class="check"><input type="checkbox" @bind="publicRead" /> public read</label>
+                <label class="check"><input type="checkbox" @bind="readOnly" /> read only</label>
+            </div>
+
+            @if (users.Count > 0)
+            {
+                <div class="field">
+                    <label>Owner</label>
+                    <select class="select" @bind="ownerId">
+                        @foreach (var user in users)
+                        {
+                            <option value="@user.Id">@user.Username</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="field">
+                <label>Versioning</label>
+                <label class="check"><input type="checkbox" @bind="versioningEnabled" /> keep previous versions</label>
+            </div>
+
+            <div class="field">
+                <label>Lifecycle</label>
+                @foreach (var rule in rules)
+                {
+                    <div class="list-item">
+                        <div class="stack gap-2 flex-1">
+                            <input class="input mono" placeholder="prefix (all objects when empty)" @bind="rule.Prefix" />
+                            <div class="row gap-3 wrap-items">
+                                <label class="filter"><span>expire after</span><input class="input rule-days" type="number" min="1" @bind="rule.ExpirationDays" /><span>days</span></label>
+                                <label class="filter"><span>old versions after</span><input class="input rule-days" type="number" min="1" @bind="rule.NoncurrentDays" /><span>days</span></label>
+                                <label class="check"><input type="checkbox" @bind="rule.Enabled" /> enabled</label>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Remove rule" @onclick="@(() => rules.Remove(rule))">
+                            <Icon Name="trash" />
+                        </button>
+                    </div>
+                }
+                <button type="button" class="btn btn-ghost btn-sm self-start" @onclick="AddRule">add rule</button>
+            </div>
+
+            @if (replication is { } rep)
+            {
+                <div class="field">
+                    <label>Replication</label>
+                    <dl class="inspector-meta">
+                        <dt>applied</dt>
+                        <dd>#@rep.AppliedSeq</dd>
+                        <dt>floor</dt>
+                        <dd>#@rep.FirstAvailableLogSeq</dd>
+                        <dt>mirrors</dt>
+                        <dd>@mirrorCount</dd>
+                        <dt>pending</dt>
+                        <dd>@pendingBlobs</dd>
+                    </dl>
+                </div>
+            }
+
+            <div class="field">
+                <label>Website</label>
+                <label class="check"><input type="checkbox" @bind="websiteEnabled" /> static website hosting</label>
+                @if (websiteEnabled)
+                {
+                    <div class="grid grid-2 gap-2">
+                        <div class="field">
+                            <label>Index Document</label>
+                            <input class="input mono" @bind="websiteIndexDoc" placeholder="index.html" />
+                        </div>
+                        <div class="field">
+                            <label>Error Document</label>
+                            <input class="input mono" @bind="websiteErrorDoc" placeholder="index.html or 404.html" />
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-ghost" @onclick="OnClose">cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="SaveSettings" disabled="@savingSettings">
+            @(savingSettings ? "saving..." : "save")
+        </button>
+    </FooterContent>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public string Bucket { get; set; } = "";
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool publicRead;
+    private bool readOnly;
+    private bool versioningEnabled;
+    private bool websiteEnabled;
+    private string websiteIndexDoc = "index.html";
+    private string websiteErrorDoc = "";
+    private bool savingSettings;
+    private sealed class RuleEdit
+    {
+        public string Id { get; init; } = "";
+        public bool Enabled { get; set; } = true;
+        public string Prefix { get; set; } = "";
+        public int? ExpirationDays { get; set; }
+        public int? NoncurrentDays { get; set; }
+        public bool ExpiredObjectDeleteMarker { get; init; }
+
+        public LifecycleRuleDto ToDto() => new(Id, Enabled, Prefix.Trim(), ExpirationDays, ExpiredObjectDeleteMarker, NoncurrentDays);
+    }
+
+    private readonly List<RuleEdit> rules = [];
+    private List<UserDto> users = [];
+    private BucketReplicationDto? replication;
+    private int mirrorCount;
+    private int pendingBlobs;
+    private string? ownerId;
+    private string? loadedOwner;
+    private LifecycleConfigDto? loadedLifecycle;
+    private BucketAccessDto loadedAccess;
+    private string loadedVersioning = "";
+    private BucketWebsiteDto? loadedWebsite;
+    private bool wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            await Load();
+        }
+        wasOpen = IsOpen;
+    }
+
+    private async Task Load()
+    {
+        await LoadOwner();
+        await LoadReplication();
+        var accessResult = await Client.GetBucketAccess(Bucket);
+        loadedAccess = accessResult.TryGetValue(out var access, out _) ? access : default;
+        publicRead = loadedAccess.PublicRead;
+        readOnly = loadedAccess.ReadOnly;
+
+        var versioningResult = await Client.GetBucketVersioning(Bucket);
+        loadedVersioning = versioningResult.TryGetValue(out var versioning, out _) ? versioning.Status : "";
+        versioningEnabled = loadedVersioning == "Enabled";
+
+        var websiteResult = await Client.GetBucketWebsite(Bucket);
+        loadedWebsite = websiteResult.TryGetValue(out var website, out _) ? website : null;
+        websiteEnabled = loadedWebsite is not null;
+        websiteIndexDoc = loadedWebsite?.IndexDocument ?? "index.html";
+        websiteErrorDoc = loadedWebsite?.ErrorDocument ?? "";
+
+        var lifecycleResult = await Client.GetBucketLifecycle(Bucket);
+        loadedLifecycle = lifecycleResult.TryGetValue(out var lifecycle, out _) ? lifecycle : null;
+        rules.Clear();
+        foreach (var rule in loadedLifecycle?.Rules ?? [])
+        {
+            rules.Add(new RuleEdit
+            {
+                Id = rule.Id,
+                Enabled = rule.Enabled,
+                Prefix = rule.Prefix,
+                ExpirationDays = rule.ExpirationDays,
+                NoncurrentDays = rule.NoncurrentDays,
+                ExpiredObjectDeleteMarker = rule.ExpiredObjectDeleteMarker
+            });
+        }
+    }
+
+    private async Task LoadReplication()
+    {
+        replication = null;
+        if (Auth.Caller is { } caller && caller.Role != "Admin") return;
+
+        var result = await Client.GetClusterStatus();
+        if (!result.TryGetValue(out var status, out _) || !status.ClusterEnabled) return;
+        replication = status.BucketWatermarks.FirstOrDefault(b => b.Name == Bucket);
+        mirrorCount = status.Volumes.Count(v => v.Capabilities.Contains(VesselVolumeCapabilities.Mirrored, StringComparer.OrdinalIgnoreCase));
+        pendingBlobs = status.PendingMirrorBlobs;
+    }
+
+    private async Task LoadOwner()
+    {
+        users = [];
+        ownerId = null;
+        loadedOwner = null;
+        if (Auth.Caller is { } caller && caller.Role != "Admin") return;
+
+        var ownerResult = await Client.GetBucketOwner(Bucket);
+        if (!ownerResult.TryGetValue(out var owner, out _)) return;
+        loadedOwner = owner.OwnerId;
+        ownerId = owner.OwnerId;
+
+        var usersResult = await Client.ListUsers();
+        if (!usersResult.TryGetValue(out var list, out _)) return;
+        users = list.OrderBy(u => u.Username, StringComparer.Ordinal).ToList();
+        if (ownerId is not null && users.All(u => u.Id != ownerId))
+        {
+            users.Insert(0, new UserDto(ownerId, ownerId, "", "", DateTimeOffset.MinValue));
+        }
+        if (ownerId is null && users.Count > 0)
+        {
+            ownerId = users[0].Id;
+        }
+    }
+
+    private void AddRule()
+    {
+        rules.Add(new RuleEdit { Id = $"rule-{Guid.NewGuid():N}"[..13] });
+    }
+
+    private async Task SaveSettings()
+    {
+        savingSettings = true;
+        try
+        {
+            if (!await SaveAccess()) return;
+            if (!await SaveVersioning()) return;
+            if (!await SaveWebsite()) return;
+            if (!await SaveLifecycle()) return;
+            if (!await SaveOwner()) return;
+            Toast.Success($"Settings for '{Bucket}' saved");
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Settings error: {ex.Message}");
+        }
+        finally
+        {
+            savingSettings = false;
+        }
+    }
+
+    private async Task<bool> SaveAccess()
+    {
+        var access = new BucketAccessDto(publicRead, readOnly);
+        if (access == loadedAccess) return true;
+
+        var result = await Client.SetBucketAccess(Bucket, access);
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update access: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveVersioning()
+    {
+        var wasEnabled = loadedVersioning == "Enabled";
+        if (wasEnabled == versioningEnabled) return true;
+
+        var result = await Client.SetBucketVersioning(Bucket, versioningEnabled ? "Enabled" : "Suspended");
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update versioning: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveWebsite()
+    {
+        BucketWebsiteDto? website = null;
+        if (websiteEnabled)
+        {
+            var index = string.IsNullOrWhiteSpace(websiteIndexDoc) ? "index.html" : websiteIndexDoc.Trim();
+            var error = string.IsNullOrWhiteSpace(websiteErrorDoc) ? null : websiteErrorDoc.Trim();
+            website = new BucketWebsiteDto(index, error);
+        }
+        if (website == loadedWebsite) return true;
+
+        var result = website is { } configured
+            ? await Client.SetBucketWebsite(Bucket, configured)
+            : await Client.DeleteBucketWebsite(Bucket);
+        if (result.TryGetError(out var failure))
+        {
+            Toast.Error($"Failed to update website settings: {failure.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveLifecycle()
+    {
+        var active = rules.Where(r => r.ExpirationDays is > 0 || r.NoncurrentDays is > 0 || r.ExpiredObjectDeleteMarker).Select(r => r.ToDto()).ToList();
+        var loaded = loadedLifecycle?.Rules ?? [];
+        if (active.SequenceEqual(loaded)) return true;
+
+        var result = active.Count > 0
+            ? await Client.SetBucketLifecycle(Bucket, new LifecycleConfigDto(active))
+            : await Client.DeleteBucketLifecycle(Bucket);
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update lifecycle: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> SaveOwner()
+    {
+        if (ownerId is null || ownerId == loadedOwner) return true;
+
+        var result = await Client.SetBucketOwner(Bucket, ownerId);
+        if (result.TryGetError(out var error))
+        {
+            Toast.Error($"Failed to update owner: {error.Message}");
+            return false;
+        }
+        return true;
+    }
+}

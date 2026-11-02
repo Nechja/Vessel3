@@ -1,144 +1,116 @@
 @page "/buckets/{Bucket}"
 @inject IVesselClient Client
-@inject ObjectUrls Urls
-@inject IJSRuntime JS
-@inject UiNotifications Toast
+@inject NavigationManager Nav
 
-<div class="stack" style="gap: var(--space-4);">
-    <div class="toolbar">
-        <div class="toolbar-left">
-            <BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
+<div class="split @(openKey is null ? "" : "split--open")">
+    <div class="stack">
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <BucketPath Bucket="@Bucket" Prefix="@CurrentPrefix" />
+            </div>
+            <div class="toolbar-search">
+                <input class="input" type="search" placeholder="Filter objects..." @bind="searchFilter" @bind:event="oninput" />
+            </div>
+            <div class="toolbar-actions">
+                <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
+                    <Icon Name="refresh" /> refresh
+                </button>
+                <button type="button" class="btn btn-ghost" @onclick="@(() => showConnect = true)">
+                    <Icon Name="link" /> connect
+                </button>
+                <button type="button" class="btn btn-ghost" @onclick="@(() => showDeploy = true)">
+                    <Icon Name="globe" /> deploy site
+                </button>
+                <button type="button" class="btn btn-ghost" @onclick="@(() => showSettings = true)">
+                    <Icon Name="gear" /> settings
+                </button>
+                <label for="browseUpload" class="btn btn-primary">
+                    <Icon Name="upload" /> upload
+                </label>
+            </div>
         </div>
-        <div class="toolbar-search">
-            <input class="input" type="search" placeholder="Filter objects..." @bind="searchFilter" @bind:event="oninput" />
-        </div>
-        <div class="toolbar-actions">
-            <button type="button" class="btn btn-ghost" @onclick="Refresh" disabled="@loading">
-                <Icon Name="refresh" /> refresh
-            </button>
-            <a href="@($"uploads?bucket={Bucket}&prefix={CurrentPrefix}")" class="btn btn-primary">
-                <Icon Name="upload" /> upload
-            </a>
-        </div>
-    </div>
 
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="callout callout-danger">
-            <div>@errorMessage</div>
-        </div>
-    }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="callout callout-danger">
+                <div>@errorMessage</div>
+            </div>
+        }
 
-    <div class="table-card">
-        <table>
-            <thead>
-                <tr>
-                    <th>name</th>
-                    <th>size</th>
-                    <th>modified</th>
-                    <th style="text-align: right;">actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (loading && rows.Count == 0)
+        <UploadDrop Bucket="@Bucket" Prefix="@CurrentPrefix" InputId="browseUpload" OnUploaded="Refresh">
+        <div class="table-card">
+            @if (loading && rows.Count == 0)
+            {
+                <div class="empty-state">loading objects...</div>
+            }
+            else if (!filteredRows.Any())
+            {
+                @if (string.IsNullOrEmpty(searchFilter))
                 {
-                    <tr>
-                        <td colspan="4" class="empty-state">loading objects...</td>
-                    </tr>
-                }
-                else if (!filteredRows.Any())
-                {
-                    <tr>
-                        <td colspan="4" class="empty-state">
-                            @(string.IsNullOrEmpty(searchFilter) ? "folder is empty. click \"upload\" to add files." : "no matching objects found.")
-                        </td>
-                    </tr>
+                    <EmptyState Icon="folder" Text="empty folder">
+                        <label for="browseUpload" class="btn btn-primary">
+                            <Icon Name="upload" /> upload
+                        </label>
+                    </EmptyState>
                 }
                 else
                 {
-                    @foreach (var row in filteredRows)
-                    {
+                    <EmptyState Icon="search" Text="no matches" />
+                }
+            }
+            else
+            {
+                <table>
+                    <thead>
                         <tr>
-                            <td>
-                                @if (row.IsFolder)
-                                {
-                                    <a href="@PrefixHref(row.Key)" class="row align-center" style="text-decoration:none; color:var(--color-text); font-weight:var(--weight-semibold); gap:var(--space-2);">
-                                        <Icon Name="folder" Class="faint" />
-                                        <span class="mono">@row.Name/</span>
-                                    </a>
-                                }
-                                else
-                                {
-                                    <div class="row align-center" style="cursor:pointer; gap:var(--space-2);" @onclick="@(() => ToggleInspect(row.Key))">
-                                        <Icon Name="file" Class="faint" />
-                                        <span class="mono @(openKey == row.Key ? "wm-zero" : "")">@row.Name</span>
-                                    </div>
-                                }
-                            </td>
-                            <td>
-                                <span class="mono muted">@(row.IsFolder ? "—" : Fmt.Bytes(row.Size))</span>
-                            </td>
-                            <td>
-                                <span class="mono muted">@(row.IsFolder ? "—" : row.Modified?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</span>
-                            </td>
-                            <td style="text-align: right;">
-                                @if (row.IsFolder)
-                                {
-                                    <a href="@PrefixHref(row.Key)" class="btn btn-ghost btn-sm">
-                                        open <Icon Name="arrow-right" />
-                                    </a>
-                                }
-                                else
-                                {
-                                    <div class="row" style="justify-content: flex-end; gap: var(--space-2);">
-                                        <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => Download(row.Key))">
-                                            get
-                                        </button>
-                                        <button type="button" class="btn btn-ghost btn-sm @(openKey == row.Key ? "btn-primary" : "")" @onclick="@(() => ToggleInspect(row.Key))">
-                                            info
-                                        </button>
-                                        @if (armedDeleteKey == row.Key)
-                                        {
-                                            <button type="button" class="btn btn-danger btn-sm" @onclick="@(() => Delete(row.Key))">
-                                                confirm?
-                                            </button>
-                                            <button type="button" class="btn btn-ghost btn-sm" @onclick="@(() => armedDeleteKey = null)">
-                                                cancel
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Delete object" @onclick="@(() => armedDeleteKey = row.Key)">
-                                                <Icon Name="trash" />
-                                            </button>
-                                        }
-                                    </div>
-                                }
-                            </td>
+                            <th>name</th>
+                            <th>size</th>
+                            <th>modified</th>
                         </tr>
-                        @if (!row.IsFolder && openKey == row.Key)
+                    </thead>
+                    <tbody>
+                        @foreach (var row in filteredRows)
                         {
-                            <tr>
-                                <td colspan="4" style="background: var(--color-surface-sunken); padding: var(--space-3) var(--space-5);">
-                                    <ObjectInspector Bucket="@Bucket" ObjectKey="@row.Key" />
+                            <tr class="is-clickable @(openKey == row.Key ? "is-selected" : "")" @onclick="@(() => Open(row))">
+                                <td>
+                                    <span class="cell-link">
+                                        <Icon Name="@(row.IsFolder ? "folder" : "file")" Class="faint" />
+                                        <span class="mono">@row.Name@(row.IsFolder ? "/" : "")</span>
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="mono muted">@(row.IsFolder ? "—" : Fmt.Bytes(row.Size))</span>
+                                </td>
+                                <td>
+                                    <span class="mono muted">@(row.Modified?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</span>
                                 </td>
                             </tr>
                         }
-                    }
-                }
-            </tbody>
-        </table>
+                    </tbody>
+                </table>
+            }
+        </div>
+        </UploadDrop>
+
+        @if (!string.IsNullOrEmpty(nextMarker))
+        {
+            <div class="row justify-center">
+                <button type="button" class="btn btn-ghost" @onclick="LoadMore" disabled="@loading">
+                    load more
+                </button>
+            </div>
+        }
     </div>
 
-    @if (!string.IsNullOrEmpty(nextMarker))
+    @if (openKey is { } key)
     {
-        <div class="row" style="justify-content: center;">
-            <button type="button" class="btn btn-ghost" @onclick="LoadMore" disabled="@loading">
-                load more
-            </button>
-        </div>
+        <ObjectInspector Bucket="@Bucket" ObjectKey="@key" OnClose="Close" OnDeleted="Deleted" />
     }
 </div>
+
+<BucketSettings Bucket="@Bucket" IsOpen="showSettings" OnClose="@(() => showSettings = false)" />
+<BucketConnect Bucket="@Bucket" IsOpen="showConnect" OnClose="@(() => showConnect = false)" />
+<DeploySite Bucket="@Bucket" IsOpen="showDeploy" OnClose="@(() => showDeploy = false)" OnDeployed="Refresh" />
 
 @code {
     [Parameter] public string Bucket { get; set; } = "";
@@ -150,24 +122,29 @@
 
     private List<Row> rows = [];
     private bool loading = true;
-    private string summary = "";
     private string? errorMessage;
     private string? nextMarker;
-    private string? armedDeleteKey;
     private string? openKey;
+    private bool showSettings;
+    private bool showConnect;
+    private bool showDeploy;
     private (string Bucket, string Prefix)? loadedState;
     private string searchFilter = "";
 
-    private IEnumerable<Row> filteredRows => string.IsNullOrWhiteSpace(searchFilter)
-        ? rows
-        : rows.Where(r => r.Name.Contains(searchFilter, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<Row> filteredRows
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(searchFilter)) return rows;
+            return rows.Where(r => r.Name.Contains(searchFilter, StringComparison.OrdinalIgnoreCase));
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
         if (loadedState == (Bucket, CurrentPrefix)) return;
         loadedState = (Bucket, CurrentPrefix);
         openKey = null;
-        armedDeleteKey = null;
         nextMarker = null;
         rows.Clear();
         await Fetch(reset: true);
@@ -191,24 +168,19 @@
             if (!res.TryGetValue(out var page, out var err))
             {
                 errorMessage = err.Message;
-                loading = false;
                 return;
             }
 
-            var folderRows = page.Prefixes.Select(p =>
+            var batch = new List<Row>(page.Prefixes.Count + page.Objects.Count);
+            foreach (var prefix in page.Prefixes)
             {
-                var trimmed = p.TrimEnd('/');
-                var name = trimmed.Contains('/') ? trimmed[(trimmed.LastIndexOf('/') + 1)..] : trimmed;
-                return new Row(p, name, true, 0, null);
-            });
-
-            var objectRows = page.Objects.Select(o =>
+                batch.Add(new Row(prefix, LastSegment(prefix.TrimEnd('/')), true, 0, null));
+            }
+            foreach (var obj in page.Objects)
             {
-                var name = o.Key.Contains('/') ? o.Key[(o.Key.LastIndexOf('/') + 1)..] : o.Key;
-                return new Row(o.Key, name, false, o.Size, o.LastModified);
-            });
+                batch.Add(new Row(obj.Key, LastSegment(obj.Key), false, obj.Size, obj.LastModified));
+            }
 
-            var batch = folderRows.Concat(objectRows).ToList();
             if (reset)
             {
                 rows = batch;
@@ -219,12 +191,10 @@
             }
 
             nextMarker = page.IsTruncated ? page.NextMarker : null;
-            summary = $"{rows.Count} item{(rows.Count == 1 ? "" : "s")}";
         }
         catch (Exception ex)
         {
             errorMessage = ex.Message;
-            summary = "error loading objects";
         }
         finally
         {
@@ -232,43 +202,30 @@
         }
     }
 
-    private string PrefixHref(string key) => $"buckets/{Bucket}?prefix={Uri.EscapeDataString(key)}";
-
-    private void ToggleInspect(string key)
+    private static string LastSegment(string path)
     {
-        openKey = openKey == key ? null : key;
+        var slash = path.LastIndexOf('/');
+        return slash < 0 ? path : path[(slash + 1)..];
     }
 
-    private void Download(string key)
+    private void Open(Row row)
     {
-        try
+        if (row.IsFolder)
         {
-            _ = JS.InvokeVoidAsync("window.open", Urls.For(Bucket, key), "_blank");
+            Nav.NavigateTo($"buckets/{Bucket}?prefix={Uri.EscapeDataString(row.Key)}");
+            return;
         }
-        catch (Exception ex)
-        {
-            Toast.Error($"Download failed: {ex.Message}");
-        }
+        openKey = openKey == row.Key ? null : row.Key;
     }
 
-    private async Task Delete(string key)
+    private void Close()
     {
-        armedDeleteKey = null;
-        try
-        {
-            var res = await Client.DeleteObject(Bucket, key);
-            if (res.TryGetError(out var err))
-            {
-                Toast.Error($"Failed to delete {key}: {err.Message}");
-                return;
-            }
-            Toast.Success($"Deleted {key}");
-            if (openKey == key) openKey = null;
-            await Refresh();
-        }
-        catch (Exception ex)
-        {
-            Toast.Error($"Delete error: {ex.Message}");
-        }
+        openKey = null;
+    }
+
+    private async Task Deleted()
+    {
+        openKey = null;
+        await Refresh();
     }
 }

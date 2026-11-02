@@ -6,11 +6,23 @@ public readonly record struct BucketDto(string Name, DateTimeOffset CreatedAt, s
 
 public readonly record struct BucketAccessDto(bool PublicRead, bool ReadOnly);
 
+public readonly record struct BucketOwnerDto(string? OwnerId);
+
 public readonly record struct BucketVersioningDto(string Status);
 
 public readonly record struct BucketWebsiteDto(string IndexDocument, string? ErrorDocument = null);
 
 public readonly record struct ObjectSummaryDto(string Key, long Size, string ETag, DateTimeOffset LastModified, string? VersionId);
+
+public readonly record struct ObjectVersionDto(string Key, string VersionId, DateTimeOffset LastModified, bool IsLatest, bool IsDeleteMarker, long Size, string? ETag);
+
+public readonly record struct ObjectVersionsPageDto(IReadOnlyList<ObjectVersionDto> Versions, bool IsTruncated, string? NextKeyMarker);
+
+public readonly record struct LifecycleRuleDto(string Id, bool Enabled, string Prefix, int? ExpirationDays, bool ExpiredObjectDeleteMarker, int? NoncurrentDays);
+
+public readonly record struct LifecycleConfigDto(IReadOnlyList<LifecycleRuleDto> Rules);
+
+public readonly record struct ObjectStatDto(string Key, long Size, string ETag, DateTimeOffset LastModified, string? VersionId, string? ContentType, IReadOnlyDictionary<string, string> Metadata);
 
 public readonly record struct ObjectsPageDto(IReadOnlyList<ObjectSummaryDto> Objects, IReadOnlyList<string> Prefixes, bool IsTruncated, string? NextMarker);
 
@@ -45,6 +57,8 @@ public readonly record struct OciErrorsDto(IReadOnlyList<OciErrorDetailDto> Erro
 public readonly record struct GcReportDto(int BlobsDeleted, int UploadsReaped);
 
 public readonly record struct SweepReportDto(int Expired, int MarkersReaped);
+
+public readonly record struct CompactReportDto(int BucketsCompacted, int Failed, long LogBytesBefore, long LogBytesAfter);
 
 public readonly record struct ContainerCatalogDto(IReadOnlyList<string> Repositories);
 
@@ -189,6 +203,10 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(BucketWebsiteDto))]
 [JsonSerializable(typeof(ObjectSummaryDto))]
 [JsonSerializable(typeof(ObjectsPageDto))]
+[JsonSerializable(typeof(ObjectVersionDto))]
+[JsonSerializable(typeof(ObjectVersionsPageDto))]
+[JsonSerializable(typeof(LifecycleRuleDto))]
+[JsonSerializable(typeof(LifecycleConfigDto))]
 [JsonSerializable(typeof(PutObjectResultDto))]
 [JsonSerializable(typeof(CreateUploadResultDto))]
 [JsonSerializable(typeof(UploadPartDto))]
@@ -207,6 +225,8 @@ public sealed record VesselObjectDownload(
 [JsonSerializable(typeof(ErrorDto))]
 [JsonSerializable(typeof(GcReportDto))]
 [JsonSerializable(typeof(SweepReportDto))]
+[JsonSerializable(typeof(CompactReportDto))]
+[JsonSerializable(typeof(BucketOwnerDto))]
 [JsonSerializable(typeof(ContainerCatalogDto))]
 [JsonSerializable(typeof(ContainerTagsDto))]
 [JsonSerializable(typeof(OciErrorsDto))]

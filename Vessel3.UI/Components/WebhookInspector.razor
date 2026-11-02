@@ -1,0 +1,126 @@
+@using System.Globalization
+@inject IVesselClient Client
+@inject UiNotifications Toast
+
+<aside class="inspector">
+    <div class="inspector-head">
+        <div class="row align-center gap-2">
+            <span class="inspector-title">@Hook.Name</span>
+            @if (Hook.IsStatic)
+            {
+                <span class="badge badge-neutral badge-sm">yaml</span>
+            }
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" @onclick="OnClose">
+            <Icon Name="close" />
+        </button>
+    </div>
+
+    <div class="inspector-body">
+        <dl class="inspector-meta">
+            <dt>url</dt>
+            <dd>@Hook.Url</dd>
+            <dt>events</dt>
+            <dd>@string.Join(", ", Hook.EventFilters)</dd>
+            <dt>resources</dt>
+            <dd>@(Hook.ResourceFilters is { Count: > 0 } resources ? string.Join(", ", resources) : "*")</dd>
+            <dt>signed</dt>
+            <dd>@(string.IsNullOrEmpty(Hook.Secret) ? "no" : "yes")</dd>
+            <dt>created</dt>
+            <dd>@Hook.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</dd>
+            <dt>last</dt>
+            <dd>
+                @if (Hook.LastTriggeredAt is { } last)
+                {
+                    <span class="badge @DeliveryBadge(Hook.LastStatusCode) badge-sm">@(Hook.LastStatusCode?.ToString() ?? "err")</span>
+                    <span class="meta">@last.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</span>
+                }
+                else
+                {
+                    <span>never</span>
+                }
+            </dd>
+        </dl>
+
+        @if (ping is null && !string.IsNullOrEmpty(Hook.LastError))
+        {
+            <pre class="code-block code-block--wrap text-danger">@Hook.LastError</pre>
+        }
+
+        @if (ping is { } result)
+        {
+            <div class="stack gap-2">
+                <div class="row align-center gap-2">
+                    <span class="badge @(result.Success ? "badge-mint" : "badge-danger") badge-sm">@(result.StatusCode?.ToString() ?? "error")</span>
+                    <span class="meta">@result.LatencyMs.ToString("F0", CultureInfo.InvariantCulture) ms</span>
+                </div>
+                @if (!string.IsNullOrEmpty(result.ErrorMessage))
+                {
+                    <pre class="code-block code-block--wrap text-danger">@result.ErrorMessage</pre>
+                }
+                @if (!string.IsNullOrEmpty(result.ResponseBody))
+                {
+                    <pre class="code-block code-block--wrap">@result.ResponseBody</pre>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="inspector-actions">
+        <button type="button" class="btn btn-primary btn-sm" @onclick="Ping" disabled="@pinging">
+            <Icon Name="bolt" /> @(pinging ? "pinging..." : "ping")
+        </button>
+        @if (!Hook.IsStatic)
+        {
+            <button type="button" class="btn btn-ghost btn-sm" @onclick="OnEdit">edit</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon ml-auto" title="Delete webhook" @onclick="OnDelete">
+                <Icon Name="trash" />
+            </button>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public WebhookDto Hook { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnEdit { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+    [Parameter] public EventCallback OnPinged { get; set; }
+
+    private WebhookTestResultDto? ping;
+    private bool pinging;
+    private string? loadedId;
+
+    protected override void OnParametersSet()
+    {
+        if (loadedId == Hook.Id) return;
+        loadedId = Hook.Id;
+        ping = null;
+    }
+
+    private async Task Ping()
+    {
+        pinging = true;
+        try
+        {
+            var res = await Client.TestWebhook(Hook.Id);
+            if (!res.TryGetValue(out var result, out var err))
+            {
+                Toast.Error($"Ping failed: {err.Message}");
+                return;
+            }
+            ping = result;
+            await OnPinged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Ping error: {ex.Message}");
+        }
+        finally
+        {
+            pinging = false;
+        }
+    }
+
+    private static string DeliveryBadge(int? status) => status is >= 200 and < 300 ? "badge-mint" : "badge-danger";
+}

@@ -28,33 +28,22 @@
                     <Icon Name="server" />
                     <span class="sidebar-label">Container Repos</span>
                 </NavLink>
-                <NavLink href="uploads" class="sidebar-item" @onclick="CloseMobileMenu">
-                    <Icon Name="upload" />
-                    <span class="sidebar-label">Uploads</span>
-                </NavLink>
-                <NavLink href="websites" class="sidebar-item" @onclick="CloseMobileMenu">
-                    <Icon Name="globe" />
-                    <span class="sidebar-label">Websites</span>
-                </NavLink>
             </div>
 
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Access</div>
                 <NavLink href="iam" class="sidebar-item" @onclick="CloseMobileMenu">
                     <Icon Name="user" />
-                    <span class="sidebar-label">IAM &amp; Keys</span>
+                    <span class="sidebar-label">Users &amp; Keys</span>
                 </NavLink>
             </div>
 
             <div class="sidebar-section">
                 <div class="sidebar-section-title">System</div>
-                @if (Config.ClusterEnabled)
-                {
-                    <NavLink href="cluster" class="sidebar-item" @onclick="CloseMobileMenu">
-                        <Icon Name="server" />
-                        <span class="sidebar-label">Cluster &amp; Volumes</span>
-                    </NavLink>
-                }
+                <NavLink href="nodes" class="sidebar-item" @onclick="CloseMobileMenu">
+                    <Icon Name="server" />
+                    <span class="sidebar-label">Nodes</span>
+                </NavLink>
                 <NavLink href="webhooks" class="sidebar-item" @onclick="CloseMobileMenu">
                     <Icon Name="bolt" />
                     <span class="sidebar-label">Webhooks</span>
@@ -70,9 +59,15 @@
             </div>
         </div>
 
-        <div class="sidebar-footer">
-            <span class="sidebar-meta mono">s3-api</span>
-        </div>
+        @if (capacity is { } usage)
+        {
+            <div class="sidebar-footer">
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: @(usage.Percent)%"></div>
+                </div>
+                <span class="meta">@Fmt.Bytes(usage.Used) of @Fmt.Bytes(usage.Total)</span>
+            </div>
+        }
     </aside>
 
     <div class="sidebar-backdrop" @onclick="CloseMobileMenu"></div>
@@ -90,7 +85,7 @@
                         <input id="globalSearchInput"
                                class="search-bar-input"
                                type="search"
-                               placeholder="Search buckets, objects, pages..."
+                               placeholder="Search buckets and pages..."
                                @bind="searchQuery"
                                @bind:event="oninput"
                                @onfocus="OnSearchFocus"
@@ -128,7 +123,7 @@
                     <span class="nav-meta-item">
                         <Icon Name="user" />
                         <span class="mono">@caller.Username</span>
-                        <span class="muted" style="font-size: 11px;">(@caller.Role.ToString().ToLowerInvariant())</span>
+                        <span class="meta">(@caller.Role.ToString().ToLowerInvariant())</span>
                     </span>
                 }
                 else if (Auth.IsAnonymous)
@@ -138,15 +133,17 @@
 
                 @if (Config.ClusterEnabled && !string.IsNullOrEmpty(Config.NodeId))
                 {
-                    <span class="nav-meta-item mono muted" title="Node ID">
+                    <a href="nodes" class="nav-meta-item mono muted">
                         <Icon Name="server" />
                         <span>@Config.NodeId</span>
-                    </span>
+                    </a>
                 }
-
-                <span class="nav-meta-item mono muted" title="Server Region">
-                    @Config.Region
-                </span>
+                @if (pendingMirrorBlobs > 0)
+                {
+                    <a href="nodes" class="nav-meta-item badge badge-warning badge-sm">
+                        @pendingMirrorBlobs pending
+                    </a>
+                }
 
                 <button type="button" class="btn btn-ghost btn-sm btn-icon" title="Toggle theme" @onclick="ToggleTheme">
                     <Icon Name="@(isDark ? "sun" : "moon")" />
@@ -170,9 +167,9 @@
         <main class="page-content">
             @if (Auth.Error is { } error)
             {
-                <div class="callout callout-danger" style="margin-bottom: var(--space-5);">
+                <div class="callout callout-danger mb-5">
                     <div>@error</div>
-                    <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" style="margin-left: auto; color: inherit; text-decoration: underline;">retry</a>
+                    <a href="javascript:void(0)" @onclick="@(() => Login.Retry())" class="callout-action">retry</a>
                 </div>
             }
 
@@ -202,6 +199,13 @@
     private string searchQuery = string.Empty;
     private bool searchFocused;
     private List<BucketDto> allBuckets = [];
+    private Capacity? capacity;
+    private int pendingMirrorBlobs;
+
+    private readonly record struct Capacity(long Used, long Total)
+    {
+        public int Percent => Total > 0 ? (int)Math.Clamp(Used * 100 / Total, 0, 100) : 0;
+    }
 
     private sealed record SearchResult(string Title, string Subtitle, string Path, string IconName, string Category);
 
@@ -222,21 +226,13 @@
             {
                 results.Add(new SearchResult("Container Repos", "OCI container image repos & tags", "container-repos", "server", CategoryNavigation));
             }
-            if ("uploads".Contains(query, StringComparison.OrdinalIgnoreCase) || "multipart".Contains(query, StringComparison.OrdinalIgnoreCase))
-            {
-                results.Add(new SearchResult("Uploads", "Active multipart uploads", "uploads", "upload", CategoryNavigation));
-            }
-            if ("websites".Contains(query, StringComparison.OrdinalIgnoreCase) || "static hosting".Contains(query, StringComparison.OrdinalIgnoreCase) || "deploy".Contains(query, StringComparison.OrdinalIgnoreCase) || "vite".Contains(query, StringComparison.OrdinalIgnoreCase) || "blazor".Contains(query, StringComparison.OrdinalIgnoreCase))
-            {
-                results.Add(new SearchResult("Static Websites", "Deploy Vite, Blazor WASM & static sites", "websites", "globe", CategoryNavigation));
-            }
             if ("iam".Contains(query, StringComparison.OrdinalIgnoreCase) || "users".Contains(query, StringComparison.OrdinalIgnoreCase) || "keys".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("IAM & Keys", "Access control & service accounts", "iam", "user", CategoryNavigation));
+                results.Add(new SearchResult("Users & Keys", "Users and access keys", "iam", "user", CategoryNavigation));
             }
-            if (Config.ClusterEnabled && ("cluster".Contains(query, StringComparison.OrdinalIgnoreCase) || "volumes".Contains(query, StringComparison.OrdinalIgnoreCase) || "peers".Contains(query, StringComparison.OrdinalIgnoreCase) || "nodes".Contains(query, StringComparison.OrdinalIgnoreCase) || "topology".Contains(query, StringComparison.OrdinalIgnoreCase) || "gossip".Contains(query, StringComparison.OrdinalIgnoreCase)))
+            if ("nodes".Contains(query, StringComparison.OrdinalIgnoreCase) || "cluster".Contains(query, StringComparison.OrdinalIgnoreCase) || "volumes".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(new SearchResult("Cluster & Volumes", "Storage volumes & gossip peer topology", "cluster", "server", CategoryNavigation));
+                results.Add(new SearchResult("Nodes", "Nodes and volumes", "nodes", "server", CategoryNavigation));
             }
             if ("maintenance".Contains(query, StringComparison.OrdinalIgnoreCase) || "admin".Contains(query, StringComparison.OrdinalIgnoreCase) || "system".Contains(query, StringComparison.OrdinalIgnoreCase))
             {
@@ -281,6 +277,33 @@
         }
 
         await LoadBuckets();
+        await LoadCapacity();
+    }
+
+    private async Task LoadCapacity()
+    {
+        try
+        {
+            var res = await Client.GetClusterStatus();
+            if (!res.TryGetValue(out var status, out _)) return;
+            pendingMirrorBlobs = status.PendingMirrorBlobs;
+
+            long total = 0;
+            long available = 0;
+            foreach (var volume in status.Volumes)
+            {
+                if (volume.IsRemote || volume.CapacityBytes is not > 0) continue;
+                total += volume.CapacityBytes.Value;
+                available += volume.AvailableBytes ?? 0;
+            }
+            if (total > 0)
+            {
+                capacity = new Capacity(Math.Max(0, total - available), total);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private async Task LoadBuckets()
